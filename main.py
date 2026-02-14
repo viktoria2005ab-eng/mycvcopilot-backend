@@ -115,17 +115,18 @@ EXIGENCES:
 
 def generate_cv_text(payload: Dict[str, Any]) -> str:
     if not client:
-        # fallback: si clé OpenAI absente
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY manquante sur le serveur.")
-    prompt = build_prompt(payload)
-    resp = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[
-        {"role": "user", "content": prompt}
-    ],
-)
 
-return resp.choices[0].message.content.strip()
+    prompt = build_prompt(payload)
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "user", "content": prompt}
+        ],
+    )
+
+    return resp.choices[0].message.content.strip()
 
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str) -> None:
     doc = Document(template_path)
