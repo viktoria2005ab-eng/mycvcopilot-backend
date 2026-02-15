@@ -228,11 +228,22 @@ async def start(payload: Dict[str, Any]):
 
     email = payload["email"].strip().lower()
 
-    # === FREE : 1 seul CV à vie (par email) ===
-    if email not in quota:
-        quota[email] = "used"
-        job_id = await generate_and_store(payload)
-        return {"mode": "free", "downloads": make_download_urls(job_id)}
+    from datetime import datetime
+
+current_month = datetime.utcnow().strftime("%Y-%m")
+
+if has_free_left(email):
+    # on consomme le gratuit en base
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO quota (email, month) VALUES (%s, %s)",
+                (email, current_month)
+            )
+        conn.commit()
+
+    job_id = await generate_and_store(payload)
+    return {"mode": "free", "downloads": make_download_urls(job_id)}
 
     # === Sinon : Stripe Checkout (paiement à l'unité) ===
     if not STRIPE_SECRET:
@@ -259,7 +270,17 @@ async def start(payload: Dict[str, Any]):
             "email": email,
         },
     )
+from datetime import datetime
 
+current_month = datetime.now().strftime("%Y-%m")
+
+with db_conn() as conn:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO quota (email, month) VALUES (%s, %s)",
+            (request.email, current_month)
+        )
+    conn.commit()
     return {"mode": "stripe", "checkout_url": session.url}
 
 @app.post("/confirm_paid")
