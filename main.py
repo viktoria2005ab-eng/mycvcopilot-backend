@@ -15,7 +15,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
 APP_URL = os.getenv("APP_URL", "")  # ex: https://mycvcopilote.netlify.app
-STRIPE_SECRET = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_SECRET = os.getenv("STRIPE_SECRET") or os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 PUBLIC_BASE_DOWNLOAD = os.getenv("PUBLIC_BASE_DOWNLOAD", "")  # ex: https://mycvcopilote-api.onrender.com/download
