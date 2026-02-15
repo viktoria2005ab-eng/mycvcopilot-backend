@@ -206,9 +206,9 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY manquante sur le serveur.")
 
     if payload["sector"].lower() == "finance":
-    prompt = build_prompt_finance(payload)
-else:
-    prompt = build_prompt(payload)
+        prompt = build_prompt_finance(payload)
+    else:
+        prompt = build_prompt(payload)
 
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
