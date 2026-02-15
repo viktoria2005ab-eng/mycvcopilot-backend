@@ -219,11 +219,6 @@ def quota_check(email: str):
     return {"ok": True, "message": "ℹ️ Ton CV gratuit du mois est déjà utilisé. Le prochain sera payant."}
 
 @app.post("/start")
-from datetime import datetime
-from fastapi import HTTPException
-from typing import Any, Dict
-
-@app.post("/start")
 async def start(payload: Dict[str, Any]):
 
     required = ["email", "sector", "company", "role", "job_posting", "full_name", "city", "phone"]
