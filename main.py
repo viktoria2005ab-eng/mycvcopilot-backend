@@ -272,3 +272,27 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
 
     jobs[job_id] = {"docx_path": docx_path, "pdf_path": pdf_path}
     return job_id
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
+@app.get("/_setup_db")
+def setup_db():
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        raise HTTPException(status_code=500, detail="DATABASE_URL manquant")
+
+    conn = psycopg2.connect(db_url, sslmode="require")
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS quota (
+        email TEXT PRIMARY KEY,
+        month_key TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW()
+    );
+    """)
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"ok": True, "message": "Table quota créée ✅"}
