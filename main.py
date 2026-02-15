@@ -228,7 +228,7 @@ async def start(payload: Dict[str, Any]):
             raise HTTPException(status_code=400, detail=f"Champ manquant: {k}")
 
     email = payload["email"].strip().lower()
-    current_month = datetime.utcnow().strftime("%Y-%m")
+    current_month = month_key()
 
     # Vérifie si CV gratuit disponible
     if has_free_left(email):
