@@ -192,11 +192,17 @@ async def start(payload: Dict[str, Any]):
 
     email = payload["email"].strip().lower()
 
-    # Si gratuit dispo -> générer direct
-    if has_free_left(email):
-        consume_free(email)
-        job_id = await generate_and_store(payload)
-        return {"mode": "free", "downloads": make_download_urls(job_id)}
+    # === FREE : 1 seul CV à vie ===
+if email in quota:
+    raise HTTPException(
+        status_code=403,
+        detail="Free CV already used. Please upgrade to continue."
+    )
+
+quota[email] = "used"
+
+job_id = await generate_and_store(payload)
+return {"mode": "free", "downloads": make_download_urls(job_id)}
 
     # Sinon -> Stripe Checkout (paiement à l'unité)
     if not STRIPE_SECRET:
