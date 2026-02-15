@@ -336,3 +336,29 @@ def setup_db():
     conn.close()
 
     return {"ok": True, "message": "Table quota créée proprement"}
+import os
+import psycopg2
+from fastapi import HTTPException
+
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+def db_conn():
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL manquant")
+    return psycopg2.connect(DATABASE_URL)
+
+@app.get("/_debug_quota_columns")
+def debug_quota_columns():
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT column_name, data_type
+                    FROM information_schema.columns
+                    WHERE table_name = 'quota'
+                    ORDER BY ordinal_position;
+                """)
+                rows = cur.fetchall()
+        return {"columns": [{"name": r[0], "type": r[1]} for r in rows]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
