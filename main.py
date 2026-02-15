@@ -185,40 +185,33 @@ def quota_check(email: str):
 @app.post("/start")
 async def start(payload: Dict[str, Any]):
     # validations minimum
-    required = ["email","sector","company","role","job_posting","full_name","city","phone","education","experiences","skills","languages"]
+    required = ["email", "sector", "company", "role", "job_posting", "full_name", "city", "phone", "education", "experiences"]
     for k in required:
         if not payload.get(k):
             raise HTTPException(status_code=400, detail=f"Champ manquant: {k}")
 
     email = payload["email"].strip().lower()
 
-    # === FREE : 1 seul CV à vie ===
-if email in quota:
-    raise HTTPException(
-        status_code=403,
-        detail="Free CV already used. Please upgrade to continue."
-    )
+    # === FREE : 1 seul CV à vie (par email) ===
+    if email not in quota:
+        quota[email] = "used"
+        job_id = await generate_and_store(payload)
+        return {"mode": "free", "downloads": make_download_urls(job_id)}
 
-quota[email] = "used"
-
-job_id = await generate_and_store(payload)
-return {"mode": "free", "downloads": make_download_urls(job_id)}
-
-    # Sinon -> Stripe Checkout (paiement à l'unité)
+    # === Sinon : Stripe Checkout (paiement à l'unité) ===
     if not STRIPE_SECRET:
         raise HTTPException(status_code=500, detail="Stripe non configuré sur le serveur.")
 
-    # On stocke temporairement le payload dans metadata (MVP) => limite taille.
-    # Pour faire propre: stocker en DB, puis passer un job_id.
     job_id = str(uuid.uuid4())
     jobs[job_id] = {"pending": "1"}  # marqueur
+    jobs[job_id]["payload"] = payload  # on garde le payload pour le générer après paiement
 
     session = stripe.checkout.Session.create(
         mode="payment",
         line_items=[{
             "price_data": {
                 "currency": "eur",
-                "product_data": {"name": "MyCVCopilote — CV sur-mesure"},
+                "product_data": {"name": "MyCVCopilote – CV sur-mesure"},
                 "unit_amount": 499,  # 4,99€
             },
             "quantity": 1,
@@ -230,8 +223,7 @@ return {"mode": "free", "downloads": make_download_urls(job_id)}
             "email": email,
         },
     )
-    # On sauvegarde payload côté serveur pour le job
-    jobs[job_id]["payload"] = payload  # MVP en mémoire
+
     return {"mode": "stripe", "checkout_url": session.url}
 
 @app.post("/confirm_paid")
