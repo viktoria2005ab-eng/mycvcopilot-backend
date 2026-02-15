@@ -219,69 +219,44 @@ def quota_check(email: str):
     return {"ok": True, "message": "ℹ️ Ton CV gratuit du mois est déjà utilisé. Le prochain sera payant."}
 
 @app.post("/start")
+from datetime import datetime
+from fastapi import HTTPException
+from typing import Any, Dict
+
+@app.post("/start")
 async def start(payload: Dict[str, Any]):
-    # validations minimum
-    required = ["email", "sector", "company", "role", "job_posting", "full_name", "city", "phone", "education", "experiences"]
+
+    required = ["email", "sector", "company", "role", "job_posting", "full_name", "city", "phone"]
+
     for k in required:
         if not payload.get(k):
             raise HTTPException(status_code=400, detail=f"Champ manquant: {k}")
 
     email = payload["email"].strip().lower()
+    current_month = datetime.utcnow().strftime("%Y-%m")
 
-    from datetime import datetime
+    # Vérifie si CV gratuit disponible
+    if has_free_left(email):
 
-current_month = datetime.utcnow().strftime("%Y-%m")
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO quota (email, month)
+                       VALUES (%s, %s)
+                       ON CONFLICT (email)
+                       DO UPDATE SET month = EXCLUDED.month""",
+                    (email, current_month)
+                )
+            conn.commit()
 
-if has_free_left(email):
-    # on consomme le gratuit en base
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO quota (email, month) VALUES (%s, %s)",
-                (email, current_month)
-            )
-        conn.commit()
+        job_id = await generate_and_store(payload)
+        return {"mode": "free", "downloads": make_download_urls(job_id)}
 
-    job_id = await generate_and_store(payload)
-    return {"mode": "free", "downloads": make_download_urls(job_id)}
-
-    # === Sinon : Stripe Checkout (paiement à l'unité) ===
-    if not STRIPE_SECRET:
-        raise HTTPException(status_code=500, detail="Stripe non configuré sur le serveur.")
-
-    job_id = str(uuid.uuid4())
-    jobs[job_id] = {"pending": "1"}  # marqueur
-    jobs[job_id]["payload"] = payload  # on garde le payload pour le générer après paiement
-
-    session = stripe.checkout.Session.create(
-        mode="payment",
-        line_items=[{
-            "price_data": {
-                "currency": "eur",
-                "product_data": {"name": "MyCVCopilote – CV sur-mesure"},
-                "unit_amount": 499,  # 4,99€
-            },
-            "quantity": 1,
-        }],
-        success_url=f"{APP_URL}/app.html?paid=1&job_id={job_id}",
-        cancel_url=f"{APP_URL}/app.html?cancel=1",
-        metadata={
-            "job_id": job_id,
-            "email": email,
-        },
+    # Sinon paiement obligatoire
+    raise HTTPException(
+        status_code=402,
+        detail="CV gratuit déjà utilisé. Paiement requis."
     )
-from datetime import datetime
-
-current_month = datetime.now().strftime("%Y-%m")
-
-with db_conn() as conn:
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO quota (email, month) VALUES (%s, %s)",
-            (request.email, current_month)
-        )
-    conn.commit()
-    return {"mode": "stripe", "checkout_url": session.url}
 
 @app.post("/confirm_paid")
 async def confirm_paid(payload: Dict[str, Any]):
