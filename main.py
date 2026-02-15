@@ -173,7 +173,16 @@ RÈGLES :
 - 3 à 5 bullets maximum par expérience.
 - Interdiction des mots : assisted, helped, worked on.
 - Ton professionnel, précis, sobre.
-
+RÈGLES STRICTES :
+Ces règles priment sur toutes les autres instructions.
+- Tu n’inventes AUCUN chiffre.
+- Tu n’inventes AUCUNE mission.
+- Tu n’inventes AUCUN outil.
+- Si une information est absente, tu restes général sans ajouter de détails fictifs.
+- Si aucun résultat chiffré n’est fourni, tu reformules sans métriques.
+- Tu utilises uniquement les informations présentes dans le profil utilisateur.
+- Interdiction totale d’inventer pour “améliorer” le CV.
+- Si une expérience contient trop peu d'informations,tu la rends professionnelle mais concise,sans extrapolation.
 STRUCTURE :
 1. ÉDUCATION
 2. EXPÉRIENCES
