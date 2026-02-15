@@ -46,10 +46,46 @@ def month_key(now: Optional[dt.datetime] = None) -> str:
     return f"{now.year:04d}-{now.month:02d}"
 
 def has_free_left(email: str) -> bool:
-    return quota.get(email) != month_key()
+    import os
+    import psycopg2
+
+    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT month FROM quota WHERE email = %s",
+        (email,)
+    )
+    row = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if not row:
+        return True  # jamais utilisé
+
+    return row[0] != month_key()
 
 def consume_free(email: str) -> None:
-    quota[email] = month_key()
+    import os
+    import psycopg2
+
+    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        INSERT INTO quota (email, month)
+        VALUES (%s, %s)
+        ON CONFLICT (email)
+        DO UPDATE SET month = EXCLUDED.month
+        """,
+        (email, month_key())
+    )
+
+    conn.commit()
+    cur.close()
+    conn.close()
 
 def sector_to_template(sector: str) -> str:
     s = sector.lower()
