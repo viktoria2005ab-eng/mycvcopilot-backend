@@ -148,11 +148,66 @@ EXIGENCES:
   EN-TÊTE, TITRE, ACCROCHE, COMPETENCES, EXPERIENCES, FORMATION, LANGUES, CENTRES D'INTERET.
 - Ne donne PAS d'explications, uniquement le CV.
 """
+def build_prompt_finance(payload: Dict[str, Any]) -> str:
+    return f"""
+Tu es un ancien recruteur en banque d’investissement et en Big 4.
+Tu sélectionnes uniquement les 10% meilleurs profils étudiants.
+Tu élimines immédiatement les CV vagues, imprécis ou sans résultats chiffrés.
 
+OBJECTIF :
+Générer un CV FINANCE français d’1 page maximum, ultra structuré, minimal et stratégique.
+
+Le CV doit être adapté :
+- au type de finance visé : {payload.get("finance_type", "Non précisé")}
+- au poste : {payload["role"]}
+- à l’entreprise : {payload["company"]}
+- à l’offre d’emploi
+
+OFFRE D’EMPLOI :
+\"\"\"{payload["job_posting"]}\"\"\"
+
+RÈGLES :
+- 1 page maximum.
+- Format de dates homogène (MMM YYYY – MMM YYYY).
+- Chaque bullet = Verbe fort + Action + Chiffre + Impact business.
+- 3 à 5 bullets maximum par expérience.
+- Interdiction des mots : assisted, helped, worked on.
+- Ton professionnel, précis, sobre.
+
+STRUCTURE :
+1. ÉDUCATION
+2. EXPÉRIENCES
+3. SKILLS
+4. ACTIVITÉS
+
+PROFIL :
+Nom : {payload["full_name"]}
+Ville : {payload["city"]}
+
+FORMATION :
+{payload["education"]}
+
+EXPÉRIENCES :
+{payload["experiences"]}
+
+COMPÉTENCES :
+{payload["skills"]}
+
+LANGUES :
+{payload["languages"]}
+
+CENTRES D’INTÉRÊT :
+{payload.get("interests","")}
+
+Génère uniquement le CV structuré.
+"""
 def generate_cv_text(payload: Dict[str, Any]) -> str:
     if not client:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY manquante sur le serveur.")
 
+    if payload["sector"].lower() == "finance":
+    prompt = build_prompt_finance(payload)
+else:
     prompt = build_prompt(payload)
 
     resp = client.chat.completions.create(
