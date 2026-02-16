@@ -369,15 +369,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     sections = _split_sections(cv_text)
 
     mapping = {
-        "%%FULL_NAME%%": [full_name],
-        "%%CV_TITLE%%": [cv_title] if cv_title else [],
-        "%%CONTACT_LINE%%": [contact_line] if contact_line else [],
-        "%%EDUCATION%%": sections.get("FORMATION", []),
-        "%%EXPERIENCE%%": sections.get("EXPÉRIENCES PROFESSIONNELLES", []),
-        "%%SKILLS%%": sections.get("COMPÉTENCES & OUTILS", []),
-        "%%LANGUAGES%%": sections.get("LANGUES", []),
-        "%%INTERESTS%%": sections.get("ACTIVITÉS & CENTRES D’INTÉRÊT", []),
-    }
+    "%%EDUCATION%%": sections.get("EDUCATION", []),
+    "%%CV_TITLE%%": cv_title,
+    "%%EXPERIENCE%%": sections.get("EXPERIENCES", []),
+    "%%SKILLS%%": sections.get("SKILLS", []),
+    "%%INTERESTS%%": sections.get("ACTIVITIES", []),
+}
 
     for ph, lines in mapping.items():
         p = _find_paragraph_containing(doc, ph)
