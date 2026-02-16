@@ -228,25 +228,141 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 
     return resp.choices[0].message.content.strip()
 
-def write_docx_from_template(template_path: str, cv_text: str, out_path: str) -> None:
-    doc = Document(template_path)
-    # MVP: on remplace le contenu principal par le texte du CV
-    # Astuce simple: on vide le doc et on écrit le contenu ligne par ligne
-    for p in doc.paragraphs:
-        p.clear()
+from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-    lines = cv_text.splitlines()
+PLACEHOLDERS = [
+    "%%FULL_NAME%%",
+    "%%CV_TITLE%%",
+    "%%CONTACT_LINE%%",
+    "%%EDUCATION%%",
+    "%%EXPERIENCE%%",
+    "%%SKILLS%%",
+    "%%LANGUAGES%%",
+    "%%INTERESTS%%",
+]
+
+def _find_paragraph_containing(doc: Document, needle: str):
+    for p in doc.paragraphs:
+        if needle in (p.text or ""):
+            return p
+    return None
+
+def _clear_paragraph(p):
+    p.text = ""
+
+def _insert_lines_after(paragraph, lines, make_bullets=False):
+    last = paragraph
     for line in lines:
         line = line.rstrip()
         if not line:
-            doc.add_paragraph("")
+            last = paragraph.insert_paragraph_after("")
             continue
-        # Headers simples
-        if line.isupper() and len(line) <= 40:
-            para = doc.add_paragraph(line)
-            para.runs[0].bold = True
+
+        if make_bullets and line.lstrip().startswith("-"):
+            text = line.lstrip()[1:].strip()
+            last = paragraph.insert_paragraph_after(text)
+            try:
+                last.style = "List Bullet"
+            except Exception:
+                pass
         else:
-            doc.add_paragraph(line)
+            last = paragraph.insert_paragraph_after(line)
+
+    return last
+
+def _split_sections(cv_text: str) -> dict:
+    t = cv_text.replace("\r\n", "\n").strip()
+
+    titles = [
+        "FORMATION",
+        "EXPÉRIENCES PROFESSIONNELLES",
+        "COMPÉTENCES & OUTILS",
+        "LANGUES",
+        "ACTIVITÉS & CENTRES D’INTÉRÊT",
+    ]
+
+    positions = []
+    for title in titles:
+        m = re.search(rf"(?m)^{re.escape(title)}\s*$", t)
+        positions.append((title, m.start() if m else None))
+
+    if any(pos is None for _, pos in positions):
+        return {
+            "FORMATION": [],
+            "EXPÉRIENCES PROFESSIONNELLES": t.splitlines(),
+            "COMPÉTENCES & OUTILS": [],
+            "LANGUES": [],
+            "ACTIVITÉS & CENTRES D’INTÉRÊT": [],
+        }
+
+    positions_sorted = sorted([(ti, p) for ti, p in positions], key=lambda x: x[1])
+    sections = {}
+    for i, (title, start) in enumerate(positions_sorted):
+        end = positions_sorted[i + 1][1] if i + 1 < len(positions_sorted) else len(t)
+        block = t[start:end].strip().splitlines()
+
+        if block and block[0].strip() == title:
+            block = block[1:]
+
+        while block and not block[0].strip():
+            block = block[1:]
+        while block and not block[-1].strip():
+            block = block[:-1]
+
+        sections[title] = block
+
+    return sections
+
+def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
+    doc = Document(template_path)
+
+    payload = payload or {}
+    full_name = payload.get("full_name", "").strip() or "NOM Prénom"
+    role = payload.get("role", "").strip()
+    finance_type = payload.get("finance_type", "").strip()
+    cv_title = finance_type if finance_type else role
+
+    contact_line = " | ".join([x for x in [
+        payload.get("phone", "").strip(),
+        payload.get("email", "").strip(),
+        payload.get("linkedin", "").strip(),
+    ] if x])
+
+    sections = _split_sections(cv_text)
+
+    mapping = {
+        "%%FULL_NAME%%": [full_name],
+        "%%CV_TITLE%%": [cv_title] if cv_title else [],
+        "%%CONTACT_LINE%%": [contact_line] if contact_line else [],
+        "%%EDUCATION%%": sections.get("FORMATION", []),
+        "%%EXPERIENCE%%": sections.get("EXPÉRIENCES PROFESSIONNELLES", []),
+        "%%SKILLS%%": sections.get("COMPÉTENCES & OUTILS", []),
+        "%%LANGUAGES%%": sections.get("LANGUES", []),
+        "%%INTERESTS%%": sections.get("ACTIVITÉS & CENTRES D’INTÉRÊT", []),
+    }
+
+    for ph, lines in mapping.items():
+        p = _find_paragraph_containing(doc, ph)
+        if not p:
+            continue
+
+        _clear_paragraph(p)
+
+        if ph in ("%%FULL_NAME%%", "%%CV_TITLE%%", "%%CONTACT_LINE%%"):
+            txt = lines[0] if lines else ""
+            run = p.add_run(txt)
+            if ph == "%%FULL_NAME%%":
+                run.bold = True
+                run.font.size = Pt(20)
+            elif ph == "%%CV_TITLE%%":
+                run.bold = True
+                run.font.size = Pt(12)
+            else:
+                run.font.size = Pt(10)
+            continue
+
+        _insert_lines_after(p, lines, make_bullets=True)
 
     doc.save(out_path)
 
