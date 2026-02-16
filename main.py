@@ -242,17 +242,18 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 
 if "finance" in sector:
     prompt = build_prompt_finance(payload)
+
 elif "droit" in sector:
     prompt = build_prompt_droit(payload)
+
 elif "rh" in sector or "ressources" in sector:
     prompt = build_prompt_rh(payload)
+
 elif "business" in sector:
     prompt = build_prompt_business(payload)
+
 else:
     prompt = build_prompt(payload)
-        prompt = build_prompt_finance(payload)
-    else:
-        prompt = build_prompt(payload)
 
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
