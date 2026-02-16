@@ -185,11 +185,33 @@ Ces règles priment sur toutes les autres instructions.
 - Tu utilises uniquement les informations présentes dans le profil utilisateur.
 - Interdiction totale d’inventer pour “améliorer” le CV.
 - Si une expérience contient trop peu d'informations,tu la rends professionnelle mais concise,sans extrapolation.
-STRUCTURE :
-1. ÉDUCATION
-2. EXPÉRIENCES
-3. SKILLS
-4. ACTIVITÉS
+RÈGLES DE SORTIE (TRÈS IMPORTANT) :
+- Ne génère PAS de titre de section.
+- Ne génère PAS le nom.
+- Ne génère PAS les coordonnées.
+- Ne génère PAS d'accroche.
+- Génère uniquement le contenu brut des sections.
+
+FORMAT EXACT À RESPECTER :
+
+EDUCATION:
+<contenu>
+
+EXPERIENCES:
+- bullet
+- bullet
+
+SKILLS:
+<contenu>
+
+ACTIVITIES:
+<contenu>
+
+CONTRAINTE LONGUEUR :
+- Maximum 12 bullet points au total.
+- Maximum 4 bullet points par expérience.
+- Format concis.
+- Pas de phrases longues.
 
 PROFIL :
 Nom : {payload["full_name"]}
@@ -216,7 +238,18 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
     if not client:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY manquante sur le serveur.")
 
-    if payload["sector"].lower() == "finance":
+    sector = payload["sector"].lower()
+
+if "finance" in sector:
+    prompt = build_prompt_finance(payload)
+elif "droit" in sector:
+    prompt = build_prompt_droit(payload)
+elif "rh" in sector or "ressources" in sector:
+    prompt = build_prompt_rh(payload)
+elif "business" in sector:
+    prompt = build_prompt_business(payload)
+else:
+    prompt = build_prompt(payload)
         prompt = build_prompt_finance(payload)
     else:
         prompt = build_prompt(payload)
@@ -285,37 +318,28 @@ def _insert_lines_after(paragraph, lines, make_bullets=False):
     return last
 
 def _split_sections(cv_text: str) -> dict:
-    t = cv_text.replace("\r\n", "\n").strip()
+    t = (cv_text or "").replace("\r\n", "\n").strip()
 
-    titles = [
-        "FORMATION",
-        "EXPÉRIENCES PROFESSIONNELLES",
-        "COMPÉTENCES & OUTILS",
-        "LANGUES",
-        "ACTIVITÉS & CENTRES D’INTÉRÊT",
-    ]
+    tags = ["EDUCATION:", "EXPERIENCES:", "SKILLS:", "ACTIVITIES:"]
+    pos = {tag: t.find(tag) for tag in tags}
 
-    positions = []
-    for title in titles:
-        m = re.search(rf"(?m)^{re.escape(title)}\s*$", t)
-        positions.append((title, m.start() if m else None))
-
-    if any(pos is None for _, pos in positions):
+    # fallback si le modèle ne respecte pas le format
+    if any(pos[tag] == -1 for tag in tags):
         return {
-            "FORMATION": [],
-            "EXPÉRIENCES PROFESSIONNELLES": t.splitlines(),
-            "COMPÉTENCES & OUTILS": [],
-            "LANGUES": [],
-            "ACTIVITÉS & CENTRES D’INTÉRÊT": [],
+            "EDUCATION": t.splitlines(),
+            "EXPERIENCES": [],
+            "SKILLS": [],
+            "ACTIVITIES": [],
         }
 
-    positions_sorted = sorted([(ti, p) for ti, p in positions], key=lambda x: x[1])
+    order = sorted([(tag, pos[tag]) for tag in tags], key=lambda x: x[1])
+
     sections = {}
-    for i, (title, start) in enumerate(positions_sorted):
-        end = positions_sorted[i + 1][1] if i + 1 < len(positions_sorted) else len(t)
+    for i, (tag, start) in enumerate(order):
+        end = order[i + 1][1] if i + 1 < len(order) else len(t)
         block = t[start:end].strip().splitlines()
 
-        if block and block[0].strip() == title:
+        if block and block[0].strip() == tag:
             block = block[1:]
 
         while block and not block[0].strip():
@@ -323,7 +347,7 @@ def _split_sections(cv_text: str) -> dict:
         while block and not block[-1].strip():
             block = block[:-1]
 
-        sections[title] = block
+        sections[tag.replace(":", "")] = block
 
     return sections
 
