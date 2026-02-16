@@ -11,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import stripe
 from openai import OpenAI
 from docx import Document
+from docx.oxml import OxmlElement
+from docx.text.paragraph import Paragraph
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
@@ -250,24 +252,35 @@ def _find_paragraph_containing(doc: Document, needle: str):
 
 def _clear_paragraph(p):
     p.text = ""
+def _insert_paragraph_after(paragraph, text="", style=None):
+    new_p = OxmlElement("w:p")
+    paragraph._p.addnext(new_p)
+    new_para = Paragraph(new_p, paragraph._parent)
 
+    if text:
+        new_para.add_run(text)
+
+    if style:
+        try:
+            new_para.style = style
+        except Exception:
+            pass
+
+    return new_para
 def _insert_lines_after(paragraph, lines, make_bullets=False):
     last = paragraph
     for line in lines:
         line = line.rstrip()
+
         if not line:
-            last = paragraph.insert_paragraph_after("")
+            last = _insert_paragraph_after(last, "")
             continue
 
         if make_bullets and line.lstrip().startswith("-"):
             text = line.lstrip()[1:].strip()
-            last = paragraph.insert_paragraph_after(text)
-            try:
-                last.style = "List Bullet"
-            except Exception:
-                pass
+            last = _insert_paragraph_after(last, text, style="List Bullet")
         else:
-            last = paragraph.insert_paragraph_after(line)
+            last = _insert_paragraph_after(last, line)
 
     return last
 
