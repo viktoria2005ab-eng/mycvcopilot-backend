@@ -474,7 +474,7 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
     pdf_path = os.path.join("out", f"{safe}_{job_id}.pdf")
 
     tpl = sector_to_template(payload["sector"])
-    write_docx_from_template(tpl, cv_text, docx_path)
+    write_docx_from_template(tpl, cv_text, docx_path, payload=payload)
     write_pdf_simple(cv_text, pdf_path)
 
     jobs[job_id] = {"docx_path": docx_path, "pdf_path": pdf_path}
