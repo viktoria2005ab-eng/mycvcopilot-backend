@@ -238,30 +238,23 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
     if not client:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY manquante sur le serveur.")
 
-    sector = payload["sector"].lower()
+    sector = (payload.get("sector") or "").lower()
 
-if "finance" in sector:
-    prompt = build_prompt_finance(payload)
-
-elif "droit" in sector:
-    prompt = build_prompt_droit(payload)
-
-elif "rh" in sector or "ressources" in sector:
-    prompt = build_prompt_rh(payload)
-
-elif "business" in sector:
-    prompt = build_prompt_business(payload)
-
-else:
-    prompt = build_prompt(payload)
+    if "finance" in sector:
+        prompt = build_prompt_finance(payload)
+    elif "droit" in sector:
+        prompt = build_prompt_droit(payload)
+    elif "rh" in sector or "ressources" in sector:
+        prompt = build_prompt_rh(payload)
+    elif "business" in sector:
+        prompt = build_prompt_business(payload)
+    else:
+        prompt = build_prompt(payload)
 
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[
-            {"role": "user", "content": prompt}
-        ],
+        messages=[{"role": "user", "content": prompt}],
     )
-
     return resp.choices[0].message.content.strip()
 
 from docx.shared import Pt
