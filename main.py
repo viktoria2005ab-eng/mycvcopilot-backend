@@ -455,7 +455,41 @@ def write_pdf_simple(cv_text: str, out_path: str) -> None:
         y -= line_height
 
     c.save()
+def convert_docx_to_pdf(docx_path: str, pdf_path: str) -> None:
+    """
+    Convertit un DOCX en PDF via LibreOffice.
+    Rend le PDF identique au template Word.
+    """
+    import os
+    import subprocess
 
+    out_dir = os.path.dirname(pdf_path) or "."
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Génère un PDF dans out_dir (nom: <basename>.pdf)
+    subprocess.run(
+        [
+            "soffice",
+            "--headless",
+            "--nologo",
+            "--nofirststartwizard",
+            "--convert-to", "pdf",
+            "--outdir", out_dir,
+            docx_path,
+        ],
+        check=True,
+    )
+
+    generated_pdf = os.path.join(
+        out_dir,
+        os.path.splitext(os.path.basename(docx_path))[0] + ".pdf"
+    )
+
+    # Renomme exactement vers pdf_path si besoin
+    if generated_pdf != pdf_path:
+        if os.path.exists(pdf_path):
+            os.remove(pdf_path)
+        os.rename(generated_pdf, pdf_path)
 def make_download_urls(job_id: str) -> Dict[str, str]:
     return {
         "pdf": f"{PUBLIC_BASE_DOWNLOAD}/download/{job_id}/cv.pdf",
