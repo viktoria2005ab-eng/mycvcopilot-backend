@@ -325,7 +325,7 @@ def _insert_lines_after(paragraph, lines, make_bullets=False):
 def _split_sections(cv_text: str) -> dict:
     t = (cv_text or "").replace("\r\n", "\n").strip()
 
-    tags = ["EDUCATION:", "EXPERIENCES:", "SKILLS:", "ACTIVITIES:"]
+    tags = ["EDUCATION:", "EXPERIENCES:", "SKILLS:", "LANGUAGES:", "INTERESTS:"]
     pos = {tag: t.find(tag) for tag in tags}
 
     # fallback si le modèle ne respecte pas le format
@@ -334,7 +334,8 @@ def _split_sections(cv_text: str) -> dict:
             "EDUCATION": t.splitlines(),
             "EXPERIENCES": [],
             "SKILLS": [],
-            "ACTIVITIES": [],
+            "LANGUAGES": [],
+            "INTERESTS": [],
         }
 
     order = sorted([(tag, pos[tag]) for tag in tags], key=lambda x: x[1])
@@ -344,9 +345,11 @@ def _split_sections(cv_text: str) -> dict:
         end = order[i + 1][1] if i + 1 < len(order) else len(t)
         block = t[start:end].strip().splitlines()
 
+        # retire le titre "EDUCATION:" etc
         if block and block[0].strip() == tag:
             block = block[1:]
 
+        # clean lignes vides
         while block and not block[0].strip():
             block = block[1:]
         while block and not block[-1].strip():
@@ -371,24 +374,45 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         payload.get("linkedin", "").strip(),
     ] if x])
 
-    sections = _split_sections(cv_text)
+        sections = _split_sections(cv_text)
 
     mapping = {
-    "%%FULL_NAME%%": full_name,
-    "%%CONTACT_LINE%%": contact_line,
-    "%%CV_TITLE%%": cv_title,
+        "%%FULL_NAME%%": full_name,
+        "%%CONTACT_LINE%%": contact_line,
+        "%%CV_TITLE%%": cv_title,
 
-    "%%EDUCATION%%": sections.get("FORMATION", []),
-    "%%EXPERIENCE%%": sections.get("EXPÉRIENCES PROFESSIONNELLES", []),
-    "%%SKILLS%%": sections.get("COMPÉTENCES & OUTILS", []),
-    "%%LANGUAGES%%": sections.get("LANGUES", []),
-    "%%INTERESTS%%": sections.get("ACTIVITÉS & CENTRES D'INTÉRÊT", []),
-}
+        "%%EDUCATION%%": sections.get("EDUCATION", []),
+        "%%EXPERIENCE%%": sections.get("EXPERIENCES", []),
+        "%%SKILLS%%": sections.get("SKILLS", []),
+        "%%LANGUAGES%%": sections.get("LANGUAGES", []),
+        "%%INTERESTS%%": sections.get("INTERESTS", []),
+    }
 
-    for ph, lines in mapping.items():
+    for ph, value in mapping.items():
         p = _find_paragraph_containing(doc, ph)
         if not p:
             continue
+
+        _clear_paragraph(p)
+
+        # cas 1: texte simple (str)
+        if isinstance(value, str):
+            run = p.add_run(value)
+
+            if ph == "%%FULL_NAME%%":
+                run.bold = True
+                run.font.size = Pt(20)
+            elif ph == "%%CV_TITLE%%":
+                run.bold = True
+                run.font.size = Pt(12)
+            elif ph == "%%CONTACT_LINE%%":
+                run.font.size = Pt(10)
+
+            continue
+
+        # cas 2: liste de lignes (sections)
+        lines = value or []
+        _insert_lines_after(p, lines, make_bullets=True)
 
         _clear_paragraph(p)
 
