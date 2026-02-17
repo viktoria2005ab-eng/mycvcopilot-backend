@@ -193,6 +193,12 @@ BDE / ASSOCIATIONS / PROJETS ÉTUDIANTS :
 - Tu DOIS les mettre dans "EXPÉRIENCES PROFESSIONNELLES" (même si ce n’est pas une entreprise).
 - Tu les écris comme une expérience (titre + dates si disponibles + 2-3 bullets).
 - INTERDICTION ABSOLUE d’inventer des chiffres : aucun %, aucun volume, aucun "5 sponsors", aucun "100 participants" si ce n’est pas fourni.
+
+ACTIVITIES (CENTRES D’INTÉRÊT) :
+- Tu n’y mets QUE des centres d’intérêt / activités personnelles (sport, langues, certifications, hobbies).
+- INTERDICTION d’y mettre BDE / associations / projets / expériences (ils vont uniquement dans EXPERIENCES).
+- Pas de doublons : si c’est dans EXPERIENCES, tu ne le répètes pas ailleurs.
+
 RÈGLES DE SORTIE (TRÈS IMPORTANT) :
 - Ne génère PAS de titre de section.
 - Ne génère PAS le nom.
@@ -210,6 +216,9 @@ EXPERIENCES:
 - bullet
 
 SKILLS:
+<contenu>
+
+LANGUAGES:
 <contenu>
 
 ACTIVITIES:
