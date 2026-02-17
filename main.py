@@ -263,6 +263,9 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
     )
+    print("=== RAW CV TEXT ===")
+    print(resp.choices[0].message.content)
+    print("=== END RAW CV TEXT ===")
     return resp.choices[0].message.content.strip()
 
 from docx.shared import Pt
