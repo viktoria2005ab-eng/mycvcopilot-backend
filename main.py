@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 import stripe
+import subprocess
+
 from openai import OpenAI
 from docx import Document
 from docx.oxml import OxmlElement
@@ -546,7 +548,7 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
 
     tpl = sector_to_template(payload["sector"])
     write_docx_from_template(tpl, cv_text, docx_path, payload=payload)
-    write_pdf_simple(cv_text, pdf_path)
+    convert_docx_to_pdf(docx_path, pdf_path)
 
     jobs[job_id] = {"docx_path": docx_path, "pdf_path": pdf_path, "payload": payload}
     return job_id
