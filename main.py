@@ -250,12 +250,6 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 
     if "finance" in sector:
         prompt = build_prompt_finance(payload)
-    elif "droit" in sector:
-        prompt = build_prompt_droit(payload)
-    elif "rh" in sector or "ressources" in sector:
-        prompt = build_prompt_rh(payload)
-    elif "business" in sector:
-        prompt = build_prompt_business(payload)
     else:
         prompt = build_prompt(payload)
 
@@ -263,9 +257,11 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
     )
+
     print("=== RAW CV TEXT ===")
     print(resp.choices[0].message.content)
     print("=== END RAW CV TEXT ===")
+
     return resp.choices[0].message.content.strip()
 
 from docx.shared import Pt
@@ -377,13 +373,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         payload.get("email", "").strip(),
         payload.get("linkedin", "").strip(),
     ] if x])
+
     sections = _split_sections(cv_text)
 
     mapping = {
         "%%FULL_NAME%%": full_name,
         "%%CONTACT_LINE%%": contact_line,
         "%%CV_TITLE%%": cv_title,
-
         "%%EDUCATION%%": sections.get("EDUCATION", []),
         "%%EXPERIENCE%%": sections.get("EXPERIENCES", []),
         "%%SKILLS%%": sections.get("SKILLS", []),
@@ -391,31 +387,31 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         "%%INTERESTS%%": sections.get("INTERESTS", []) or sections.get("ACTIVITIES", []),
     }
 
-        for ph, value in mapping.items():
-    p = _find_paragraph_containing(doc, ph)
-    if not p:
-        continue
+    for ph, value in mapping.items():
+        p = _find_paragraph_containing(doc, ph)
+        if not p:
+            continue
 
-    _clear_paragraph(p)
+        _clear_paragraph(p)
 
-    # 1) placeholders texte simple
-    if isinstance(value, str):
-        run = p.add_run(value)
+        # Texte simple
+        if isinstance(value, str):
+            run = p.add_run(value)
+            if ph == "%%FULL_NAME%%":
+                run.bold = True
+                run.font.size = Pt(20)
+            elif ph == "%%CV_TITLE%%":
+                run.bold = True
+                run.font.size = Pt(12)
+            elif ph == "%%CONTACT_LINE%%":
+                run.font.size = Pt(10)
+            continue
 
-        if ph == "%%FULL_NAME%%":
-            run.bold = True
-            run.font.size = Pt(20)
-        elif ph == "%%CV_TITLE%%":
-            run.bold = True
-            run.font.size = Pt(12)
-        elif ph == "%%CONTACT_LINE%%":
-            run.font.size = Pt(10)
+        # Listes (sections)
+        lines = value or []
+        _insert_lines_after(p, lines, make_bullets=True)
 
-        continue
-
-    # 2) placeholders sections (liste de lignes)
-    lines = value or []
-    _insert_lines_after(p, lines, make_bullets=True)
+    doc.save(out_path)
 
 def write_pdf_simple(cv_text: str, out_path: str) -> None:
     c = canvas.Canvas(out_path, pagesize=A4)
@@ -528,7 +524,7 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
     write_docx_from_template(tpl, cv_text, docx_path, payload=payload)
     write_pdf_simple(cv_text, pdf_path)
 
-    jobs[job_id] = {"docx_path": docx_path, "pdf_path": pdf_path}
+    jobs[job_id] = {"docx_path": docx_path, "pdf_path": pdf_path, "payload": payload}
     return job_id
 import psycopg2
 from psycopg2.extras import RealDictCursor
