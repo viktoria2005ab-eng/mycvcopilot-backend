@@ -325,27 +325,31 @@ def _insert_lines_after(paragraph, lines, make_bullets=False):
 def _split_sections(cv_text: str) -> dict:
     t = (cv_text or "").replace("\r\n", "\n").strip()
 
-    tags = ["EDUCATION:", "EXPERIENCES:", "SKILLS:", "LANGUAGES:", "INTERESTS:"]
+    # On accepte les deux formats (INTERESTS ou ACTIVITIES)
+    tags = ["EDUCATION:", "EXPERIENCES:", "SKILLS:", "LANGUAGES:", "INTERESTS:", "ACTIVITIES:"]
     pos = {tag: t.find(tag) for tag in tags}
 
-    # fallback si le modèle ne respecte pas le format
-    if any(pos[tag] == -1 for tag in tags):
+    # Si aucun tag trouvé, on renvoie tout dans EDUCATION (fallback)
+    if all(pos[tag] == -1 for tag in tags):
         return {
             "EDUCATION": t.splitlines(),
             "EXPERIENCES": [],
             "SKILLS": [],
             "LANGUAGES": [],
             "INTERESTS": [],
+            "ACTIVITIES": [],
         }
 
-    order = sorted([(tag, pos[tag]) for tag in tags], key=lambda x: x[1])
+    # On garde uniquement les tags présents
+    present = [(tag, pos[tag]) for tag in tags if pos[tag] != -1]
+    present.sort(key=lambda x: x[1])
 
     sections = {}
-    for i, (tag, start) in enumerate(order):
-        end = order[i + 1][1] if i + 1 < len(order) else len(t)
+    for i, (tag, start) in enumerate(present):
+        end = present[i + 1][1] if i + 1 < len(present) else len(t)
         block = t[start:end].strip().splitlines()
 
-        # retire le titre "EDUCATION:" etc
+        # retire la ligne de titre "EDUCATION:" etc
         if block and block[0].strip() == tag:
             block = block[1:]
 
@@ -373,8 +377,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         payload.get("email", "").strip(),
         payload.get("linkedin", "").strip(),
     ] if x])
-
-        sections = _split_sections(cv_text)
+    sections = _split_sections(cv_text)
 
     mapping = {
         "%%FULL_NAME%%": full_name,
@@ -385,17 +388,17 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         "%%EXPERIENCE%%": sections.get("EXPERIENCES", []),
         "%%SKILLS%%": sections.get("SKILLS", []),
         "%%LANGUAGES%%": sections.get("LANGUAGES", []),
-        "%%INTERESTS%%": sections.get("INTERESTS", []),
+        "%%INTERESTS%%": sections.get("INTERESTS", []) or sections.get("ACTIVITIES", []),
     }
 
-    for ph, value in mapping.items():
+        for ph, value in mapping.items():
         p = _find_paragraph_containing(doc, ph)
         if not p:
             continue
 
         _clear_paragraph(p)
 
-        # cas 1: texte simple (str)
+        # Valeur simple (str) : FULL_NAME / TITLE / CONTACT
         if isinstance(value, str):
             run = p.add_run(value)
 
@@ -410,28 +413,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
             continue
 
-        # cas 2: liste de lignes (sections)
+        # Valeur liste (sections)
         lines = value or []
         _insert_lines_after(p, lines, make_bullets=True)
-
-        _clear_paragraph(p)
-
-        if ph in ("%%FULL_NAME%%", "%%CV_TITLE%%", "%%CONTACT_LINE%%"):
-            txt = lines[0] if lines else ""
-            run = p.add_run(txt)
-            if ph == "%%FULL_NAME%%":
-                run.bold = True
-                run.font.size = Pt(20)
-            elif ph == "%%CV_TITLE%%":
-                run.bold = True
-                run.font.size = Pt(12)
-            else:
-                run.font.size = Pt(10)
-            continue
-
-        _insert_lines_after(p, lines, make_bullets=True)
-
-    doc.save(out_path)
 
 def write_pdf_simple(cv_text: str, out_path: str) -> None:
     c = canvas.Canvas(out_path, pagesize=A4)
