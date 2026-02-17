@@ -322,7 +322,13 @@ def _split_sections(cv_text: str) -> dict:
     t = (cv_text or "").replace("\r\n", "\n").strip()
 
     # On accepte INTERESTS ou ACTIVITIES (au cas où le modèle varie)
-    tags = ["EDUCATION:", "EXPERIENCES:", "SKILLS:", "LANGUAGES:", "INTERESTS:", "ACTIVITIES:"]
+    tags = [
+        "EDUCATION:", "FORMATION:",
+        "EXPERIENCES:", "EXPÉRIENCES:", "EXPERIENCE:",
+        "SKILLS:", "COMPETENCES:", "COMPÉTENCES:",
+        "LANGUAGES:", "LANGUES:",
+        "INTERESTS:", "ACTIVITIES:", "ACTIVITÉS:"
+    ]
     pos = {tag: t.find(tag) for tag in tags}
 
     # Si aucun tag trouvé -> tout dans EDUCATION (fallback)
