@@ -389,7 +389,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         "%%EDUCATION%%": sections.get("EDUCATION", []),
         "%%EXPERIENCE%%": sections.get("EXPERIENCES", []),
         "%%SKILLS%%": sections.get("SKILLS", []),
-        "%%LANGUAGES%%": sections.get("LANGUAGES", []),
+        "%%LANGUAGES%%": sections.get("LANGUAGES", []) or sections.get("LANGUES", []),
         "%%INTERESTS%%": sections.get("INTERESTS", []) or sections.get("ACTIVITIES", []),
     }
 
