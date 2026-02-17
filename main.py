@@ -325,11 +325,11 @@ def _insert_lines_after(paragraph, lines, make_bullets=False):
 def _split_sections(cv_text: str) -> dict:
     t = (cv_text or "").replace("\r\n", "\n").strip()
 
-    # On accepte les deux formats (INTERESTS ou ACTIVITIES)
+    # On accepte INTERESTS ou ACTIVITIES (au cas où le modèle varie)
     tags = ["EDUCATION:", "EXPERIENCES:", "SKILLS:", "LANGUAGES:", "INTERESTS:", "ACTIVITIES:"]
     pos = {tag: t.find(tag) for tag in tags}
 
-    # Si aucun tag trouvé, on renvoie tout dans EDUCATION (fallback)
+    # Si aucun tag trouvé -> tout dans EDUCATION (fallback)
     if all(pos[tag] == -1 for tag in tags):
         return {
             "EDUCATION": t.splitlines(),
@@ -349,7 +349,7 @@ def _split_sections(cv_text: str) -> dict:
         end = present[i + 1][1] if i + 1 < len(present) else len(t)
         block = t[start:end].strip().splitlines()
 
-        # retire la ligne de titre "EDUCATION:" etc
+        # retire la ligne "EDUCATION:" etc
         if block and block[0].strip() == tag:
             block = block[1:]
 
@@ -392,30 +392,30 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     }
 
         for ph, value in mapping.items():
-        p = _find_paragraph_containing(doc, ph)
-        if not p:
-            continue
+    p = _find_paragraph_containing(doc, ph)
+    if not p:
+        continue
 
-        _clear_paragraph(p)
+    _clear_paragraph(p)
 
-        # Valeur simple (str) : FULL_NAME / TITLE / CONTACT
-        if isinstance(value, str):
-            run = p.add_run(value)
+    # 1) placeholders texte simple
+    if isinstance(value, str):
+        run = p.add_run(value)
 
-            if ph == "%%FULL_NAME%%":
-                run.bold = True
-                run.font.size = Pt(20)
-            elif ph == "%%CV_TITLE%%":
-                run.bold = True
-                run.font.size = Pt(12)
-            elif ph == "%%CONTACT_LINE%%":
-                run.font.size = Pt(10)
+        if ph == "%%FULL_NAME%%":
+            run.bold = True
+            run.font.size = Pt(20)
+        elif ph == "%%CV_TITLE%%":
+            run.bold = True
+            run.font.size = Pt(12)
+        elif ph == "%%CONTACT_LINE%%":
+            run.font.size = Pt(10)
 
-            continue
+        continue
 
-        # Valeur liste (sections)
-        lines = value or []
-        _insert_lines_after(p, lines, make_bullets=True)
+    # 2) placeholders sections (liste de lignes)
+    lines = value or []
+    _insert_lines_after(p, lines, make_bullets=True)
 
 def write_pdf_simple(cv_text: str, out_path: str) -> None:
     c = canvas.Canvas(out_path, pagesize=A4)
