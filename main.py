@@ -185,6 +185,14 @@ Ces règles priment sur toutes les autres instructions.
 - Tu utilises uniquement les informations présentes dans le profil utilisateur.
 - Interdiction totale d’inventer pour “améliorer” le CV.
 - Si une expérience contient trop peu d'informations,tu la rends professionnelle mais concise,sans extrapolation.
+INTERDICTION ABSOLUE D'INVENTER DES CHIFFRES.
+Tu n'écris un nombre (% , €, k€, volumes, "5 sponsors", "100 participants", etc.) QUE s'il est présent dans les infos utilisateur.
+Si aucun chiffre n'est fourni : reformule sans métrique.
+
+BDE / ASSOCIATIONS / PROJETS ÉTUDIANTS :
+- Tu DOIS les mettre dans "EXPÉRIENCES PROFESSIONNELLES" (même si ce n’est pas une entreprise).
+- Tu les écris comme une expérience (titre + dates si disponibles + 2-3 bullets).
+- INTERDICTION ABSOLUE d’inventer des chiffres : aucun %, aucun volume, aucun "5 sponsors", aucun "100 participants" si ce n’est pas fourni.
 RÈGLES DE SORTIE (TRÈS IMPORTANT) :
 - Ne génère PAS de titre de section.
 - Ne génère PAS le nom.
@@ -363,11 +371,15 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     sections = _split_sections(cv_text)
 
     mapping = {
-    "%%EDUCATION%%": sections.get("EDUCATION", []),
+    "%%FULL_NAME%%": full_name,
+    "%%CONTACT_LINE%%": contact_line,
     "%%CV_TITLE%%": cv_title,
-    "%%EXPERIENCE%%": sections.get("EXPERIENCES", []),
-    "%%SKILLS%%": sections.get("SKILLS", []),
-    "%%INTERESTS%%": sections.get("ACTIVITIES", []),
+
+    "%%EDUCATION%%": sections.get("FORMATION", []),
+    "%%EXPERIENCE%%": sections.get("EXPÉRIENCES PROFESSIONNELLES", []),
+    "%%SKILLS%%": sections.get("COMPÉTENCES & OUTILS", []),
+    "%%LANGUAGES%%": sections.get("LANGUES", []),
+    "%%INTERESTS%%": sections.get("ACTIVITÉS & CENTRES D'INTÉRÊT", []),
 }
 
     for ph, lines in mapping.items():
