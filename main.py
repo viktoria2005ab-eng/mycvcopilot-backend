@@ -371,6 +371,15 @@ def _split_sections(cv_text: str) -> dict:
             block = block[:-1]
 
         sections[tag.replace(":", "")] = block
+    # --- Normalisation des clés (pour que le template soit toujours rempli) ---
+    if not sections.get("SKILLS"):
+        sections["SKILLS"] = sections.get("COMPETENCES") or sections.get("COMPÉTENCES") or []
+
+    if not sections.get("LANGUAGES"):
+        sections["LANGUAGES"] = sections.get("LANGUES") or []
+
+    if not sections.get("EXPERIENCES"):
+        sections["EXPERIENCES"] = sections.get("EXPÉRIENCES") or sections.get("EXPERIENCE") or []
 
     return sections
 
