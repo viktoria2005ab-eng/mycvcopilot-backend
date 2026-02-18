@@ -42,6 +42,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+@app.get("/")
+def root():
+    return {"ok": True, "service": "mycvcopilot-backend"}
 
 if STRIPE_SECRET:
     stripe.api_key = STRIPE_SECRET
