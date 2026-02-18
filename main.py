@@ -293,7 +293,6 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
 
 def _remove_paragraph(p: Paragraph):
     p._element.getparent().remove(p._element)
@@ -403,14 +402,6 @@ def _insert_lines_after(paragraph, lines, make_bullets=False):
             last = _insert_paragraph_after(last, line)
 
     return last
-    from docx.enum.table import WD_TABLE_ALIGNMENT
-
-def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
-    doc = paragraph.part.document
-    table = doc.add_table(rows=rows, cols=cols)
-    table.alignment = WD_TABLE_ALIGNMENT.LEFT
-    paragraph._p.addnext(table._tbl)
-    return table
 
 def _split_sections(cv_text: str) -> dict:
     t = (cv_text or "").replace("\r\n", "\n").strip()
@@ -470,17 +461,17 @@ def _split_sections(cv_text: str) -> dict:
 
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
-    from docx.shared import Cm
 
-# Fix margins (some templates have invalid decimal margins that break python-docx tables)
-try:
-    for s in doc.sections:
-        s.left_margin = Cm(2)
-        s.right_margin = Cm(2)
-        s.top_margin = Cm(1.5)
-        s.bottom_margin = Cm(1.5)
-except Exception:
-    pass
+    # Fix margins (some templates have invalid decimal margins that break python-docx tables)
+    from docx.shared import Cm
+    try:
+        for s in doc.sections:
+            s.left_margin = Cm(2)
+            s.right_margin = Cm(2)
+            s.top_margin = Cm(1.5)
+            s.bottom_margin = Cm(1.5)
+    except Exception:
+        pass
 
     payload = payload or {}
     full_name = payload.get("full_name", "").strip() or "NOM Prénom"
@@ -495,6 +486,7 @@ except Exception:
     ] if x])
 
     sections = _split_sections(cv_text)
+
     # Force SKILLS as one single line
     if isinstance(sections.get("SKILLS"), list):
         sections["SKILLS"] = [" | ".join([x.strip("- ").strip() for x in sections["SKILLS"] if x.strip()])]
@@ -516,7 +508,8 @@ except Exception:
             continue
 
         _clear_paragraph(p)
-                # --- SPECIAL: EXPERIENCE as premium table ---
+
+        # --- SPECIAL: EXPERIENCE as premium table ---
         if ph == "%%EXPERIENCE%%":
             exps = parse_finance_experiences(value or [])
             anchor = p
@@ -547,8 +540,8 @@ except Exception:
                 rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-                block_lines = [x for x in [exp.get("dates","")] if x]
-                second = " - ".join([x for x in [exp.get("location",""), exp.get("type","")] if x]).strip()
+                block_lines = [x for x in [exp.get("dates", "")] if x]
+                second = " - ".join([x for x in [exp.get("location", ""), exp.get("type", "")] if x]).strip()
                 if second:
                     block_lines.append(second)
 
