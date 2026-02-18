@@ -215,11 +215,26 @@ EDUCATION:
 <contenu>
 
 EXPERIENCES:
-- bullet
-- bullet
+ROLE: <intitulé exact>
+COMPANY: <nom exact>
+DATES: <MMM YYYY – MMM YYYY ou MMM YYYY – Present>
+LOCATION: <Ville, Pays>
+TYPE: <Internship / Apprenticeship / CDI / etc. si fourni sinon vide>
+BULLETS:
+- ...
+- ...
+
+ROLE: ...
+COMPANY: ...
+DATES: ...
+LOCATION: ...
+TYPE: ...
+BULLETS:
+- ...
+- ...
 
 SKILLS:
-<contenu>
+<une seule ligne, avec séparateur " | ">
 
 LANGUAGES:
 <contenu>
@@ -278,6 +293,59 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
+
+def _remove_paragraph(p: Paragraph):
+    p._element.getparent().remove(p._element)
+    p._p = p._element = None
+
+def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
+    doc = paragraph._parent
+    table = doc.add_table(rows=rows, cols=cols)
+    table.alignment = WD_TABLE_ALIGNMENT.LEFT
+    paragraph._p.addnext(table._tbl)
+    return table
+
+def parse_finance_experiences(lines: list[str]) -> list[dict]:
+    exps = []
+    cur = None
+    mode = None
+
+    def push():
+        nonlocal cur
+        if cur and (cur.get("role") or cur.get("bullets")):
+            exps.append(cur)
+        cur = None
+
+    for raw in lines:
+        line = (raw or "").strip()
+        if not line:
+            continue
+
+        if line.startswith("ROLE:"):
+            push()
+            cur = {"role": line.replace("ROLE:", "").strip(), "company": "", "dates": "", "location": "", "type": "", "bullets": []}
+            mode = None
+            continue
+
+        if not cur:
+            continue
+
+        if line.startswith("COMPANY:"):
+            cur["company"] = line.replace("COMPANY:", "").strip()
+        elif line.startswith("DATES:"):
+            cur["dates"] = line.replace("DATES:", "").strip()
+        elif line.startswith("LOCATION:"):
+            cur["location"] = line.replace("LOCATION:", "").strip()
+        elif line.startswith("TYPE:"):
+            cur["type"] = line.replace("TYPE:", "").strip()
+        elif line.startswith("BULLETS:"):
+            mode = "bullets"
+        elif mode == "bullets" and line.startswith("-"):
+            cur["bullets"].append(line[1:].strip())
+
+    push()
+    return exps
 
 PLACEHOLDERS = [
     "%%FULL_NAME%%",
@@ -402,6 +470,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     ] if x])
 
     sections = _split_sections(cv_text)
+    # Force SKILLS as one single line
+    if isinstance(sections.get("SKILLS"), list):
+        sections["SKILLS"] = [" | ".join([x.strip("- ").strip() for x in sections["SKILLS"] if x.strip()])]
 
     mapping = {
         "%%FULL_NAME%%": full_name,
@@ -420,6 +491,50 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             continue
 
         _clear_paragraph(p)
+                # --- SPECIAL: EXPERIENCE as premium table ---
+        if ph == "%%EXPERIENCE%%":
+            exps = parse_finance_experiences(value or [])
+            anchor = p
+
+            for exp in exps:
+                title = exp.get("role", "")
+                if exp.get("company"):
+                    title += f" - {exp['company']}"
+
+                tpara = _insert_paragraph_after(anchor, title)
+                tpara.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                if tpara.runs:
+                    tpara.runs[0].bold = True
+                    tpara.runs[0].font.size = Pt(11)
+
+                table = _add_table_after(tpara, rows=1, cols=2)
+                left = table.cell(0, 0)
+                right = table.cell(0, 1)
+
+                # Left bullets
+                left.text = ""
+                for b in exp.get("bullets", []):
+                    bp = left.add_paragraph(b, style="List Bullet")
+                    bp.paragraph_format.space_after = Pt(0)
+
+                # Right block (dates + location/type) aligned right
+                right.text = ""
+                rp = right.paragraphs[0]
+                rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+                block_lines = [x for x in [exp.get("dates","")] if x]
+                second = " - ".join([x for x in [exp.get("location",""), exp.get("type","")] if x]).strip()
+                if second:
+                    block_lines.append(second)
+
+                rr = rp.add_run("\n".join(block_lines))
+                rr.italic = True
+                rr.font.size = Pt(9)
+
+                anchor = tpara
+
+            _remove_paragraph(p)
+            continue
 
         # Texte simple
         if isinstance(value, str):
