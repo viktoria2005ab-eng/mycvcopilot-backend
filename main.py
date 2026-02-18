@@ -299,10 +299,16 @@ def _remove_paragraph(p: Paragraph):
     p._element.getparent().remove(p._element)
     p._p = p._element = None
 
+from docx.shared import Inches
+
 def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
-    doc = paragraph._parent
+    # Get the real Document object (safe everywhere: body, cell, etc.)
+    doc = paragraph.part.document
+
     table = doc.add_table(rows=rows, cols=cols)
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
+
+    # Move the table right after the anchor paragraph
     paragraph._p.addnext(table._tbl)
     return table
 
