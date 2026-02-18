@@ -547,7 +547,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                 left.text = ""
                 for b in exp.get("bullets", []):
-                    bp = left.add_paragraph(b, style="List Bullet")
+                    bp = left.add_paragraph(b)  # <- PAS de style ici
+                    try:
+                        bp.style = "List Bullet"  # si le style existe tant mieux
+                    except Exception:
+                        # sinon on fait un bullet "manuel"
+                        bp.text = f"• {b}"
                     bp.paragraph_format.space_after = Pt(0)
 
                 right.text = ""
