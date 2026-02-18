@@ -403,6 +403,14 @@ def _insert_lines_after(paragraph, lines, make_bullets=False):
             last = _insert_paragraph_after(last, line)
 
     return last
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+
+def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
+    doc = paragraph.part.document
+    table = doc.add_table(rows=rows, cols=cols)
+    table.alignment = WD_TABLE_ALIGNMENT.LEFT
+    paragraph._p.addnext(table._tbl)
+    return table
 
 def _split_sections(cv_text: str) -> dict:
     t = (cv_text or "").replace("\r\n", "\n").strip()
@@ -462,6 +470,17 @@ def _split_sections(cv_text: str) -> dict:
 
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
+    from docx.shared import Cm
+
+# Fix margins (some templates have invalid decimal margins that break python-docx tables)
+try:
+    for s in doc.sections:
+        s.left_margin = Cm(2)
+        s.right_margin = Cm(2)
+        s.top_margin = Cm(1.5)
+        s.bottom_margin = Cm(1.5)
+except Exception:
+    pass
 
     payload = payload or {}
     full_name = payload.get("full_name", "").strip() or "NOM Prénom"
