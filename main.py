@@ -291,25 +291,25 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 
     return resp.choices[0].message.content.strip()
 
-from docx.shared import Pt
+from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
+
 
 def _remove_paragraph(p: Paragraph):
     p._element.getparent().remove(p._element)
     p._p = p._element = None
 
-from docx.shared import Inches
 
 def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
-    # Get the real Document object (safe everywhere: body, cell, etc.)
+    # Get the real Document object (works in body, tables, etc.)
     doc = paragraph.part.document
-
     table = doc.add_table(rows=rows, cols=cols)
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
-
     # Move the table right after the anchor paragraph
     paragraph._p.addnext(table._tbl)
     return table
+
 
 def parse_finance_experiences(lines: list[str]) -> list[dict]:
     exps = []
@@ -329,7 +329,14 @@ def parse_finance_experiences(lines: list[str]) -> list[dict]:
 
         if line.startswith("ROLE:"):
             push()
-            cur = {"role": line.replace("ROLE:", "").strip(), "company": "", "dates": "", "location": "", "type": "", "bullets": []}
+            cur = {
+                "role": line.replace("ROLE:", "").strip(),
+                "company": "",
+                "dates": "",
+                "location": "",
+                "type": "",
+                "bullets": [],
+            }
             mode = None
             continue
 
@@ -352,6 +359,7 @@ def parse_finance_experiences(lines: list[str]) -> list[dict]:
     push()
     return exps
 
+
 PLACEHOLDERS = [
     "%%FULL_NAME%%",
     "%%CV_TITLE%%",
@@ -363,14 +371,18 @@ PLACEHOLDERS = [
     "%%INTERESTS%%",
 ]
 
+
 def _find_paragraph_containing(doc: Document, needle: str):
     for p in doc.paragraphs:
         if needle in (p.text or ""):
             return p
     return None
 
+
 def _clear_paragraph(p):
     p.text = ""
+
+
 def _insert_paragraph_after(paragraph, text="", style=None):
     new_p = OxmlElement("w:p")
     paragraph._p.addnext(new_p)
@@ -386,10 +398,12 @@ def _insert_paragraph_after(paragraph, text="", style=None):
             pass
 
     return new_para
+
+
 def _insert_lines_after(paragraph, lines, make_bullets=False):
     last = paragraph
     for line in lines:
-        line = line.rstrip()
+        line = (line or "").rstrip()
 
         if not line:
             last = _insert_paragraph_after(last, "")
@@ -403,10 +417,10 @@ def _insert_lines_after(paragraph, lines, make_bullets=False):
 
     return last
 
+
 def _split_sections(cv_text: str) -> dict:
     t = (cv_text or "").replace("\r\n", "\n").strip()
 
-    # On accepte INTERESTS ou ACTIVITIES (au cas où le modèle varie)
     tags = [
         "EDUCATION:", "FORMATION:",
         "EXPERIENCES:", "EXPÉRIENCES:", "EXPERIENCE:",
@@ -416,7 +430,6 @@ def _split_sections(cv_text: str) -> dict:
     ]
     pos = {tag: t.find(tag) for tag in tags}
 
-    # Si aucun tag trouvé -> tout dans EDUCATION (fallback)
     if all(pos[tag] == -1 for tag in tags):
         return {
             "EDUCATION": t.splitlines(),
@@ -427,7 +440,6 @@ def _split_sections(cv_text: str) -> dict:
             "ACTIVITIES": [],
         }
 
-    # On garde uniquement les tags présents
     present = [(tag, pos[tag]) for tag in tags if pos[tag] != -1]
     present.sort(key=lambda x: x[1])
 
@@ -436,18 +448,16 @@ def _split_sections(cv_text: str) -> dict:
         end = present[i + 1][1] if i + 1 < len(present) else len(t)
         block = t[start:end].strip().splitlines()
 
-        # retire la ligne "EDUCATION:" etc
         if block and block[0].strip() == tag:
             block = block[1:]
 
-        # clean lignes vides
         while block and not block[0].strip():
             block = block[1:]
         while block and not block[-1].strip():
             block = block[:-1]
 
         sections[tag.replace(":", "")] = block
-    # --- Normalisation des clés (pour que le template soit toujours rempli) ---
+
     if not sections.get("SKILLS"):
         sections["SKILLS"] = sections.get("COMPETENCES") or sections.get("COMPÉTENCES") or []
 
@@ -459,11 +469,11 @@ def _split_sections(cv_text: str) -> dict:
 
     return sections
 
+
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
 
     # Fix margins (some templates have invalid decimal margins that break python-docx tables)
-    from docx.shared import Cm
     try:
         for s in doc.sections:
             s.left_margin = Cm(2)
@@ -487,9 +497,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
     sections = _split_sections(cv_text)
 
-    # Force SKILLS as one single line
+    # ✅ SKILLS en UNE seule ligne
     if isinstance(sections.get("SKILLS"), list):
-        sections["SKILLS"] = [" | ".join([x.strip("- ").strip() for x in sections["SKILLS"] if x.strip()])]
+        cleaned = [x.strip().lstrip("-").strip() for x in sections["SKILLS"] if x.strip()]
+        sections["SKILLS"] = [" | ".join(cleaned)] if cleaned else [""]
 
     mapping = {
         "%%FULL_NAME%%": full_name,
@@ -498,7 +509,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         "%%EDUCATION%%": sections.get("EDUCATION", []),
         "%%EXPERIENCE%%": sections.get("EXPERIENCES", []),
         "%%SKILLS%%": sections.get("SKILLS", []),
-        "%%LANGUAGES%%": sections.get("LANGUAGES", []) or sections.get("LANGUES", []),
+        "%%LANGUAGES%%": sections.get("LANGUAGES", []),
         "%%INTERESTS%%": sections.get("INTERESTS", []) or sections.get("ACTIVITIES", []),
     }
 
@@ -509,10 +520,15 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
         _clear_paragraph(p)
 
-        # --- SPECIAL: EXPERIENCE as premium table ---
+        # --- SPECIAL: EXPERIENCE as premium table (finance) ---
         if ph == "%%EXPERIENCE%%":
             exps = parse_finance_experiences(value or [])
             anchor = p
+
+            # Si pas au format ROLE/COMPANY/etc, on met en bullets classiques
+            if not exps:
+                _insert_lines_after(p, value or [], make_bullets=True)
+                continue
 
             for exp in exps:
                 title = exp.get("role", "")
@@ -529,13 +545,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 left = table.cell(0, 0)
                 right = table.cell(0, 1)
 
-                # Left bullets
                 left.text = ""
                 for b in exp.get("bullets", []):
                     bp = left.add_paragraph(b, style="List Bullet")
                     bp.paragraph_format.space_after = Pt(0)
 
-                # Right block (dates + location/type) aligned right
                 right.text = ""
                 rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
@@ -567,9 +581,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 run.font.size = Pt(10)
             continue
 
-        # Listes (sections)
-        lines = value or []
-        _insert_lines_after(p, lines, make_bullets=True)
+        # Listes
+        _insert_lines_after(p, value or [], make_bullets=True)
 
     doc.save(out_path)
 
