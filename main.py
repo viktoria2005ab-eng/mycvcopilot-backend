@@ -582,42 +582,105 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
         # ------- FORMATION : style spécial -------
         if ph == "%%EDUCATION%%" and isinstance(value, list):
-            anchor = p
-            new_block = True  # 1re ligne de chaque bloc formation
 
-            for raw in value:
-                line = (raw or "").strip()
+    anchor = p
+    current_block = []
 
-                # ligne vide -> séparation entre 2 formations
-                if not line:
-                    anchor = _insert_paragraph_after(anchor, "")
-                    new_block = True
-                    continue
+    # On regroupe les lignes par formation (séparées par ligne vide)
+    blocks = []
+    for line in value:
+        if not line.strip():
+            if current_block:
+                blocks.append(current_block)
+                current_block = []
+        else:
+            current_block.append(line.strip())
+    if current_block:
+        blocks.append(current_block)
 
-                para = _insert_paragraph_after(anchor, "")
-                text = line
+    for block in blocks:
 
-                # Remplacer "Cours pertinents" par "Matières fondamentales" + soulignement
-                if "Cours pertinents" in text:
-                    # on enlève la partie avant ":" et on garde ce qu'il y a après
-                    after = ""
-                    if ":" in text:
-                        after = text.split(":", 1)[1]  # tout ce qu'il y a après :
-                    run_label = para.add_run("Matières fondamentales :")
-                    run_label.underline = True
-                    if after.strip():
-                        para.add_run(after)
-                else:
-                    run = para.add_run(text)
-                    # 1re ligne de la formation en gras
-                    if new_block:
-                        run.bold = True
+        # --- 1️⃣ Extraire infos principales ---
+        first_line = block[0]
 
-                new_block = False
-                anchor = para
+        # Tentative d'extraction date + lieu
+        # Format attendu: "Master Finance – Université X — Sep 2023 – Jun 2025"
+        date_part = ""
+        title_part = first_line
 
-            # on ne repasse pas derrière avec _insert_lines_after
-            continue
+        if "—" in first_line:
+            parts = first_line.split("—")
+            title_part = parts[0].strip()
+            date_part = parts[-1].strip()
+
+        # --- 2️⃣ Créer tableau 2 colonnes ---
+        table = _add_table_after(anchor, rows=2, cols=2)
+
+        left_top = table.cell(0, 0)
+        right_top = table.cell(0, 1)
+
+        left_bottom = table.cell(1, 0)
+        right_bottom = table.cell(1, 1)
+
+        # Nettoyer
+        left_top.text = ""
+        right_top.text = ""
+        left_bottom.text = ""
+        right_bottom.text = ""
+
+        # --- Ligne 1 droite : dates (italique) ---
+        rp = right_top.paragraphs[0]
+        rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        run_date = rp.add_run(date_part)
+        run_date.italic = True
+
+        # --- Ligne 2 droite : ville, pays (si présent dans 2e ligne du bloc) ---
+        location = ""
+        for line in block:
+            if "," in line and "Matières" not in line:
+                location = line
+                break
+
+        if location:
+            rp2 = right_bottom.paragraphs[0]
+            rp2.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            rp2.add_run(location)
+
+        # --- Colonne gauche : titre en gras ---
+        lp = left_top.paragraphs[0]
+        run_title = lp.add_run(title_part)
+        run_title.bold = True
+
+        # --- Lignes suivantes sous le tableau ---
+        last_anchor = table
+
+        for line in block[1:]:
+
+            # Remplacement label
+            if "Cours pertinents" in line:
+                after = ""
+                if ":" in line:
+                    after = line.split(":", 1)[1]
+
+                para = _insert_paragraph_after(last_anchor, "")
+                r1 = para.add_run("Matières fondamentales :")
+                r1.underline = True
+                if after.strip():
+                    para.add_run(after)
+                last_anchor = para
+                continue
+
+            # Ne pas réafficher la ligne ville si déjà mise à droite
+            if line == location:
+                continue
+
+            para = _insert_paragraph_after(last_anchor, line)
+            last_anchor = para
+
+        anchor = last_anchor
+
+    _remove_paragraph(p)
+    continue
 
         # ------- EXPERIENCE : tableau premium -------
         if ph == "%%EXPERIENCE%%":
