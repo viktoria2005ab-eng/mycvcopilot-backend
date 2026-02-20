@@ -470,6 +470,10 @@ def _split_sections(cv_text: str) -> dict:
     if not sections.get("EXPERIENCES"):
         sections["EXPERIENCES"] = sections.get("EXPÉRIENCES") or sections.get("EXPERIENCE") or []
 
+    # 🔴 IMPORTANT : si le modèle écrit "FORMATION:" au lieu de "EDUCATION:"
+    if not sections.get("EDUCATION"):
+        sections["EDUCATION"] = sections.get("FORMATION") or sections.get("EDUCATION") or []
+
     return sections
 def _render_education(anchor: Paragraph, lines: list[str]):
     """
