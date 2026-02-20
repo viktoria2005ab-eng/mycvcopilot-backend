@@ -654,7 +654,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 run_title.bold = True
 
                 # --- Lignes suivantes sous le tableau ---
-                last_anchor = table
+                last_anchor = left_bottom.paragraphs[0]
 
                 for l in block[1:]:
                     line = l.strip()
