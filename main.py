@@ -471,7 +471,55 @@ def _split_sections(cv_text: str) -> dict:
         sections["EXPERIENCES"] = sections.get("EXPÉRIENCES") or sections.get("EXPERIENCE") or []
 
     return sections
+def _render_education(anchor: Paragraph, lines: list[str]):
+    """
+    Rend la section FORMATION de façon un peu plus premium :
+    - Première ligne de chaque bloc en gras
+    - 'Cours pertinents' -> 'Matières fondamentales'
+    - 'Matières fondamentales :' souligné
+    """
+    last = anchor
+    first_in_block = True
 
+    for raw in (lines or []):
+        line = (raw or "").strip()
+
+        # ligne vide = séparation entre deux formations
+        if not line:
+            last = _insert_paragraph_after(last, "")
+            first_in_block = True
+            continue
+
+        # Remplace le texte
+        if "Cours pertinents" in line:
+            line = line.replace("Cours pertinents", "Matières fondamentales")
+
+        # Première ligne du bloc = nom d'école / programme -> gras
+        if first_in_block:
+            para = _insert_paragraph_after(last, "")
+            run = para.add_run(line)
+            run.bold = True
+            para.paragraph_format.space_after = Pt(0)
+            last = para
+            first_in_block = False
+            continue
+
+        # Ligne "Matières fondamentales : ..." avec le label souligné
+        if "Matières fondamentales" in line:
+            para = _insert_paragraph_after(last, "")
+            before, sep, after = line.partition(":")
+            label = before + sep  # "Matières fondamentales:"
+            r1 = para.add_run(label + " ")
+            r1.underline = True
+            if after:
+                para.add_run(after.strip())
+            last = para
+            continue
+
+        # Autres lignes normales
+        last = _insert_paragraph_after(last, line)
+
+    return last
 
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
@@ -516,81 +564,90 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         "%%INTERESTS%%": sections.get("INTERESTS", []) or sections.get("ACTIVITIES", []),
     }
 
-    for ph, value in mapping.items():
-        p = _find_paragraph_containing(doc, ph)
-        if not p:
+for ph, value in mapping.items():
+    p = _find_paragraph_containing(doc, ph)
+    if not p:
+        continue
+
+    _clear_paragraph(p)
+
+    # --- SPECIAL: FORMATION ---
+    if ph == "%%EDUCATION%%":
+        _render_education(p, value or [])
+        _remove_paragraph(p)
+        continue
+
+    # --- SPECIAL: EXPERIENCE as premium table (finance) ---
+    if ph == "%%EXPERIENCE%%":
+        exps = parse_finance_experiences(value or [])
+        anchor = p
+
+        # Si pas au format ROLE/COMPANY/etc, on met en bullets classiques
+        if not exps:
+            _insert_lines_after(p, value or [], make_bullets=True)
             continue
 
-        _clear_paragraph(p)
+        for exp in exps:
+            title = exp.get("role", "")
+            if exp.get("company"):
+                title += f" - {exp['company']}"
 
-        # --- SPECIAL: EXPERIENCE as premium table (finance) ---
-        if ph == "%%EXPERIENCE%%":
-            exps = parse_finance_experiences(value or [])
-            anchor = p
+            tpara = _insert_paragraph_after(anchor, title)
+            tpara.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            if tpara.runs:
+                tpara.runs[0].bold = True
+                tpara.runs[0].font.size = Pt(11)
 
-            # Si pas au format ROLE/COMPANY/etc, on met en bullets classiques
-            if not exps:
-                _insert_lines_after(p, value or [], make_bullets=True)
-                continue
+            table = _add_table_after(tpara, rows=1, cols=2)
+            left = table.cell(0, 0)
+            right = table.cell(0, 1)
 
-            for exp in exps:
-                title = exp.get("role", "")
-                if exp.get("company"):
-                    title += f" - {exp['company']}"
+            # Left bullets
+            left.text = ""
+            for b in exp.get("bullets", []):
+                bp = left.add_paragraph(b)  # PAS de style direct
+                try:
+                    bp.style = "List Bullet"
+                except Exception:
+                    bp.text = f"• {b}"
+                bp.paragraph_format.space_after = Pt(0)
 
-                tpara = _insert_paragraph_after(anchor, title)
-                tpara.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                if tpara.runs:
-                    tpara.runs[0].bold = True
-                    tpara.runs[0].font.size = Pt(11)
+            # Right block (dates + location/type) aligned right
+            right.text = ""
+            rp = right.paragraphs[0]
+            rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-                table = _add_table_after(tpara, rows=1, cols=2)
-                left = table.cell(0, 0)
-                right = table.cell(0, 1)
+            block_lines = [x for x in [exp.get("dates", "")] if x]
+            second = " - ".join(
+                [x for x in [exp.get("location", ""), exp.get("type", "")] if x]
+            ).strip()
+            if second:
+                block_lines.append(second)
 
-                left.text = ""
-                for b in exp.get("bullets", []):
-                    bp = left.add_paragraph(b)  # <- PAS de style ici
-                    try:
-                        bp.style = "List Bullet"  # si le style existe tant mieux
-                    except Exception:
-                        # sinon on fait un bullet "manuel"
-                        bp.text = f"• {b}"
-                    bp.paragraph_format.space_after = Pt(0)
+            rr = rp.add_run("\n".join(block_lines))
+            rr.italic = True
+            rr.font.size = Pt(9)
 
-                right.text = ""
-                rp = right.paragraphs[0]
-                rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            anchor = tpara
 
-                block_lines = [x for x in [exp.get("dates", "")] if x]
-                second = " - ".join([x for x in [exp.get("location", ""), exp.get("type", "")] if x]).strip()
-                if second:
-                    block_lines.append(second)
+        _remove_paragraph(p)
+        continue
 
-                rr = rp.add_run("\n".join(block_lines))
-                rr.italic = True
-                rr.font.size = Pt(9)
+    # Texte simple
+    if isinstance(value, str):
+        run = p.add_run(value)
+        if ph == "%%FULL_NAME%%":
+            run.bold = True
+            run.font.size = Pt(20)
+        elif ph == "%%CV_TITLE%%":
+            run.bold = True
+            run.font.size = Pt(12)
+        elif ph == "%%CONTACT_LINE%%":
+            run.font.size = Pt(10)
+        continue
 
-                anchor = tpara
-
-            _remove_paragraph(p)
-            continue
-
-        # Texte simple
-        if isinstance(value, str):
-            run = p.add_run(value)
-            if ph == "%%FULL_NAME%%":
-                run.bold = True
-                run.font.size = Pt(20)
-            elif ph == "%%CV_TITLE%%":
-                run.bold = True
-                run.font.size = Pt(12)
-            elif ph == "%%CONTACT_LINE%%":
-                run.font.size = Pt(10)
-            continue
-
-        # Listes
-        _insert_lines_after(p, value or [], make_bullets=True)
+    # Listes (SKILLS, LANGUAGES, INTERESTS...)
+    _insert_lines_after(p, value or [], make_bullets=True)
 
     doc.save(out_path)
 
