@@ -582,105 +582,88 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
         # ------- FORMATION : style spécial -------
         if ph == "%%EDUCATION%%" and isinstance(value, list):
-
             anchor = p
-            current_block = []
 
-            # On regroupe les lignes par formation (séparées par ligne vide)
+            # 1) Regrouper les lignes par formation (séparées par une ligne vide)
             blocks = []
+            current_block = []
             for line in value:
-                if not line.strip():
+                text = (line or "").rstrip()
+                if not text:
                     if current_block:
                         blocks.append(current_block)
                         current_block = []
                 else:
-                    current_block.append(line.strip())
+                    current_block.append(text)
             if current_block:
                 blocks.append(current_block)
 
+            # 2) Pour chaque formation, créer un tableau 1 ligne / 2 colonnes
             for block in blocks:
                 if not block:
                     continue
 
-                # --- 1️⃣ Extraire infos principales ---
                 first_line = block[0]
 
-                # Tentative d'extraction date + lieu
-                # Format attendu: "Master Finance – Université X — Sep 2023 – Jun 2025"
-                date_part = ""
+                # Découper titre / dates sur le dernier "—"
                 title_part = first_line
-
+                date_part = ""
                 if "—" in first_line:
                     parts = first_line.split("—")
-                    title_part = parts[0].strip()
-                    date_part = parts[-1].strip()
+                    if len(parts) >= 2:
+                        title_part = " — ".join(parts[:-1]).strip()
+                        date_part = parts[-1].strip()
 
-                # --- 2️⃣ Créer tableau 2 lignes x 2 colonnes ---
-                table = _add_table_after(anchor, rows=2, cols=2)
+                table = _add_table_after(anchor, rows=1, cols=2)
+                left = table.cell(0, 0)
+                right = table.cell(0, 1)
 
-                left_top = table.cell(0, 0)
-                right_top = table.cell(0, 1)
-                left_bottom = table.cell(1, 0)
-                right_bottom = table.cell(1, 1)
+                # Nettoyer les cellules
+                left.text = ""
+                right.text = ""
 
-                # Nettoyer
-                left_top.text = ""
-                right_top.text = ""
-                left_bottom.text = ""
-                right_bottom.text = ""
+                # Colonne gauche : titre en gras
+                lp = left.paragraphs[0]
+                title_run = lp.add_run(title_part)
+                title_run.bold = True
 
-                # --- Ligne 1 droite : dates (italique) ---
-                rp = right_top.paragraphs[0]
+                # Lignes suivantes dans la même cellule (sous le titre)
+                for line in block[1:]:
+                    text = (line or "").strip()
+                    if not text:
+                        continue
+
+                    lower = text.lower()
+                    if "cours pertinents" in lower or "matières" in lower:
+                        # On garde uniquement ce qu'il y a après ":"
+                        after = ""
+                        if ":" in text:
+                            after = text.split(":", 1)[1]
+                        para = left.add_paragraph()
+                        label = para.add_run("Matières fondamentales :")
+                        label.underline = True
+                        if after.strip():
+                            para.add_run(after)
+                    else:
+                        left.add_paragraph(text)
+
+                # Colonne droite : dates en italique + éventuellement lieu en dessous
+                rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
                 if date_part:
-                    run_date = rp.add_run(date_part)
-                    run_date.italic = True
+                    r_date = rp.add_run(date_part)
+                    r_date.italic = True
 
-                # --- Ligne 2 droite : ville, pays (si ligne avec virgule) ---
+                # Chercher une ligne qui ressemble à un lieu (contient une virgule)
                 location = ""
-                for l in block:
-                    if "," in l and "Matières" not in l and "Cours pertinents" not in l:
-                        location = l.strip()
+                for line in block:
+                    t = (line or "").strip()
+                    if "," in t and "matières" not in t.lower() and "cours pertinents" not in t.lower():
+                        location = t
                         break
-
                 if location:
-                    rp2 = right_bottom.paragraphs[0]
-                    rp2.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                    rp2.add_run(location)
-
-                # --- Colonne gauche haut : titre en gras ---
-                lp = left_top.paragraphs[0]
-                run_title = lp.add_run(title_part.strip())
-                run_title.bold = True
-
-                # --- Lignes suivantes sous le tableau ---
-                last_anchor = left_bottom.paragraphs[0]
-
-                for l in block[1:]:
-                    line = l.strip()
-
-                    # Ne pas réafficher la ligne ville si déjà utilisée
-                    if location and line == location:
-                        continue
-
-                    # Remplacement label Cours pertinents -> Matières fondamentales
-                    if "Cours pertinents" in line or "Matières fondamentales" in line:
-                        after = ""
-                        if ":" in line:
-                            after = line.split(":", 1)[1]
-                        para = _insert_paragraph_after(last_anchor, "")
-                        r1 = para.add_run("Matières fondamentales :")
-                        r1.underline = True
-                        if after.strip():
-                            para.add_run(after.strip())
-                        last_anchor = para
-                        continue
-
-                    para = _insert_paragraph_after(last_anchor, line)
-                    last_anchor = para
-
-                # L’ancre pour la formation suivante
-                anchor = last_anchor
+                    rp.add_run("\n")
+                    rp.add_run(location)
 
             _remove_paragraph(p)
             continue
