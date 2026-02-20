@@ -305,25 +305,25 @@ def _remove_paragraph(p: Paragraph):
 
 
 def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
-    # Get the real Document object (works in body, tables, etc.)
+    # Récupérer le vrai Document
     doc = paragraph.part.document
     table = doc.add_table(rows=rows, cols=cols)
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
 
-    # Important : désactiver l'autofit pour respecter les largeurs
+    # On force la largeur, sinon Word remet tout à sa sauce
     table.autofit = False
 
-    # Si tableau à 2 colonnes (FORMATION + EXPERIENCES) :
-    # on fait une grosse colonne gauche et une petite colonne droite
     if cols == 2:
         try:
-            table.columns[0].width = Cm(12)   # Texte / école / bullets
-            table.columns[1].width = Cm(4)    # Dates + lieu
+            # On donne quasiment toute la largeur à la colonne gauche
+            # et une petite colonne compacte pour les dates/lieu
+            table.columns[0].width = Cm(14.5)   # texte / école / bullets
+            table.columns[1].width = Cm(2)      # dates + ville/pays
         except Exception:
-            # Si jamais python-docx ignore la largeur, on ne plante pas
+            # Si Word ignore les largeurs, on ne plante pas
             pass
 
-    # Insérer le tableau juste après le paragraphe "ancre"
+    # Insérer le tableau juste après le paragraphe ancre
     paragraph._p.addnext(table._tbl)
     return table
 
