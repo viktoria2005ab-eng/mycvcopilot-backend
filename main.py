@@ -641,30 +641,39 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 left.text = ""
                 right.text = ""
 
-                # Colonne gauche : titre en gras
+                # Colonne gauche : titre en gras (taille 11)
                 lp = left.paragraphs[0]
                 title_run = lp.add_run(title_part)
                 title_run.bold = True
+                title_run.font.size = Pt(11)  # titre de diplôme un poil plus gros
 
                 # Lignes suivantes dans la même cellule (sous le titre)
                 for line in block[1:]:
                     text = (line or "").strip()
                     if not text:
                         continue
-
+            
                     lower = text.lower()
                     if "cours pertinents" in lower or "matières" in lower:
                         # On garde uniquement ce qu'il y a après ":"
                         after = ""
                         if ":" in text:
                             after = text.split(":", 1)[1]
+            
                         para = left.add_paragraph()
                         label = para.add_run("Matières fondamentales :")
                         label.underline = True
+                        label.font.size = Pt(10)
+            
                         if after.strip():
-                            para.add_run(after)
+                            r2 = para.add_run(after.strip())
+                            r2.font.size = Pt(10)
+            
                     else:
-                        left.add_paragraph(text)
+                        para = left.add_paragraph(text)
+                        # tout le reste de la ligne en taille 10
+                        for r in para.runs:
+                            r.font.size = Pt(10)
 
                 # Colonne droite : dates en italique + éventuellement lieu en dessous
                 rp = right.paragraphs[0]
@@ -672,7 +681,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 if date_part:
                     r_date = rp.add_run(date_part)
                     r_date.italic = True
-
+                    r_date.font.size = Pt(9)
+            
                 # Chercher une ligne qui ressemble à un lieu (contient une virgule)
                 location = ""
                 for line in block:
@@ -682,7 +692,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         break
                 if location:
                     rp.add_run("\n")
-                    rp.add_run(location)
+                    r_loc = rp.add_run(location)
+                    r_loc.font.size = Pt(9)
 
             _remove_paragraph(p)
             continue
