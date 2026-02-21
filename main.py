@@ -303,30 +303,30 @@ def _remove_paragraph(p: Paragraph):
     p._element.getparent().remove(p._element)
     p._p = p._element = None
 
-
 def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
-    # Récupérer le vrai Document
+    """
+    Ajoute un tableau juste après le paragraphe.
+    Pour 2 colonnes : grosse colonne gauche (texte), petite colonne droite (dates).
+    """
     doc = paragraph.part.document
     table = doc.add_table(rows=rows, cols=cols)
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
-
-    # On force la largeur, sinon Word remet tout à sa sauce
     table.autofit = False
 
+    # Si on a 2 colonnes → on force VRAIMENT les largeurs sur les cellules
     if cols == 2:
         try:
-            # On donne quasiment toute la largeur à la colonne gauche
-            # et une petite colonne compacte pour les dates/lieu
-            table.columns[0].width = Cm(14.5)   # texte / école / bullets
-            table.columns[1].width = Cm(2)      # dates + ville/pays
+            widths = [Cm(15), Cm(2)]  # gauche ≈ toute la largeur, droite = dates serrées
+            for row in table.rows:
+                for i, w in enumerate(widths):
+                    row.cells[i].width = w
         except Exception:
-            # Si Word ignore les largeurs, on ne plante pas
+            # Si Word décide d’ignorer, on n’explose pas
             pass
 
     # Insérer le tableau juste après le paragraphe ancre
     paragraph._p.addnext(table._tbl)
     return table
-
 
 def parse_finance_experiences(lines: list[str]) -> list[dict]:
     exps = []
