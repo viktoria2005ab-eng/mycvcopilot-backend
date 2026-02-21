@@ -542,15 +542,6 @@ def _render_education(anchor: Paragraph, lines: list[str]):
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
 
-    # Fix margins (some templates have invalid decimal margins that break python-docx tables)
-    try:
-        for s in doc.sections:
-            s.left_margin = Cm(2)
-            s.right_margin = Cm(2)
-            s.top_margin = Cm(1.5)
-            s.bottom_margin = Cm(1.5)
-    except Exception:
-        pass
 
     # ------- Données générales -------
     payload = payload or {}
@@ -668,6 +659,15 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         if after.strip():
                             r2 = para.add_run(after.strip())
                             r2.font.size = Pt(10)
+
+                    elif text.startswith("Mémoire"):
+                        # On souligne juste "Mémoire :"
+                        para = left.add_paragraph()
+                        before, sep, after = text.partition(":")
+                        label = para.add_run(before + sep)
+                        label.underline = True
+                        if after.strip():
+                            para.add_run(" " + after.strip())
             
                     else:
                         para = left.add_paragraph(text)
