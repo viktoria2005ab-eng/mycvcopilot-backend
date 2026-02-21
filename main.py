@@ -298,7 +298,26 @@ from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
+def translate_months_fr(text: str) -> str:
+    months = {
+        "Jan": "Janv",
+        "Feb": "Fév",
+        "Mar": "Mars",
+        "Apr": "Avr",
+        "May": "Mai",
+        "Jun": "Juin",
+        "Jul": "Juil",
+        "Aug": "Août",
+        "Sep": "Sept",
+        "Oct": "Oct",
+        "Nov": "Nov",
+        "Dec": "Déc",
+    }
 
+    for en, fr in months.items():
+        text = text.replace(en, fr)
+
+    return text
 def _remove_paragraph(p: Paragraph):
     p._element.getparent().remove(p._element)
     p._p = p._element = None
@@ -316,7 +335,7 @@ def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
     # Si on a 2 colonnes → on force VRAIMENT les largeurs sur les cellules
     if cols == 2:
         try:
-            widths = [Cm(15), Cm(2)]  # gauche ≈ toute la largeur, droite = dates serrées
+            widths = [Cm(16), Cm(1.8)]  # gauche ≈ toute la largeur, droite = dates serrées
             for row in table.rows:
                 for i, w in enumerate(widths):
                     row.cells[i].width = w
@@ -620,7 +639,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         date_part = parts[-1].strip()
 
                 table = _add_table_after(anchor, rows=1, cols=2)
-                table = _add_table_after(anchor, rows=1, cols=2)
                 
                 # On laisse _add_table_after gérer les largeurs (14.5 cm / 2 cm)
                 left = table.cell(0, 0)
@@ -660,15 +678,37 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                             r2 = para.add_run(after.strip())
                             r2.font.size = Pt(10)
 
-                    elif text.startswith("Mémoire"):
-                        # On souligne juste "Mémoire :"
+                    elif text.lower().startswith("mémoire"):
                         para = left.add_paragraph()
                         before, sep, after = text.partition(":")
                         label = para.add_run(before + sep)
                         label.underline = True
+                        label.font.size = Pt(10)
+                    
                         if after.strip():
-                            para.add_run(" " + after.strip())
-            
+                            r2 = para.add_run(" " + after.strip())
+                            r2.font.size = Pt(10)
+                    elif text.lower().startswith("travail de fin"):
+                        para = left.add_paragraph()
+                        before, sep, after = text.partition(":")
+                        label = para.add_run(before + sep)
+                        label.underline = True
+                        label.font.size = Pt(10)
+                    
+                        if after.strip():
+                            r2 = para.add_run(" " + after.strip())
+                            r2.font.size = Pt(10)
+                    
+                    elif text.lower().startswith("projet de recherche"):
+                        para = left.add_paragraph()
+                        before, sep, after = text.partition(":")
+                        label = para.add_run(before + sep)
+                        label.underline = True
+                        label.font.size = Pt(10)
+                    
+                        if after.strip():
+                            r2 = para.add_run(" " + after.strip())
+                            r2.font.size = Pt(10)
                     else:
                         para = left.add_paragraph(text)
                         # tout le reste de la ligne en taille 10
@@ -679,7 +719,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
                 if date_part:
-                    r_date = rp.add_run(date_part)
+                    clean_date = date_part.replace("\n", " ").replace("  ", " ")
+                    clean_date = translate_months_fr(clean_date)
+                
+                    r_date = rp.add_run(clean_date)
                     r_date.italic = True
                     r_date.font.size = Pt(9)
             
@@ -693,7 +736,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 if location:
                     rp.add_run("\n")
                     r_loc = rp.add_run(location)
-                    r_loc.font.size = Pt(9)
+                    r_loc.italic = True      # ville/pays en italique
+                    r_loc.font.size = Pt(9)  # taille 9 comme les dates
 
             _remove_paragraph(p)
             continue
