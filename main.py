@@ -629,10 +629,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         date_part = parts[-1].strip()
 
                 table = _add_table_after(anchor, rows=1, cols=2)
-                # 🔧 Rétrécir la colonne de droite (dates) et élargir la colonne de gauche (texte)
-                table.autofit = False
-                table.columns[0].width = Cm(13)  # colonne gauche = large (texte)
-                table.columns[1].width = Cm(4)   # colonne droite = étroite (dates)
+                table = _add_table_after(anchor, rows=1, cols=2)
+                
+                # On laisse _add_table_after gérer les largeurs (14.5 cm / 2 cm)
+                left = table.cell(0, 0)
+                right = table.cell(0, 1)
                 left = table.cell(0, 0)
                 right = table.cell(0, 1)
 
