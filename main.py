@@ -718,6 +718,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 # Colonne droite : dates en italique + éventuellement lieu en dessous
                 rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                # 🔧 On pousse un peu le texte dans la marge droite
+                rp.paragraph_format.right_indent = Cm(-0.4)  # tu peux tester -0.3 / -0.5
                 if date_part:
                     clean_date = date_part.replace("\n", " ").replace("  ", " ")
                     clean_date = translate_months_fr(clean_date)
