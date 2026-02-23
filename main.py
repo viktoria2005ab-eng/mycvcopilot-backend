@@ -339,9 +339,10 @@ def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
 
     if cols == 2:
         try:
-            # Largeur totale cible ≈ 15 cm :
-            # 11,5 cm de texte + 3,5 cm pour les dates
-            widths = [Cm(11.5), Cm(3.5)]
+            # Largeur totale ≈ 18 cm :
+            # 14 cm de texte + 4 cm pour les dates
+            # → le tableau utilise presque toute la largeur, moins de trou à droite
+            widths = [Cm(14.0), Cm(4.0)]
 
             # Largeur sur les colonnes
             for col, w in zip(table.columns, widths):
@@ -769,6 +770,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     if "," in t and "matières" not in t.lower() and "cours pertinents" not in t.lower():
                         location = t
                         break
+
+                # Si aucun lieu explicite dans le bloc, on met au moins la ville globale du profil
+                if not location:
+                    location = (payload.get("city") or "").strip()
 
                 if location:
                     rp.add_run("\n")
