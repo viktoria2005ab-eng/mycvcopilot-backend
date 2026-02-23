@@ -574,6 +574,14 @@ def _render_education(anchor: Paragraph, lines: list[str]):
 
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
+        # Réduire les marges gauche/droite pour occuper plus de largeur sur la page
+        # (Word ET PDF, car le PDF reprend la mise en page Word)
+        for section in doc.sections:
+            section.left_margin = Cm(1.5)   # avant sans doute ~2,5 cm
+            section.right_margin = Cm(1.5)
+            # optionnel : tu peux aussi réduire un peu haut/bas si tu veux
+            # section.top_margin = Cm(1.5)
+            # section.bottom_margin = Cm(1.5)
 
 
     # ------- Données générales -------
