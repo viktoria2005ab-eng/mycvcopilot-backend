@@ -725,7 +725,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     
                     clean_date = date_part.replace("\r", " ").replace("\n", " ")
                     clean_date = re.sub(r"\s+", " ", clean_date.strip())
-                    clean_date = translate_months_fr(clean_date
+                    clean_date = translate_months_fr(clean_date)
                     r_date = rp.add_run(clean_date)
                     r_date.italic = True
                     r_date.font.size = Pt(9)
