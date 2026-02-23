@@ -354,8 +354,8 @@ def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
         except Exception:
             pass
 
-    # On centre le tableau dans la zone de texte
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    # On aligne le tableau à gauche pour qu'il commence au même endroit que le texte normal
+    table.alignment = WD_TABLE_ALIGNMENT.LEFT
 
     # Insérer le tableau juste après le paragraphe ancre
     paragraph._p.addnext(table._tbl)
@@ -577,8 +577,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     # Réduire les marges gauche/droite pour occuper plus de largeur sur la page
     # (Word ET PDF, car le PDF reprend la mise en page Word)
     for section in doc.sections:
-        section.left_margin = Cm(1.5)   # avant sans doute ~2,5 cm
-        section.right_margin = Cm(1.5)
+        section.left_margin = Cm(1.0)   # avant sans doute ~2,5 cm
+        section.right_margin = Cm(1.0)
         # optionnel : tu peux aussi réduire un peu haut/bas si tu veux            
         # section.top_margin = Cm(1.5)
         # section.bottom_margin = Cm(1.5)
