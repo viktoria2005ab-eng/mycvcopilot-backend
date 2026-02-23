@@ -791,6 +791,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     r_loc.italic = True
                     r_loc.font.size = Pt(9)
                     rp.paragraph_format.space_after = Pt(0)
+            # 🔹 Ajouter une ligne vide pour créer un espace entre chaque formation
+            spacer_row = table.add_row()
+            for cell in spacer_row.cells:
+                cell.text = ""
 
             _remove_paragraph(p)
             continue
