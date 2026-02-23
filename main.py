@@ -335,10 +335,9 @@ def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
     # Si on a 2 colonnes → on force VRAIMENT les largeurs sur les cellules
     if cols == 2:
         try:
-            # Largeur totale : 14 + 3 = 17 cm ≈ largeur texte avec marges "étroites"
-            # Colonne gauche : 14 cm (formation)
-            # Colonne droite : 3 cm (dates + ville) → assez large pour tenir sur UNE ligne
-            widths = [Cm(15.3), Cm(2.5)]
+            # Largeur totale ≈ 16 cm : 12,5 cm de texte + 3,5 cm pour les dates
+            # → la colonne dates est assez large pour rester sur UNE ligne
+            widths = [Cm(12.5), Cm(3.5)]
             for row in table.rows:
                 for i, w in enumerate(widths):
                     row.cells[i].width = w
@@ -720,12 +719,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 # Colonne droite : dates en italique + éventuellement lieu en dessous
                 rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                # (on enlève la ligne avec right_indent)
+                
                 if date_part:
                     import re  # déjà importé en haut, donc c’est ok
     
-                    clean_date = re.sub(r"\s+", " ", date_part.strip())
-                    clean_date = translate_months_fr(clean_date)
+                    clean_date = date_part.replace("\r", " ").replace("\n", " ")
+                    clean_date = re.sub(r"\s+", " ", clean_date.strip())
+                    clean_date = translate_months_fr(clean_date
                     r_date = rp.add_run(clean_date)
                     r_date.italic = True
                     r_date.font.size = Pt(9)
