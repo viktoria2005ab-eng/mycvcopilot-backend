@@ -335,12 +335,14 @@ def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
     # Si on a 2 colonnes → on force VRAIMENT les largeurs sur les cellules
     if cols == 2:
         try:
-            widths = [Cm(16), Cm(1.8)]  # gauche ≈ toute la largeur, droite = dates serrées
+            # Largeur totale : 14 + 3 = 17 cm ≈ largeur texte avec marges "étroites"
+            # Colonne gauche : 14 cm (formation)
+            # Colonne droite : 3 cm (dates + ville) → assez large pour tenir sur UNE ligne
+            widths = [Cm(14), Cm(3)]
             for row in table.rows:
                 for i, w in enumerate(widths):
                     row.cells[i].width = w
         except Exception:
-            # Si Word décide d’ignorer, on n’explose pas
             pass
 
     # Insérer le tableau juste après le paragraphe ancre
@@ -718,15 +720,15 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 # Colonne droite : dates en italique + éventuellement lieu en dessous
                 rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                # 🔧 On pousse un peu le texte dans la marge droite
-                rp.paragraph_format.right_indent = Cm(-0.4)  # tu peux tester -0.3 / -0.5
+                # (on enlève la ligne avec right_indent)
                 if date_part:
-                    clean_date = date_part.replace("\n", " ").replace("  ", " ")
+                    import re  # déjà importé en haut, donc c’est ok
+    
+                    clean_date = re.sub(r"\s+", " ", date_part.strip())
                     clean_date = translate_months_fr(clean_date)
-                
-                    r_date = rp.add_run(clean_date)
-                    r_date.italic = True
-                    r_date.font.size = Pt(9)
+                        r_date = rp.add_run(clean_date)
+                        r_date.italic = True
+                        r_date.font.size = Pt(9)
             
                 # Chercher une ligne qui ressemble à un lieu (contient une virgule)
                 location = ""
