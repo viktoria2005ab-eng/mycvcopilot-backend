@@ -325,24 +325,37 @@ def _remove_paragraph(p: Paragraph):
 def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
     """
     Ajoute un tableau juste après le paragraphe.
-    Pour 2 colonnes : grosse colonne gauche (texte), petite colonne droite (dates).
+
+    Objectifs :
+    - 2 colonnes : texte formation à gauche, dates à droite
+    - Largeur TOTALE légèrement réduite pour éviter l'effet "dates collées à la marge"
+    - Largeurs forcées sur les colonnes (Word + LibreOffice)
     """
     doc = paragraph.part.document
     table = doc.add_table(rows=rows, cols=cols)
-    table.alignment = WD_TABLE_ALIGNMENT.LEFT
+
+    # On ne laisse pas Word/LibreOffice recalculer les largeurs
     table.autofit = False
 
-    # Si on a 2 colonnes → on force VRAIMENT les largeurs sur les cellules
     if cols == 2:
         try:
-            # Largeur totale ≈ 16 cm : 12,5 cm de texte + 3,5 cm pour les dates
-            # → la colonne dates est assez large pour rester sur UNE ligne
-            widths = [Cm(12.5), Cm(3.5)]
+            # Largeur totale cible ≈ 15 cm :
+            # 11,5 cm de texte + 3,5 cm pour les dates
+            widths = [Cm(11.5), Cm(3.5)]
+
+            # Largeur sur les colonnes
+            for col, w in zip(table.columns, widths):
+                col.width = w
+
+            # Sécurité : on force aussi la largeur sur chaque cellule
             for row in table.rows:
-                for i, w in enumerate(widths):
-                    row.cells[i].width = w
+                for j, w in enumerate(widths):
+                    row.cells[j].width = w
         except Exception:
             pass
+
+    # On centre le tableau dans la zone de texte
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
 
     # Insérer le tableau juste après le paragraphe ancre
     paragraph._p.addnext(table._tbl)
@@ -719,17 +732,28 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 # Colonne droite : dates en italique + éventuellement lieu en dessous
                 rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                
+                rp.paragraph_format.space_after = Pt(0)
+
                 if date_part:
-                    import re  # déjà importé en haut, donc c’est ok
-    
+                    import re  # déjà importé en haut, ce n'est pas grave si tu le remets ici
+
+                    # On nettoie la date
                     clean_date = date_part.replace("\r", " ").replace("\n", " ")
                     clean_date = re.sub(r"\s+", " ", clean_date.strip())
+
+                    # Traduction des mois en français
                     clean_date = translate_months_fr(clean_date)
+
+                    # On rend les espaces "collés" pour éviter les retours à la ligne
+                    # "Sept 2018 – Juin 2020" devient une seule "brique"
+                    clean_date = clean_date.replace(" - ", " – ")
+                    # On remplace les espaces normaux par des espaces insécables
+                    clean_date = clean_date.replace(" ", "\u00A0")
+
                     r_date = rp.add_run(clean_date)
                     r_date.italic = True
-                    r_date.font.size = Pt(9)
-            
+                    r_date.font.size = Pt(9)  # si ça casse encore, tu pourras descendre à Pt(8)
+
                 # Chercher une ligne qui ressemble à un lieu (contient une virgule)
                 location = ""
                 for line in block:
@@ -737,11 +761,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     if "," in t and "matières" not in t.lower() and "cours pertinents" not in t.lower():
                         location = t
                         break
+
                 if location:
                     rp.add_run("\n")
                     r_loc = rp.add_run(location)
-                    r_loc.italic = True      # ville/pays en italique
-                    r_loc.font.size = Pt(9)  # taille 9 comme les dates
+                    r_loc.italic = True
+                    r_loc.font.size = Pt(9)
+                    rp.paragraph_format.space_after = Pt(0)
 
             _remove_paragraph(p)
             continue
