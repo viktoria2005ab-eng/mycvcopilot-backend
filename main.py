@@ -342,7 +342,7 @@ def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
             # Largeur totale ≈ 18,5 cm :
             # 15 cm de texte + 3,5 cm pour les dates
             # → texte bien large + plus de place pour la date (évite qu'elle casse)
-            widths = [Cm(15.0), Cm(3.5)]
+            widths = [Cm(15.5), Cm(3.5)]
 
             # Largeur sur les colonnes
             for col, w in zip(table.columns, widths):
@@ -578,8 +578,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     # Réduire les marges gauche/droite pour occuper plus de largeur sur la page
     # (Word ET PDF, car le PDF reprend la mise en page Word)
     for section in doc.sections:
-        section.left_margin = Cm(1.0)   # avant sans doute ~2,5 cm
-        section.right_margin = Cm(1.0)
+        section.left_margin = Cm(1.0)   
+        section.right_margin = Cm(0.5)
         # optionnel : tu peux aussi réduire un peu haut/bas si tu veux            
         # section.top_margin = Cm(1.5)
         # section.bottom_margin = Cm(1.5)
