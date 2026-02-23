@@ -339,10 +339,10 @@ def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
 
     if cols == 2:
         try:
-            # Largeur totale ≈ 18 cm :
-            # 14 cm de texte + 4 cm pour les dates
-            # → le tableau utilise presque toute la largeur, moins de trou à droite
-            widths = [Cm(15.5), Cm(3.0)]
+            # Largeur totale ≈ 18,5 cm :
+            # 15 cm de texte + 3,5 cm pour les dates
+            # → texte bien large + plus de place pour la date (évite qu'elle casse)
+            widths = [Cm(15.0), Cm(3.5)]
 
             # Largeur sur les colonnes
             for col, w in zip(table.columns, widths):
@@ -661,11 +661,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         title_part = " — ".join(parts[:-1]).strip()
                         date_part = parts[-1].strip()
 
+                # Tableau 2 colonnes (texte / dates) - largeurs gérées dans _add_table_after
                 table = _add_table_after(anchor, rows=1, cols=2)
-                
-                # On laisse _add_table_after gérer les largeurs (14.5 cm / 2 cm)
-                left = table.cell(0, 0)
-                right = table.cell(0, 1)
                 left = table.cell(0, 0)
                 right = table.cell(0, 1)
 
@@ -673,95 +670,102 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 left.text = ""
                 right.text = ""
 
-                # Colonne gauche : titre en gras (taille 11)
+                # --------- Colonne gauche : titre + détails ---------
                 lp = left.paragraphs[0]
+
+                # on force un style "normal" sans puce ni retrait
+                try:
+                    lp.style = doc.styles["Normal"]
+                except Exception:
+                    pass
+                lp.paragraph_format.left_indent = Pt(0)
+                lp.paragraph_format.first_line_indent = Pt(0)
+
+                # Titre en gras (taille 11)
                 title_run = lp.add_run(title_part)
                 title_run.bold = True
-                title_run.font.size = Pt(11)  # titre de diplôme un poil plus gros
+                title_run.font.size = Pt(11)
 
                 # Lignes suivantes dans la même cellule (sous le titre)
                 for line in block[1:]:
                     text = (line or "").strip()
                     if not text:
                         continue
-            
+
                     lower = text.lower()
+
+                    # Nouveau paragraphe "propre" (pas de puce, pas de retrait)
+                    para = left.add_paragraph()
+                    try:
+                        para.style = doc.styles["Normal"]
+                    except Exception:
+                        pass
+                    para.paragraph_format.left_indent = Pt(0)
+                    para.paragraph_format.first_line_indent = Pt(0)
+
                     if "cours pertinents" in lower or "matières" in lower:
                         # On garde uniquement ce qu'il y a après ":"
                         after = ""
                         if ":" in text:
                             after = text.split(":", 1)[1]
-            
-                        para = left.add_paragraph()
+
                         label = para.add_run("Matières fondamentales :")
                         label.underline = True
                         label.font.size = Pt(10)
-            
+
                         if after.strip():
                             r2 = para.add_run(after.strip())
                             r2.font.size = Pt(10)
 
                     elif text.lower().startswith("mémoire"):
-                        para = left.add_paragraph()
                         before, sep, after = text.partition(":")
                         label = para.add_run(before + sep)
                         label.underline = True
                         label.font.size = Pt(10)
-                    
                         if after.strip():
                             r2 = para.add_run(" " + after.strip())
                             r2.font.size = Pt(10)
-                    elif text.lower().startswith("travail de fin"):
-                        para = left.add_paragraph()
-                        before, sep, after = text.partition(":")
-                        label = para.add_run(before + sep)
-                        label.underline = True
-                        label.font.size = Pt(10)
-                    
-                        if after.strip():
-                            r2 = para.add_run(" " + after.strip())
-                            r2.font.size = Pt(10)
-                    
-                    elif text.lower().startswith("projet de recherche"):
-                        para = left.add_paragraph()
-                        before, sep, after = text.partition(":")
-                        label = para.add_run(before + sep)
-                        label.underline = True
-                        label.font.size = Pt(10)
-                    
-                        if after.strip():
-                            r2 = para.add_run(" " + after.strip())
-                            r2.font.size = Pt(10)
-                    else:
-                        para = left.add_paragraph(text)
-                        # tout le reste de la ligne en taille 10
-                        for r in para.runs:
-                            r.font.size = Pt(10)
 
-                # Colonne droite : dates en italique + éventuellement lieu en dessous
+                    elif text.lower().startswith("travail de fin"):
+                        before, sep, after = text.partition(":")
+                        label = para.add_run(before + sep)
+                        label.underline = True
+                        label.font.size = Pt(10)
+                        if after.strip():
+                            r2 = para.add_run(" " + after.strip())
+                            r2.font.size = Pt(10)
+
+                    elif text.lower().startswith("projet de recherche"):
+                        before, sep, after = text.partition(":")
+                        label = para.add_run(before + sep)
+                        label.underline = True
+                        label.font.size = Pt(10)
+                        if after.strip():
+                            r2 = para.add_run(" " + after.strip())
+                            r2.font.size = Pt(10)
+
+                    else:
+                        # Lignes normales (classement, etc.)
+                        run = para.add_run(text)
+                        run.font.size = Pt(10)
+
+                # --------- Colonne droite : dates + lieu ---------
                 rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
                 rp.paragraph_format.space_after = Pt(0)
 
                 if date_part:
-                    import re  # déjà importé en haut, ce n'est pas grave si tu le remets ici
+                    import re  # OK même si déjà importé en haut
 
-                    # On nettoie la date
                     clean_date = date_part.replace("\r", " ").replace("\n", " ")
                     clean_date = re.sub(r"\s+", " ", clean_date.strip())
-
-                    # Traduction des mois en français
                     clean_date = translate_months_fr(clean_date)
-
-                    # On rend les espaces "collés" pour éviter les retours à la ligne
-                    # "Sept 2018 – Juin 2020" devient une seule "brique"
                     clean_date = clean_date.replace(" - ", " – ")
-                    # On remplace les espaces normaux par des espaces insécables
-                    clean_date = clean_date.replace(" ", "\u00A0")
+                    clean_date = clean_date.replace(" ", "\u00A0")  # espaces insécables
 
                     r_date = rp.add_run(clean_date)
                     r_date.italic = True
-                    r_date.font.size = Pt(9)  # si ça casse encore, tu pourras descendre à Pt(8)
+                    r_date.font.size = Pt(9)
 
                 # Chercher une ligne qui ressemble à un lieu (contient une virgule)
                 location = ""
