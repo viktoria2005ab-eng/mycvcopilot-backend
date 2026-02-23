@@ -647,7 +647,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 blocks.append(current_block)
 
             # 2) Pour chaque formation, créer un tableau 1 ligne / 2 colonnes
-            for block in blocks:
+            #    + ajouter un petit espace entre chaque formation
+            for idx, block in enumerate(blocks):
                 if not block:
                     continue
 
@@ -662,7 +663,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         title_part = " — ".join(parts[:-1]).strip()
                         date_part = parts[-1].strip()
 
-                # Tableau 2 colonnes (texte / dates) - largeurs gérées dans _add_table_after
+                # Tableau 2 colonnes (texte / dates)
                 table = _add_table_after(anchor, rows=1, cols=2)
                 left = table.cell(0, 0)
                 right = table.cell(0, 1)
@@ -673,8 +674,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                 # --------- Colonne gauche : titre + détails ---------
                 lp = left.paragraphs[0]
-
-                # on force un style "normal" sans puce ni retrait
                 try:
                     lp.style = doc.styles["Normal"]
                 except Exception:
@@ -694,8 +693,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         continue
 
                     lower = text.lower()
-
-                    # Nouveau paragraphe "propre" (pas de puce, pas de retrait)
                     para = left.add_paragraph()
                     try:
                         para.style = doc.styles["Normal"]
@@ -705,7 +702,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     para.paragraph_format.first_line_indent = Pt(0)
 
                     if "cours pertinents" in lower or "matières" in lower:
-                        # On garde uniquement ce qu'il y a après ":"
                         after = ""
                         if ":" in text:
                             after = text.split(":", 1)[1]
@@ -718,7 +714,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                             r2 = para.add_run(after.strip())
                             r2.font.size = Pt(10)
 
-                    elif text.lower().startswith("mémoire"):
+                    elif text.startswith("Mémoire") or lower.startswith("mémoire"):
                         before, sep, after = text.partition(":")
                         label = para.add_run(before + sep)
                         label.underline = True
@@ -727,7 +723,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                             r2 = para.add_run(" " + after.strip())
                             r2.font.size = Pt(10)
 
-                    elif text.lower().startswith("travail de fin"):
+                    elif lower.startswith("travail de fin"):
                         before, sep, after = text.partition(":")
                         label = para.add_run(before + sep)
                         label.underline = True
@@ -736,7 +732,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                             r2 = para.add_run(" " + after.strip())
                             r2.font.size = Pt(10)
 
-                    elif text.lower().startswith("projet de recherche"):
+                    elif lower.startswith("projet de recherche"):
                         before, sep, after = text.partition(":")
                         label = para.add_run(before + sep)
                         label.underline = True
@@ -746,7 +742,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                             r2.font.size = Pt(10)
 
                     else:
-                        # Lignes normales (classement, etc.)
                         run = para.add_run(text)
                         run.font.size = Pt(10)
 
@@ -756,13 +751,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 rp.paragraph_format.space_after = Pt(0)
 
                 if date_part:
-                    import re  # OK même si déjà importé en haut
-
+                    import re
                     clean_date = date_part.replace("\r", " ").replace("\n", " ")
                     clean_date = re.sub(r"\s+", " ", clean_date.strip())
                     clean_date = translate_months_fr(clean_date)
                     clean_date = clean_date.replace(" - ", " – ")
-                    clean_date = clean_date.replace(" ", "\u00A0")  # espaces insécables
+                    clean_date = clean_date.replace(" ", "\u00A0")
 
                     r_date = rp.add_run(clean_date)
                     r_date.italic = True
@@ -776,13 +770,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         location = t
                         break
 
-                # Si aucun lieu explicite dans le bloc, on met au moins la ville globale du profil
+                # Si aucun lieu explicite dans le bloc, on met au moins la ville du profil
                 if not location:
                     location = (payload.get("city") or "").strip()
 
                 if location:
                     loc_text = location.strip()
-                    # Si on n'a pas déjà un "Ville, Pays", on ajoute ", France"
                     if "," not in loc_text:
                         loc_text = loc_text + ", France"
 
@@ -791,10 +784,16 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     r_loc.italic = True
                     r_loc.font.size = Pt(9)
                     rp.paragraph_format.space_after = Pt(0)
-            # 🔹 Ajouter une ligne vide pour créer un espace entre chaque formation
-            spacer_row = table.add_row()
-            for cell in spacer_row.cells:
-                cell.text = ""
+
+                # 🔹 Ajouter une "ligne" vide entre cette formation et la suivante
+                #    (sauf après la dernière)
+                if idx < len(blocks) - 1:
+                    spacer_row = table.add_row()
+                    for cell in spacer_row.cells:
+                        cell.text = ""
+
+                # pour que la prochaine insertion se fasse après ce tableau
+                anchor = p
 
             _remove_paragraph(p)
             continue
