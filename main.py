@@ -339,10 +339,11 @@ def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
 
     if cols == 2:
         try:
-            # Largeur totale ≈ 19,5 cm : on pousse la table quasiment jusqu'au trait
-            # 15,7 cm de texte + 3,8 cm pour les dates
+        
+            # 15,3 cm de texte + 3,7 cm pour les dates
             # → texte bien large + plus de place pour la date (évite qu'elle casse)
-            widths = [Cm(15.7), Cm(3.8)]
+            # Largeur totale ≈ 19 cm : très proche du bord mais sans dépasser
+            widths = [Cm(15.3), Cm(3.7)]
 
             # Largeur sur les colonnes
             for col, w in zip(table.columns, widths):
@@ -780,8 +781,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     location = (payload.get("city") or "").strip()
 
                 if location:
+                    loc_text = location.strip()
+                    # Si on n'a pas déjà un "Ville, Pays", on ajoute ", France"
+                    if "," not in loc_text:
+                        loc_text = loc_text + ", France"
+
                     rp.add_run("\n")
-                    r_loc = rp.add_run(location)
+                    r_loc = rp.add_run(loc_text)
                     r_loc.italic = True
                     r_loc.font.size = Pt(9)
                     rp.paragraph_format.space_after = Pt(0)
