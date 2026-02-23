@@ -744,6 +744,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     else:
                         run = para.add_run(text)
                         run.font.size = Pt(10)
+                # Petit espace visuel sous chaque formation
+                spacer = left.add_paragraph()
+                spacer.paragraph_format.space_after = Pt(6)
 
                 # --------- Colonne droite : dates + lieu ---------
                 rp = right.paragraphs[0]
@@ -784,13 +787,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     r_loc.italic = True
                     r_loc.font.size = Pt(9)
                     rp.paragraph_format.space_after = Pt(0)
-
-                # 🔹 Ajouter une "ligne" vide entre cette formation et la suivante
-                #    (sauf après la dernière)
-                if idx < len(blocks) - 1:
-                    spacer_row = table.add_row()
-                    for cell in spacer_row.cells:
-                        cell.text = ""
 
                 # pour que la prochaine insertion se fasse après ce tableau
                 anchor = p
