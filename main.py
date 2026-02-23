@@ -342,7 +342,7 @@ def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
             # Largeur totale ≈ 18 cm :
             # 14 cm de texte + 4 cm pour les dates
             # → le tableau utilise presque toute la largeur, moins de trou à droite
-            widths = [Cm(14.0), Cm(4.0)]
+            widths = [Cm(15.5), Cm(3.0)]
 
             # Largeur sur les colonnes
             for col, w in zip(table.columns, widths):
