@@ -896,60 +896,90 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             _remove_paragraph(p)
             continue
 
-        # ------- EXPERIENCE : tableau premium -------
+        # ------- EXPERIENCE : même logique que FORMATION (tableau 2 colonnes) -------
         if ph == "%%EXPERIENCE%%":
             exps = parse_finance_experiences(value or [])
             anchor = p
 
-            # Si pas au format ROLE/COMPANY/etc, on met en bullets classiques
+            # Si jamais le modèle n'a pas respecté le format ROLE/COMPANY/etc.
             if not exps:
                 _insert_lines_after(p, value or [], make_bullets=True)
                 continue
 
             for exp in exps:
-                title = exp.get("role", "")
-                if exp.get("company"):
-                    title += f" - {exp['company']}"
-
-                tpara = _insert_paragraph_after(anchor, title)
-                tpara.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                if tpara.runs:
-                    tpara.runs[0].bold = True
-                    tpara.runs[0].font.size = Pt(11)
-
-                table = _add_table_after(tpara, rows=1, cols=2)
+                # Création du tableau 1 ligne / 2 colonnes (comme pour la formation)
+                table = _add_table_after(anchor, rows=1, cols=2)
                 left = table.cell(0, 0)
                 right = table.cell(0, 1)
 
-                # Colonne gauche : bullets
                 left.text = ""
+                right.text = ""
+
+                # --------- Colonne gauche : titre + bullets ---------
+                lp = left.paragraphs[0]
+                try:
+                    lp.style = doc.styles["Normal"]
+                except Exception:
+                    pass
+                lp.paragraph_format.left_indent = Pt(0)
+                lp.paragraph_format.first_line_indent = Pt(0)
+
+                # Titre = ROLE + COMPANY en gras
+                role = (exp.get("role") or "").strip()
+                company = (exp.get("company") or "").strip()
+                title_parts = [x for x in [role, company] if x]
+                title_line = " - ".join(title_parts)
+
+                if title_line:
+                    title_run = lp.add_run(title_line)
+                    title_run.bold = True
+                    title_run.font.size = Pt(11)
+
+                # Bullets de l'expérience
                 for b in exp.get("bullets", []):
-                    bp = left.add_paragraph()  # pas de style direct
+                    if not b:
+                        continue
+                    bp = left.add_paragraph()
                     try:
                         bp.style = "List Bullet"
                         bp.add_run(b)
                     except Exception:
-                        # si le style n'existe pas dans le template
                         bp.text = f"• {b}"
                     bp.paragraph_format.space_after = Pt(0)
 
-                # Colonne droite : dates + lieu/type
-                right.text = ""
+                # --------- Colonne droite : dates + lieu/type ---------
                 rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                rp.paragraph_format.space_after = Pt(0)
 
-                block_lines = [x for x in [exp.get("dates", "")] if x]
-                second = " - ".join(
-                    [x for x in [exp.get("location", ""), exp.get("type", "")] if x]
-                ).strip()
-                if second:
-                    block_lines.append(second)
+                # Dates
+                dates_raw = (exp.get("dates") or "").strip()
+                if dates_raw:
+                    clean_date = dates_raw.replace("\r", " ").replace("\n", " ")
+                    clean_date = re.sub(r"\s+", " ", clean_date.strip())
+                    clean_date = translate_months_fr(clean_date)
+                    clean_date = clean_date.replace(" - ", " – ")
+                    clean_date = clean_date.replace(" ", "\u00A0")
 
-                rr = rp.add_run("\n".join(block_lines))
-                rr.italic = True
-                rr.font.size = Pt(9)
+                    r_date = rp.add_run(clean_date)
+                    r_date.italic = True
+                    r_date.font.size = Pt(9)
 
-                anchor = tpara
+                # Deuxième ligne : lieu + type (Stage / Internship / etc.)
+                location = (exp.get("location") or "").strip()
+                type_ = (exp.get("type") or "").strip()
+                second_parts = [x for x in [location, type_] if x]
+
+                if second_parts:
+                    rp.add_run("\n")
+                    r2 = rp.add_run(" - ".join(second_parts))
+                    r2.italic = True
+                    r2.font.size = Pt(9)
+
+                # Paragraphe vide après le tableau pour ancrer l'expérience suivante
+                new_p_elt = OxmlElement("w:p")
+                table._tbl.addnext(new_p_elt)
+                anchor = Paragraph(new_p_elt, p._parent)
 
             _remove_paragraph(p)
             continue
