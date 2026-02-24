@@ -817,8 +817,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         run.font.size = Pt(10)
 
                 # Petit espace visuel sous chaque formation
-                spacer = left.add_paragraph()
-                spacer.paragraph_format.space_after = Pt(6)
 
                 # --------- Colonne droite : dates + lieu ---------
                 rp = right.paragraphs[0]
