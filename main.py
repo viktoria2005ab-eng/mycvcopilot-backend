@@ -649,6 +649,27 @@ def _keep_bac_block(block: list[str]) -> bool:
         return True
 
     return False
+
+def normalize_contract_type(t: str) -> str:
+    if not t:
+        return ""
+
+    t_clean = t.strip().lower()
+
+    mapping = {
+        "internship": "Stage",
+        "intern": "Stage",
+        "apprenticeship": "Alternance",
+        "traineeship": "Stage",
+        "full-time": "CDI",
+        "full time": "CDI",
+        "part-time": "Temps partiel",
+        "part time": "Temps partiel",
+        "temporary": "CDD",
+        "contract": "CDD",
+    }
+
+    return mapping.get(t_clean, t)
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
     # Réduire les marges gauche/droite pour occuper plus de largeur sur la page
