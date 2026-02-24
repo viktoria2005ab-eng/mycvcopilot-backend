@@ -676,7 +676,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 blocks.append(current_block)
 
             # 👉 Tri du plus récent au plus ancien (année de fin décroissante)
-            blocks.sort(key=_education_block_end_year, reverse=True)
+           
 
             # 2) Trier les formations du plus RÉCENT au plus ANCIEN
             blocks_sorted = sorted(blocks, key=_education_end_year, reverse=True)
