@@ -573,27 +573,28 @@ def _render_education(anchor: Paragraph, lines: list[str]):
         last = _insert_paragraph_after(last, line)
 
     return last
-def _education_block_end_year(block: list[str]) -> int:
+def _education_end_year(block: list[str]) -> int:
     """
-    Retourne l'année de fin de la formation (ex : 2025)
-    à partir de la première ligne du bloc, sinon 0.
-
-    Exemple de première ligne :
-    "Master Finance – Université Paris Dauphine — Sep 2023 – Jun 2025"
+    Essaie de récupérer l'année de fin à partir de la première ligne du bloc
+    ex : 'Programme Grande École – ESCP ... — Sep 2022 – Jun 2026'
+    → 2026
     """
     if not block:
         return 0
+    first_line = (block[0] or "").strip()
+    date_part = ""
+    if "—" in first_line:
+        parts = first_line.split("—")
+        if len(parts) >= 2:
+            date_part = parts[-1].strip()
 
-    first_line = (block[0] or "")
-
-    # On cherche toutes les années à 4 chiffres dans la ligne
-    # et on prend la plus grande (-> année de fin)
-    years = re.findall(r"\b((?:19|20)\d{2})\b", first_line)
-    if not years:
+    match = re.findall(r"(19|20)\d{2}", date_part)
+    if not match:
         return 0
 
-    try:
-        return int(max(years))
+    # on prend le DERNIER nombre rencontré → année de fin
+    year_str = match[-1] if isinstance(match[-1], str) else match[-1][0]
+    return int(year_str)
     except ValueError:
         return 0
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
@@ -671,9 +672,25 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             # 👉 Tri du plus récent au plus ancien (année de fin décroissante)
             blocks.sort(key=_education_block_end_year, reverse=True)
 
-            # 2) Pour chaque formation, créer un tableau 1 ligne / 2 colonnes
+            # 2) Trier les formations du plus RÉCENT au plus ANCIEN
+            blocks_sorted = sorted(blocks, key=_education_end_year, reverse=True)
+
+            # 3) Option : retirer le bac si le profil est déjà chargé
+            filtered_blocks = []
+            for b in blocks_sorted:
+                first_line = (b[0] or "").lower()
+                if ("baccalauréat" in first_line or "baccalaureat" in first_line or " bac " in first_line) and len(blocks_sorted) >= 3:
+                    # on SKIP le bac
+                    continue
+                filtered_blocks.append(b)
+
+            # 4) Pour chaque formation, créer un tableau 1 ligne / 2 colonnes
             #    + ajouter un petit espace entre chaque formation
-            for idx, block in enumerate(blocks):
+            for idx, block in enumerate(filtered_blocks):
+                if not block:
+                    continue
+
+                first_line = block[0]
                 
                 if not block:
                     continue
@@ -795,9 +812,24 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 location = ""
                 for line in block:
                     t = (line or "").strip()
-                    if "," in t and "matières" not in t.lower() and "cours pertinents" not in t.lower():
-                        location = t
-                        break
+                    lower_t = t.lower()
+
+                    # on EXCLUT les lignes de contenu académique
+                    if "," not in t:
+                        continue
+                    if (
+                        "matières" in lower_t
+                        or "cours pertinents" in lower_t
+                        or lower_t.startswith("spécialités")
+                        or lower_t.startswith("specialites")
+                        or lower_t.startswith("option")
+                        or lower_t.startswith("majeure")
+                        or lower_t.startswith("concours")
+                    ):
+                        continue
+
+                    location = t
+                    break
 
                 # Si aucun lieu explicite dans le bloc, on met au moins la ville du profil
                 if not location:
