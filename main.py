@@ -866,9 +866,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     break
 
                 if not location:
-                    # Si aucune vraie ville détectée dans le bloc,
-                    # on met par défaut la ville fournie dans le payload
-                    location = (payload.get("city") or "").strip()
+                    location = ""
 
                 if location:
                     loc_text = location.strip()
