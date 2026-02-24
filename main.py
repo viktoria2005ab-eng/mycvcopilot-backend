@@ -733,6 +733,15 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     continue
 
                 first_line = block[0]
+                # --- Normalisation des intitulés d’échange en français ---
+                lower_first = first_line.lower()
+                
+                if "exchange semester" in lower_first or "exchange program" in lower_first:
+                    first_line = re.sub(r"(?i)exchange semester", "Échange académique", first_line)
+                    first_line = re.sub(r"(?i)exchange program", "Échange académique", first_line)
+                
+                if "study abroad" in lower_first:
+                    first_line = re.sub(r"(?i)study abroad", "Échange académique", first_line)
 
                 # Découper titre / dates sur le dernier "—"
                 title_part = first_line
