@@ -680,14 +680,52 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
             # 2) Trier les formations du plus RÉCENT au plus ANCIEN
             blocks_sorted = sorted(blocks, key=_education_end_year, reverse=True)
-
+        
             # 3) Option : retirer le bac si le profil est déjà chargé
             filtered_blocks = []
             for b in blocks_sorted:
-                first_line = (b[0] or "").lower()
-                if ("baccalauréat" in first_line or "baccalaureat" in first_line or " bac " in first_line) and len(blocks_sorted) >= 3:
-                    # on SKIP le bac
+                first_line_raw = b[0] or ""
+                first_line = first_line_raw.lower()
+        
+                # Est-ce que c'est un bac ?
+                is_bac = (
+                    "baccalauréat" in first_line
+                    or "baccalaureat" in first_line
+                    or re.search(r"\bbac\b", first_line) is not None
+                )
+        
+                # Lycée d’exception → on GARDE le bac
+                elite_keywords = [
+                    "henri iv",
+                    "henry iv",
+                    "louis-le-grand",
+                    "louis le grand",
+                    "sainte-geneviève",
+                    "sainte genevieve",
+                    "ste-geneviève",
+                    "ste genevieve",
+                    "ginette",
+                ]
+                is_elite_school = any(k in first_line for k in elite_keywords)
+        
+                # Bac / diplôme vraiment international → on GARDE
+                international_keywords = [
+                    "international",
+                    "ib",
+                    "international baccalaureate",
+                    "maturité",
+                    "maturite",
+                    "matu",
+                    "abibac",
+                    "european baccalaureate",
+                ]
+                is_international = any(k in first_line for k in international_keywords)
+        
+                # Règle finale : si c'est un bac "classique" et qu'il y a déjà
+                # au moins 3 blocs de formation, on le supprime.
+                if is_bac and not is_elite_school and not is_international and len(blocks_sorted) >= 3:
                     continue
+        
                 filtered_blocks.append(b)
 
             # 4) Pour chaque formation, créer un tableau 1 ligne / 2 colonnes
@@ -750,47 +788,43 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     para.paragraph_format.left_indent = Pt(0)
                     para.paragraph_format.first_line_indent = Pt(0)
 
-                    if "cours pertinents" in lower or "matières" in lower:
-                        after = ""
-                        if ":" in text:
-                            after = text.split(":", 1)[1]
+                    # Tous les "sous-titres" du style:
+                    # Spécialités: ..., Option: ..., Concours: ..., Projet de groupe: ...
+                    label_keywords = [
+                        "matières",
+                        "matiere",
+                        "cours pertinents",
+                        "spécialités",
+                        "specialites",
+                        "option",
+                        "majeure",
+                        "concours",
+                        "mémoire",
+                        "memoire",
+                        "travail de fin",
+                        "projet de recherche",
+                        "projet de groupe",
+                    ]
 
-                        label = para.add_run("Matières fondamentales :")
-                        label.underline = True
-                        label.font.size = Pt(10)
-
-                        if after.strip():
-                            r2 = para.add_run(after.strip())
-                            r2.font.size = Pt(10)
-
-                    elif text.startswith("Mémoire") or lower.startswith("mémoire"):
+                    if ":" in text and any(k in lower for k in label_keywords):
                         before, sep, after = text.partition(":")
-                        label = para.add_run(before + sep)
-                        label.underline = True
-                        label.font.size = Pt(10)
+
+                        # Normalisation "Cours pertinents" -> "Matières fondamentales"
+                        label_clean = before.strip()
+                        if "cours pertinents" in lower or "matières" in lower:
+                            label_clean = "Matières fondamentales"
+
+                        label = label_clean + " :"
+
+                        r1 = para.add_run(label)
+                        r1.underline = True
+                        r1.font.size = Pt(10)
+
                         if after.strip():
                             r2 = para.add_run(" " + after.strip())
                             r2.font.size = Pt(10)
-
-                    elif lower.startswith("travail de fin"):
-                        before, sep, after = text.partition(":")
-                        label = para.add_run(before + sep)
-                        label.underline = True
-                        label.font.size = Pt(10)
-                        if after.strip():
-                            r2 = para.add_run(" " + after.strip())
-                            r2.font.size = Pt(10)
-
-                    elif lower.startswith("projet de recherche"):
-                        before, sep, after = text.partition(":")
-                        label = para.add_run(before + sep)
-                        label.underline = True
-                        label.font.size = Pt(10)
-                        if after.strip():
-                            r2 = para.add_run(" " + after.strip())
-                            r2.font.size = Pt(10)
-
                     else:
+                        # Ligne normale (classement, etc.)
                         run = para.add_run(text)
                         run.font.size = Pt(10)
                 # Petit espace visuel sous chaque formation
