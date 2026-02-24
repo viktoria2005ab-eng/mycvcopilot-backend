@@ -575,26 +575,32 @@ def _render_education(anchor: Paragraph, lines: list[str]):
     return last
 def _education_end_year(block: list[str]) -> int:
     """
-    Essaie de récupérer l'année de fin à partir de la première ligne du bloc
-    ex : 'Programme Grande École – ESCP ... — Sep 2022 – Jun 2026'
-    → 2026
+    Récupère l'année de fin à partir de la première ligne du bloc.
+    Ex :
+    'Programme Grande École – ESCP — Sep 2022 – Jun 2026'
+    -> 2026
     """
+
     if not block:
         return 0
+
     first_line = (block[0] or "").strip()
+
     date_part = ""
     if "—" in first_line:
         parts = first_line.split("—")
         if len(parts) >= 2:
             date_part = parts[-1].strip()
 
-    match = re.findall(r"(19|20)\d{2}", date_part)
-    if not match:
+    # On récupère toutes les années à 4 chiffres
+    years = re.findall(r"(?:19|20)\d{2}", date_part)
+
+    if not years:
         return 0
 
-    # on prend le DERNIER nombre rencontré → année de fin
-    year_str = match[-1] if isinstance(match[-1], str) else match[-1][0]
-    return int(year_str)
+    try:
+        # On prend la dernière année trouvée (année de fin)
+        return int(years[-1])
     except ValueError:
         return 0
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
