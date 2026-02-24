@@ -991,7 +991,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                 # Deuxième ligne : lieu + type (Stage / Internship / etc.)
                 location = (exp.get("location") or "").strip()
-                type_ = (exp.get("type") or "").strip()
+                # On normalise le type de contrat (Internship -> Stage, etc.)
+                raw_type = (exp.get("type") or "").strip()
+                type_ = normalize_contract_type(raw_type)
                 second_parts = [x for x in [location, type_] if x]
 
                 if second_parts:
