@@ -580,7 +580,6 @@ def _education_end_year(block: list[str]) -> int:
     'Programme Grande École – ESCP — Sep 2022 – Jun 2026'
     -> 2026
     """
-
     if not block:
         return 0
 
@@ -592,17 +591,59 @@ def _education_end_year(block: list[str]) -> int:
         if len(parts) >= 2:
             date_part = parts[-1].strip()
 
-    # On récupère toutes les années à 4 chiffres
     years = re.findall(r"(?:19|20)\d{2}", date_part)
-
     if not years:
         return 0
 
     try:
-        # On prend la dernière année trouvée (année de fin)
-        return int(years[-1])
+        return int(years[-1])  # dernière année = année de fin
     except ValueError:
         return 0
+
+
+def _is_bac_block(block: list[str]) -> bool:
+    """Retourne True si le bloc correspond à un baccalauréat classique."""
+    if not block:
+        return False
+    first = (block[0] or "").lower()
+    return "baccalauréat" in first or "baccalaureat" in first
+
+
+def _keep_bac_block(block: list[str]) -> bool:
+    """
+    On garde le bac UNIQUEMENT si :
+    1) lycée d'exception (Henri IV, Louis-le-Grand, lycée international, etc.)
+    2) bac / diplôme international (IB, Abibac, maturité suisse, etc.)
+    3) mention d'honneur type 'félicitations du jury'
+    """
+    text = " ".join(block).lower()
+
+    elite_keywords = [
+        "henri iv", "henri-iv", "henry iv",
+        "louis-le-grand", "louis le grand",
+        "lycée international", "lycee international",
+    ]
+
+    intl_keywords = [
+        "baccalauréat international", "baccalaureat international",
+        "international baccalaureate", "ib diploma", "ib programme",
+        "abibac", "esabac",
+        "maturité suisse", "maturite suisse", "maturité gymnasiale",
+        "matura",
+    ]
+
+    honours_keywords = [
+        "félicitations du jury", "felicitations du jury",
+    ]
+
+    if any(k in text for k in elite_keywords):
+        return True
+    if any(k in text for k in intl_keywords):
+        return True
+    if any(k in text for k in honours_keywords):
+        return True
+
+    return False
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
     # Réduire les marges gauche/droite pour occuper plus de largeur sur la page
@@ -675,67 +716,19 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             if current_block:
                 blocks.append(current_block)
 
-            # 👉 Tri du plus récent au plus ancien (année de fin décroissante)
-           
-
-            # 2) Trier les formations du plus RÉCENT au plus ANCIEN
+            # 2) Trier du plus RÉCENT au plus ANCIEN
             blocks_sorted = sorted(blocks, key=_education_end_year, reverse=True)
-        
-            # 3) Option : retirer le bac si le profil est déjà chargé
+
+            # 3) Option : retirer le bac si le profil est déjà chargé,
+            #    sauf cas spéciaux (lycée d'exception, bac international, mention d'honneur)
             filtered_blocks = []
             for b in blocks_sorted:
-                first_line_raw = b[0] or ""
-                first_line = first_line_raw.lower()
-        
-                # Est-ce que c'est un bac ?
-                is_bac = (
-                    "baccalauréat" in first_line
-                    or "baccalaureat" in first_line
-                    or re.search(r"\bbac\b", first_line) is not None
-                )
-        
-                # Lycée d’exception → on GARDE le bac
-                elite_keywords = [
-                    "henri iv",
-                    "henry iv",
-                    "louis-le-grand",
-                    "louis le grand",
-                    "sainte-geneviève",
-                    "sainte genevieve",
-                    "ste-geneviève",
-                    "ste genevieve",
-                    "ginette",
-                ]
-                is_elite_school = any(k in first_line for k in elite_keywords)
-        
-                # Bac / diplôme vraiment international → on GARDE
-                international_keywords = [
-                    "international",
-                    "ib",
-                    "international baccalaureate",
-                    "maturité",
-                    "maturite",
-                    "matu",
-                    "abibac",
-                    "european baccalaureate",
-                ]
-                is_international = any(k in first_line for k in international_keywords)
-        
-                # Règle finale : si c'est un bac "classique" et qu'il y a déjà
-                # au moins 3 blocs de formation, on le supprime.
-                if is_bac and not is_elite_school and not is_international and len(blocks_sorted) >= 3:
-                    continue
-        
+                if _is_bac_block(b) and len(blocks_sorted) >= 3 and not _keep_bac_block(b):
+                    continue  # on skip le bac "classique"
                 filtered_blocks.append(b)
 
             # 4) Pour chaque formation, créer un tableau 1 ligne / 2 colonnes
-            #    + ajouter un petit espace entre chaque formation
             for idx, block in enumerate(filtered_blocks):
-                if not block:
-                    continue
-
-                first_line = block[0]
-                
                 if not block:
                     continue
 
@@ -755,7 +748,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 left = table.cell(0, 0)
                 right = table.cell(0, 1)
 
-                # Nettoyer les cellules
                 left.text = ""
                 right.text = ""
 
@@ -788,45 +780,32 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     para.paragraph_format.left_indent = Pt(0)
                     para.paragraph_format.first_line_indent = Pt(0)
 
-                    # Tous les "sous-titres" du style:
-                    # Spécialités: ..., Option: ..., Concours: ..., Projet de groupe: ...
-                    label_keywords = [
-                        "matières",
-                        "matiere",
-                        "cours pertinents",
-                        "spécialités",
-                        "specialites",
-                        "option",
-                        "majeure",
-                        "concours",
-                        "mémoire",
-                        "memoire",
-                        "travail de fin",
-                        "projet de recherche",
-                        "projet de groupe",
-                    ]
+                    # ---------- Sous-titres génériques avec ":" souligné ----------
+                    label_text = None
+                    after_text = None
 
-                    if ":" in text and any(k in lower for k in label_keywords):
+                    if ":" in text:
                         before, sep, after = text.partition(":")
+                        # cas particulier : "Cours pertinents" -> "Matières fondamentales"
+                        if "cours pertinents" in before.lower():
+                            label_text = "Matières fondamentales"
+                        else:
+                            label_text = before.strip()
+                        after_text = after or ""
 
-                        # Normalisation "Cours pertinents" -> "Matières fondamentales"
-                        label_clean = before.strip()
-                        if "cours pertinents" in lower or "matières" in lower:
-                            label_clean = "Matières fondamentales"
-
-                        label = label_clean + " :"
-
-                        r1 = para.add_run(label)
-                        r1.underline = True
-                        r1.font.size = Pt(10)
-
-                        if after.strip():
-                            r2 = para.add_run(" " + after.strip())
+                    if label_text:
+                        # label souligné
+                        label_run = para.add_run(label_text + " :")
+                        label_run.underline = True
+                        label_run.font.size = Pt(10)
+                        if after_text.strip():
+                            r2 = para.add_run(" " + after_text.strip())
                             r2.font.size = Pt(10)
                     else:
-                        # Ligne normale (classement, etc.)
+                        # ligne normale
                         run = para.add_run(text)
                         run.font.size = Pt(10)
+
                 # Petit espace visuel sous chaque formation
                 spacer = left.add_paragraph()
                 spacer.paragraph_format.space_after = Pt(6)
@@ -837,7 +816,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 rp.paragraph_format.space_after = Pt(0)
 
                 if date_part:
-                    import re
                     clean_date = date_part.replace("\r", " ").replace("\n", " ")
                     clean_date = re.sub(r"\s+", " ", clean_date.strip())
                     clean_date = translate_months_fr(clean_date)
@@ -848,13 +826,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     r_date.italic = True
                     r_date.font.size = Pt(9)
 
-                # Chercher une ligne qui ressemble à un lieu (contient une virgule)
+                # Chercher un lieu (ligne avec une virgule, mais pas du contenu académique)
                 location = ""
                 for line in block:
                     t = (line or "").strip()
                     lower_t = t.lower()
 
-                    # on EXCLUT les lignes de contenu académique
                     if "," not in t:
                         continue
                     if (
@@ -871,7 +848,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     location = t
                     break
 
-                # Si aucun lieu explicite dans le bloc, on met au moins la ville du profil
                 if not location:
                     location = (payload.get("city") or "").strip()
 
@@ -886,7 +862,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     r_loc.font.size = Pt(9)
                     rp.paragraph_format.space_after = Pt(0)
 
-                # pour que la prochaine insertion se fasse après ce tableau
+                # prochaine insertion après ce tableau
                 anchor = p
 
             _remove_paragraph(p)
