@@ -631,6 +631,10 @@ def _keep_bac_block(block: list[str]) -> bool:
         "abibac", "esabac",
         "maturité suisse", "maturite suisse", "maturité gymnasiale",
         "matura",
+        " ib ",
+        "cess",  # Belgique
+        "certificat d'enseignement secondaire supérieur",
+        "certificat d'enseignement secondaire superieur",
     ]
 
     honours_keywords = [
@@ -720,13 +724,16 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             # 2) Trier du plus RÉCENT au plus ANCIEN
             blocks_sorted = sorted(blocks, key=_education_end_year, reverse=True)
 
-            # 3) Option : retirer le bac si le profil est déjà chargé,
-            #    sauf cas spéciaux (lycée d'exception, bac international, mention d'honneur)
+            # 3) Affichage du bac :
+            #    - on garde le bac uniquement s'il est "spécial" (_keep_bac_block == True)
+            #    - sinon on le supprime, même si le profil est court
             filtered_blocks = []
             for b in blocks_sorted:
-                if _is_bac_block(b) and len(blocks_sorted) >= 3 and not _keep_bac_block(b):
-                    continue  # on skip le bac "classique"
+                # Bac "classique" (pas IB, pas lycée d'exception, pas mention) -> on le cache
+                if _is_bac_block(b) and not _keep_bac_block(b):
+                    continue
                 filtered_blocks.append(b)
+            
 
             # 4) Pour chaque formation, créer un tableau 1 ligne / 2 colonnes
             for idx, block in enumerate(filtered_blocks):
