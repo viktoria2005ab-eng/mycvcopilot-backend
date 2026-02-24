@@ -869,8 +869,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     r_loc.font.size = Pt(9)
                     rp.paragraph_format.space_after = Pt(0)
 
-                # prochaine insertion après ce tableau
-                anchor = p
+                # prochaine insertion après ce tableau : on prend le dernier paragraphe du tableau
+                if left.paragraphs:
+                    anchor = left.paragraphs[-1]
+                else:
+                    anchor = p
 
             _remove_paragraph(p)
             continue
