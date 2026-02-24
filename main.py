@@ -849,6 +849,15 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                     if "," not in t:
                         continue
+                    
+                    # On vérifie que ça ressemble vraiment à une ville
+                    parts = [p.strip() for p in t.split(",")]
+                    if len(parts) != 2:
+                        continue
+                    
+                    # On évite les phrases longues (type description académique)
+                    if len(parts[0].split()) > 3:
+                        continue
                     if (
                         "matières" in lower_t
                         or "cours pertinents" in lower_t
