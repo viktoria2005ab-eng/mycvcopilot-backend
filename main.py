@@ -576,30 +576,28 @@ def _render_education(anchor: Paragraph, lines: list[str]):
 def _education_end_year(block: list[str]) -> int:
     """
     Récupère l'année de fin à partir de la première ligne du bloc.
+    On prend simplement la DERNIÈRE année à 4 chiffres trouvée dans la ligne.
     Ex :
-    'Programme Grande École – ESCP — Sep 2022 – Jun 2026'
-    -> 2026
+      'Programme Grande École – ESCP — Sept 2022 – Juin 2026' -> 2026
+      'Classe préparatoire ECG – Lycée du Parc (2020-2022)'   -> 2022
     """
+
     if not block:
         return 0
 
     first_line = (block[0] or "").strip()
 
-    date_part = ""
-    if "—" in first_line:
-        parts = first_line.split("—")
-        if len(parts) >= 2:
-            date_part = parts[-1].strip()
+    # On cherche toutes les années à 4 chiffres dans la ligne complète
+    years = re.findall(r"(?:19|20)\d{2}", first_line)
 
-    years = re.findall(r"(?:19|20)\d{2}", date_part)
     if not years:
         return 0
 
     try:
-        return int(years[-1])  # dernière année = année de fin
+        # Dernière année = année de fin
+        return int(years[-1])
     except ValueError:
         return 0
-
 
 def _is_bac_block(block: list[str]) -> bool:
     """Retourne True si le bloc correspond à un baccalauréat classique."""
