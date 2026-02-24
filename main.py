@@ -615,6 +615,9 @@ def _keep_bac_block(block: list[str]) -> bool:
     3) mention d'honneur type 'félicitations du jury'
     """
     text = " ".join(block).lower()
+    # Cas spécifiques : honneurs / honeurs du jury
+    if "honneurs du jury" in text or "honeurs du jury" in text:
+        return True
 
     elite_keywords = [
         "henri iv", "henri-iv", "henry iv",
@@ -631,7 +634,7 @@ def _keep_bac_block(block: list[str]) -> bool:
     ]
 
     honours_keywords = [
-        "félicitations du jury", "felicitations du jury",
+        "félicitations du jury", "felicitations du jury", "honneurs du jury"
     ]
 
     if any(k in text for k in elite_keywords):
