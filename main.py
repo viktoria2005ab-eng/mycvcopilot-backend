@@ -340,10 +340,10 @@ def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
     if cols == 2:
         try:
         
-            # 15,3 cm de texte + 3,7 cm pour les dates
+            # 15,1 cm de texte + 3,9 cm pour les dates
             # → texte bien large + plus de place pour la date (évite qu'elle casse)
             # Largeur totale ≈ 19 cm : très proche du bord mais sans dépasser
-            widths = [Cm(15.3), Cm(3.7)]
+            widths = [Cm(15.1), Cm(3.9)]
 
             # Largeur sur les colonnes
             for col, w in zip(table.columns, widths):
