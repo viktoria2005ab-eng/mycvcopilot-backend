@@ -852,11 +852,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     if (
                         "matières" in lower_t
                         or "cours pertinents" in lower_t
-                        or lower_t.startswith("spécialités")
-                        or lower_t.startswith("specialites")
-                        or lower_t.startswith("option")
-                        or lower_t.startswith("majeure")
-                        or lower_t.startswith("concours")
+                        or "gpa" in lower_t
+                        or "mention" in lower_t
+                        or "option" in lower_t
+                        or "majeure" in lower_t
+                        or "concours" in lower_t
+                        or "boursier" in lower_t
+                        or "dean" in lower_t
                     ):
                         continue
 
@@ -864,6 +866,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     break
 
                 if not location:
+                    # Si aucune vraie ville détectée dans le bloc,
+                    # on met par défaut la ville fournie dans le payload
                     location = (payload.get("city") or "").strip()
 
                 if location:
