@@ -573,7 +573,29 @@ def _render_education(anchor: Paragraph, lines: list[str]):
         last = _insert_paragraph_after(last, line)
 
     return last
+def _education_block_end_year(block: list[str]) -> int:
+    """
+    Retourne l'année de fin de la formation (ex : 2025)
+    à partir de la première ligne du bloc, sinon 0.
 
+    Exemple de première ligne :
+    "Master Finance – Université Paris Dauphine — Sep 2023 – Jun 2025"
+    """
+    if not block:
+        return 0
+
+    first_line = (block[0] or "")
+
+    # On cherche toutes les années à 4 chiffres dans la ligne
+    # et on prend la plus grande (-> année de fin)
+    years = re.findall(r"\b((?:19|20)\d{2})\b", first_line)
+    if not years:
+        return 0
+
+    try:
+        return int(max(years))
+    except ValueError:
+        return 0
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
     # Réduire les marges gauche/droite pour occuper plus de largeur sur la page
@@ -646,9 +668,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             if current_block:
                 blocks.append(current_block)
 
+            # 👉 Tri du plus récent au plus ancien (année de fin décroissante)
+            blocks.sort(key=_education_block_end_year, reverse=True)
+
             # 2) Pour chaque formation, créer un tableau 1 ligne / 2 colonnes
             #    + ajouter un petit espace entre chaque formation
             for idx, block in enumerate(blocks):
+                
                 if not block:
                     continue
 
