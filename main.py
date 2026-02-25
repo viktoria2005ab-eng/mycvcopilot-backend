@@ -337,6 +337,10 @@ def translate_months_fr(text: str) -> str:
     - Français complet -> abréviation FR
     On évite l'effet 'Septt' en ne remplaçant que des mots entiers.
     """
+    # Normaliser la casse (Sept au lieu de SEPT)
+    text = re.sub(r"\b(SEPT|OCT|NOV|DÉC|DEC|JANV|FÉV|FEV|AVR|JUIN|JUIL|AOÛT|AOUT)\b",
+                  lambda m: m.group(0).capitalize(),
+                  text)
     if not text:
         return text
 
@@ -1132,8 +1136,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 raw_role = (exp.get("role") or "").strip()
 
                 # Enlever les prépositions parasites au début du rôle ("en Corporate Finance", etc.)
-                role = re.sub(r"^(en|dans|au|aux)\s+", "", raw_role, flags=re.IGNORECASE)
-                lower_role = role.lower()
+                role = raw_role.strip()
+                role = re.sub(r"^(en|dans|au|aux)\s+", "", role, flags=re.IGNORECASE).strip()
 
                 for key in CONTRACT_PREFIXES:
                     if lower_role.startswith(key):
