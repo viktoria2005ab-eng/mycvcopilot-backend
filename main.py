@@ -181,6 +181,10 @@ RÈGLES :
 - 3 à 5 bullets maximum par expérience.
 - Interdiction des mots : assisted, helped, worked on.
 - Ton professionnel, précis, sobre.
+- Classe les expériences de la plus pertinente à la moins pertinente par rapport au poste visé.
+- Les expériences en finance / audit / assurance / banque / analyse financière doivent être tout en haut, même si elles sont plus anciennes.
+- Les jobs étudiants génériques (supermarché, baby-sitting, barista, etc.) doivent toujours être en bas de la section EXPÉRIENCES, même s’ils sont plus récents.
+
 RÈGLES STRICTES :
 Ces règles priment sur toutes les autres instructions.
 - Tu n’inventes AUCUN chiffre.
@@ -1037,15 +1041,19 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             ]
 
             for exp in exps:
-                # Nettoyage du ROLE : on enlève "Summer job", "Volunteering", etc. au début
+                # Nettoyage du ROLE : on enlève les préfixes "Summer job", "Volunteering", etc.
                 role = (exp.get("role") or "").strip()
-                original_role = role
                 lower_role = role.lower()
 
                 for key in CONTRACT_PREFIXES:
                     if lower_role.startswith(key):
                         role = role[len(key):].lstrip(" -–—")
+                        lower_role = role.lower()
                         break
+
+                # Petit nettoyage pour éviter "Student tutor" en anglais
+                if "student tutor" in lower_role:
+                    role = role.replace("Student tutor", "Tuteur bénévole").replace("student tutor", "Tuteur bénévole")
 
                 company = (exp.get("company") or "").strip()
                 title_parts = [x for x in [role, company] if x]
