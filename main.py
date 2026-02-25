@@ -177,7 +177,7 @@ OFFRE D’EMPLOI :
 RÈGLES :
 - 1 page maximum.
 - Format de dates homogène (MMM YYYY – MMM YYYY).
-- Chaque bullet = Verbe fort + Action + Chiffre + Impact business.
+- Chaque bullet = Verbe fort + Action + Impact business (sans inventer de chiffres).
 - 3 à 5 bullets maximum par expérience.
 - Interdiction des mots : assisted, helped, worked on.
 - Ton professionnel, précis, sobre.
@@ -196,33 +196,45 @@ Ces règles priment sur toutes les autres instructions.
 - Si aucun résultat chiffré n’est fourni, tu reformules sans métriques.
 - Tu utilises uniquement les informations présentes dans le profil utilisateur.
 - Interdiction totale d’inventer pour “améliorer” le CV.
-- Si une expérience contient trop peu d'informations,tu la rends professionnelle mais concise,sans extrapolation.
+- Si une expérience contient trop peu d'informations, tu la rends professionnelle mais concise, sans extrapolation.
 - Évite les verbes faibles (participé, aidé, effectué, travaillé sur).
 - Privilégie des verbes orientés impact et responsabilité.
-- Chaque bullet doit refléter une contribution concrète et mesurable.
-
-INTERDICTION ABSOLUE D'INVENTER DES CHIFFRES.
-Tu n'écris un nombre (% , €, k€, volumes, "5 sponsors", "100 participants", etc.) QUE s'il est présent dans les infos utilisateur.
-Si aucun chiffre n'est fourni : reformule sans métrique.
-SI TU AJOUTES UN SEUL CHIFFRE QUI N'APPARAÎT PAS DANS LE PROFIL UTILISATEUR,
-LA RÉPONSE EST CONSIDÉRÉE COMME FAUSSE. DANS CE CAS, TU DOIS RÉÉCRIRE LE BULLET SANS CHIFFRE.
-Par exemple, n'invente pas "500 produits" dans un supermarché si ce nombre n'est pas précisé.
+- Chaque bullet doit refléter une contribution concrète.
 
 BDE / ASSOCIATIONS / PROJETS ÉTUDIANTS :
 - Tu DOIS les mettre dans "EXPÉRIENCES PROFESSIONNELLES" (même si ce n’est pas une entreprise).
 - Tu les écris comme une expérience (titre + dates si disponibles + 2-3 bullets).
 - INTERDICTION ABSOLUE d’inventer des chiffres : aucun %, aucun volume, aucun "5 sponsors", aucun "100 participants" si ce n’est pas fourni.
 
-ACTIVITIES (CENTRES D’INTÉRÊT) :
-- Tu n’y mets QUE des centres d’intérêt / activités personnelles (sport, langues, certifications, hobbies).
-- INTERDICTION d’y mettre BDE / associations / projets / expériences (ils vont uniquement dans EXPERIENCES).
-- Pas de doublons : si c’est dans EXPERIENCES, tu ne le répètes pas ailleurs.
+SECTION SKILLS (COMPÉTENCES & OUTILS) :
+- 1 à 2 lignes maximum, séparateur " | ".
+- D’abord les certifications et outils concrets (tests, Excel, VBA, PowerPoint, Python, Bloomberg, outils internes, etc.).
+- Ensuite les professional skills alignés avec l’offre : problem solving, market analysis, client communication, time management, attention to detail, teamwork, etc.
+- Ne pas mettre ici les langues ni les tests de langues (IELTS, TOEIC, etc.).
+
+SECTION LANGUAGES :
+- Tu indiques toutes les langues + les tests officiels (IELTS, TOEIC, etc.).
+- Exemple : Français (natif), Anglais (C1 – IELTS 8.0).
+
+SECTION ACTIVITIES (CENTRES D’INTÉRÊT) :
+- Tu n’y mets QUE des centres d’intérêt / activités personnelles (sport, voyages, engagements associatifs non listés en expérience, hobbies).
+- INTERDICTION d’y mettre BDE / associations / projets déjà listés dans EXPÉRIENCES.
+- Pas de doublons : si c’est dans EXPÉRIENCES, tu ne le répètes pas ailleurs.
+- Format de chaque activité sur UNE LIGNE :
+  Nom de l’activité en gras, suivi de ":" puis une phrase :
+  - ce que la personne a fait concrètement (niveau / fréquence / contexte),
+  - ce que ça développe comme qualités utiles en finance / environnement exigeant.
+- Exemples de structure (à adapter aux infos réelles) :
+  - Équitation (niveau national) : calendrier d’entraînement ajusté aux études, renforçant discipline, résilience et gestion du stress.
+  - Course à pied & charity runs : participation régulière à des courses caritatives, développant endurance, persévérance et sens de l’engagement.
+  - Voyages en Asie : voyages prolongés dans plusieurs pays, renforçant adaptabilité et sensibilité aux environnements multiculturels.
+
 IMPORTANT :
 - Toute la sortie (EDUCATION, EXPERIENCES, SKILLS, LANGUAGES, ACTIVITIES)
-- doit être rédigée EN FRANÇAIS.
+  doit être rédigée EN FRANÇAIS.
 - Si tu écris une phrase en anglais, tu la traduis immédiatement en français.
 - Seuls les noms propres (noms d’écoles, diplômes officiels, logiciels, intitulés exacts de postes)
-      peuvent rester en anglais.
+  peuvent rester en anglais.
 
 RÈGLES DE SORTIE (TRÈS IMPORTANT) :
 - Ne génère PAS de titre de section.
@@ -291,6 +303,7 @@ CENTRES D’INTÉRÊT :
 
 Génère uniquement le CV structuré.
 """
+    
 def generate_cv_text(payload: Dict[str, Any]) -> str:
     if not client:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY manquante sur le serveur.")
@@ -633,6 +646,54 @@ def _render_education(anchor: Paragraph, lines: list[str]):
         last = _insert_paragraph_after(last, line)
 
     return last
+
+def _render_interests(anchor: Paragraph, lines: list[str]):
+    """
+    Rend la section ACTIVITIES / CENTRES D'INTÉRÊT :
+    - Chaque ligne -> puce
+    - Nom de l'activité en gras avant ':' ou ' - '
+    """
+    last = anchor
+
+    for raw in (lines or []):
+        text = (raw or "").strip()
+        if not text:
+            last = _insert_paragraph_after(last, "")
+            continue
+
+        # Nouveau paragraphe en mode liste à puces
+        new_p = _insert_paragraph_after(last, "")
+        try:
+            new_p.style = "List Bullet"
+        except Exception:
+            pass
+
+        head = text
+        tail = ""
+
+        if ":" in text:
+            head, tail = text.split(":", 1)
+        elif " - " in text:
+            left, right = text.split(" - ", 1)
+            # On considère que la partie gauche est le "nom" si elle est courte
+            if len(left.split()) <= 4:
+                head, tail = left, right
+            else:
+                head, tail = text, ""
+
+        head = head.strip()
+        tail = tail.strip()
+
+        r_head = new_p.add_run(head)
+        r_head.bold = True
+
+        if tail:
+            new_p.add_run(" : " + tail)
+
+        last = new_p
+
+    return last
+    
 def _education_end_year(block: list[str]) -> int:
     """
     Récupère l'année de fin à partir de la première ligne du bloc.
@@ -1031,6 +1092,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             _remove_paragraph(p)
             continue
 
+        # ------- ACTIVITIES / INTERESTS : nom en gras + phrase -------
+        if ph == "%%INTERESTS%%" and isinstance(value, list):
+            _render_interests(p, value or [])
+            _remove_paragraph(p)
+            continue
+
         # ------- EXPERIENCE : tableau 2 colonnes (titre/bullets + dates/lieu/type) -------
         if ph == "%%EXPERIENCE%%":
             exps = parse_finance_experiences(value or [])
@@ -1061,8 +1128,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             ]
 
             for exp in exps:
-                # Nettoyage des prépositions parasites au début du rôle
-                role = re.sub(r"^(en|dans|au|aux)\s+", "", role, flags=re.IGNORECASE)
+                # Récupérer le rôle brut
+                raw_role = (exp.get("role") or "").strip()
+
+                # Enlever les prépositions parasites au début du rôle ("en Corporate Finance", etc.)
+                role = re.sub(r"^(en|dans|au|aux)\s+", "", raw_role, flags=re.IGNORECASE)
                 lower_role = role.lower()
 
                 for key in CONTRACT_PREFIXES:
@@ -1078,6 +1148,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 company = (exp.get("company") or "").strip()
                 title_parts = [x for x in [role, company] if x]
                 title_line = " - ".join(title_parts)
+                # (et tu laisses le reste de la boucle tel quel : création du tableau, bullets, dates, etc.)
 
                 # Création du tableau
                 table = _add_table_after(anchor, rows=1, cols=2)
