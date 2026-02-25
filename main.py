@@ -194,6 +194,9 @@ Ces règles priment sur toutes les autres instructions.
 INTERDICTION ABSOLUE D'INVENTER DES CHIFFRES.
 Tu n'écris un nombre (% , €, k€, volumes, "5 sponsors", "100 participants", etc.) QUE s'il est présent dans les infos utilisateur.
 Si aucun chiffre n'est fourni : reformule sans métrique.
+SI TU AJOUTES UN SEUL CHIFFRE QUI N'APPARAÎT PAS DANS LE PROFIL UTILISATEUR,
+LA RÉPONSE EST CONSIDÉRÉE COMME FAUSSE. DANS CE CAS, TU DOIS RÉÉCRIRE LE BULLET SANS CHIFFRE.
+Par exemple, n'invente pas "500 produits" dans un supermarché si ce nombre n'est pas précisé.
 
 BDE / ASSOCIATIONS / PROJETS ÉTUDIANTS :
 - Tu DOIS les mettre dans "EXPÉRIENCES PROFESSIONNELLES" (même si ce n’est pas une entreprise).
@@ -299,6 +302,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
 def translate_months_fr(text: str) -> str:
+    # Normalisation des versions "courtes" anglaises
     months = {
         "Jan": "Janv",
         "Feb": "Fév",
@@ -313,9 +317,14 @@ def translate_months_fr(text: str) -> str:
         "Nov": "Nov",
         "Dec": "Déc",
     }
-
     for en, fr in months.items():
         text = text.replace(en, fr)
+
+    # Cas particuliers où le modèle écrit en toutes lettres
+    text = text.replace("September", "Sept")
+    text = text.replace("Septembre", "Sept")
+    # Sécurité si jamais il invente "Septt"
+    text = text.replace("Septt", "Sept")
 
     return text
 def _remove_paragraph(p: Paragraph):
@@ -746,16 +755,20 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             blocks_sorted = sorted(blocks, key=_education_end_year, reverse=True)
 
             # 3) Affichage du bac :
-            #    - Si une seule formation au total -> on garde tout, y compris un bac classique
-            #    - Sinon -> on cache le bac "classique" (pas IB, pas lycée d'exception, pas mention)
-            if len(blocks_sorted) == 1:
-                # Un seul bloc de formation => on ne filtre rien
+            #    - Si l'étudiant n'a qu'UNE seule autre formation (licence, prépa, école, etc.)
+            #      on garde le bac pour ne pas avoir une section trop vide.
+            #    - Si deux formations supérieures ou plus, on cache le bac "classique"
+            #      (sauf IB / lycée d'exception / mention d'honneur).
+            non_bac_blocks = [b for b in blocks_sorted if not _is_bac_block(b)]
+
+            if len(non_bac_blocks) <= 1:
+                # 0 ou 1 formation supérieure → on garde tout, y compris un bac "normal"
                 filtered_blocks = blocks_sorted[:]
             else:
+                # Profil chargé → on enlève le bac classique
                 filtered_blocks = []
                 for b in blocks_sorted:
                     if _is_bac_block(b) and not _keep_bac_block(b):
-                        # Bac "classique" -> on le supprime seulement si d'autres formations existent
                         continue
                     filtered_blocks.append(b)
 
@@ -827,19 +840,35 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                     if ":" in text:
                         before, sep, after = text.partition(":")
-                        # cas particulier : "Cours pertinents" -> "Matières fondamentales"
-                        if "cours pertinents" in before.lower():
+                        before_clean = before.strip()
+                        lower_before = before_clean.lower()
+
+                        if "cours pertinents" in lower_before:
+                            # Cas spécial : on renomme en "Matières fondamentales"
                             label_text = "Matières fondamentales"
+                            after_text = after or ""
                         else:
-                            label_text = before.strip()
-                        after_text = after or ""
+                            # On ne considère comme "label" que les choses très courtes
+                            # ou clairement identifiées (GPA, HL, option, majeure, etc.)
+                            word_count = len(before_clean.split())
+                            keywords = [
+                                "gpa",
+                                "hl",
+                                "matières", "matieres",
+                                "option",
+                                "majeure",
+                                "spécialité", "specialite",
+                            ]
+                            if word_count <= 4 or any(k in lower_before for k in keywords):
+                                label_text = before_clean
+                                after_text = after or ""
 
                     if label_text:
                         # label souligné
                         label_run = para.add_run(label_text + " :")
                         label_run.underline = True
                         label_run.font.size = Pt(10)
-                        if after_text.strip():
+                        if after_text and after_text.strip():
                             r2 = para.add_run(" " + after_text.strip())
                             r2.font.size = Pt(10)
                     else:
@@ -971,12 +1000,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         bp.text = f"• {b}"
                     bp.paragraph_format.space_after = Pt(0)
 
-                # --------- Colonne droite : dates + lieu/type ---------
+                # --------- Colonne droite : dates + lieu + type (sur 3 lignes max) ---------
                 rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
                 rp.paragraph_format.space_after = Pt(0)
 
-                # Dates
+                # 1) Dates
                 dates_raw = (exp.get("dates") or "").strip()
                 if dates_raw:
                     clean_date = dates_raw.replace("\r", " ").replace("\n", " ")
@@ -989,18 +1018,22 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     r_date.italic = True
                     r_date.font.size = Pt(9)
 
-                # Deuxième ligne : lieu + type (Stage / Internship / etc.)
+                # 2) Lieu
                 location = (exp.get("location") or "").strip()
-                # On normalise le type de contrat (Internship -> Stage, etc.)
-                raw_type = (exp.get("type") or "").strip()
-                type_ = normalize_contract_type(raw_type)
-                second_parts = [x for x in [location, type_] if x]
-
-                if second_parts:
+                if location:
                     rp.add_run("\n")
-                    r2 = rp.add_run(" - ".join(second_parts))
-                    r2.italic = True
-                    r2.font.size = Pt(9)
+                    r_loc = rp.add_run(location)
+                    r_loc.italic = True
+                    r_loc.font.size = Pt(9)
+
+                # 3) Type de contrat (normalisé en français)
+                type_raw = (exp.get("type") or "").strip()
+                type_ = normalize_contract_type(type_raw)
+                if type_:
+                    rp.add_run("\n")
+                    r_type = rp.add_run(type_)
+                    r_type.italic = True
+                    r_type.font.size = Pt(9)
 
                 # Paragraphe vide après le tableau pour ancrer l'expérience suivante
                 new_p_elt = OxmlElement("w:p")
