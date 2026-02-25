@@ -197,6 +197,10 @@ Ces règles priment sur toutes les autres instructions.
 - Tu utilises uniquement les informations présentes dans le profil utilisateur.
 - Interdiction totale d’inventer pour “améliorer” le CV.
 - Si une expérience contient trop peu d'informations,tu la rends professionnelle mais concise,sans extrapolation.
+- Évite les verbes faibles (participé, aidé, effectué, travaillé sur).
+- Privilégie des verbes orientés impact et responsabilité.
+- Chaque bullet doit refléter une contribution concrète et mesurable.
+
 INTERDICTION ABSOLUE D'INVENTER DES CHIFFRES.
 Tu n'écris un nombre (% , €, k€, volumes, "5 sponsors", "100 participants", etc.) QUE s'il est présent dans les infos utilisateur.
 Si aucun chiffre n'est fourni : reformule sans métrique.
@@ -1057,8 +1061,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             ]
 
             for exp in exps:
-                # Nettoyage du ROLE : on enlève les préfixes "Summer job", "Volunteering", etc.
-                role = (exp.get("role") or "").strip()
+                # Nettoyage des prépositions parasites au début du rôle
+                role = re.sub(r"^(en|dans|au|aux)\s+", "", role, flags=re.IGNORECASE)
                 lower_role = role.lower()
 
                 for key in CONTRACT_PREFIXES:
