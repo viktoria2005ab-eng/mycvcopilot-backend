@@ -184,6 +184,8 @@ RÈGLES :
 - Classe les expériences de la plus pertinente à la moins pertinente par rapport au poste visé.
 - Les expériences en finance / audit / assurance / banque / analyse financière doivent être tout en haut, même si elles sont plus anciennes.
 - Les jobs étudiants génériques (supermarché, baby-sitting, barista, etc.) doivent toujours être en bas de la section EXPÉRIENCES, même s’ils sont plus récents.
+- Le CV doit être rédigé intégralement en français (même si l’offre ou les intitulés sont en anglais).
+- Tous les bullet points doivent être écrits en français.
 
 RÈGLES STRICTES :
 Ces règles priment sur toutes les autres instructions.
