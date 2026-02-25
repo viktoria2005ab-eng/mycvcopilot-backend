@@ -207,9 +207,14 @@ BDE / ASSOCIATIONS / PROJETS ÉTUDIANTS :
 - INTERDICTION ABSOLUE d’inventer des chiffres : aucun %, aucun volume, aucun "5 sponsors", aucun "100 participants" si ce n’est pas fourni.
 
 SECTION SKILLS (COMPÉTENCES & OUTILS) :
-- 1 à 2 lignes maximum, séparateur " | ".
-- D’abord les certifications et outils concrets (tests, Excel, VBA, PowerPoint, Python, Bloomberg, outils internes, etc.).
-- Ensuite les professional skills alignés avec l’offre : problem solving, market analysis, client communication, time management, attention to detail, teamwork, etc.
+- Tu produis EXACTEMENT 2 à 3 lignes sous "SKILLS:" :
+  1) "Certifications : ..."
+  2) "Maîtrise des logiciels : ..."
+  3) "Capacités professionnelles : ..." (facultatif si peu d'infos)
+- Dans chaque ligne, les éléments sont séparés par des virgules (PAS de "|").
+- "Certifications" : tests ou validations concrètes (Excel, PIX, etc.).
+- "Maîtrise des logiciels" : Excel, PowerPoint, VBA, outils spécifiques.
+- "Capacités professionnelles" : 3–4 compétences en lien direct avec l’offre (ex : analyse financière, reporting, communication client, gestion des priorités).
 - Ne pas mettre ici les langues ni les tests de langues (IELTS, TOEIC, etc.).
 
 SECTION LANGUAGES :
@@ -268,7 +273,7 @@ BULLETS:
 - ...
 
 SKILLS:
-<une seule ligne, avec séparateur " | ">
+<2 à 3 lignes, chacune commençant par "Certifications :", "Maîtrise des logiciels :" ou "Capacités professionnelles :">
 
 LANGUAGES:
 <contenu>
@@ -697,6 +702,50 @@ def _render_interests(anchor: Paragraph, lines: list[str]):
         last = new_p
 
     return last
+
+def _render_skills(anchor: Paragraph, lines: list[str]):
+    """
+    Rend la section COMPÉTENCES & OUTILS :
+    - Pas de puces
+    - Sous-titres en gras (Certifications, Maîtrise des logiciels, Capacités professionnelles)
+    - Les éléments sont séparés par des virgules
+    """
+    last = anchor
+
+    for raw in (lines or []):
+        text = (raw or "").strip()
+        if not text:
+            last = _insert_paragraph_after(last, "")
+            continue
+
+        # On remplace les ' | ' par des virgules si jamais le modèle en met encore
+        text = text.replace(" | ", ", ")
+
+        new_p = _insert_paragraph_after(last, "")
+        head = text
+        tail = ""
+
+        if ":" in text:
+            head, tail = text.split(":", 1)
+        elif " - " in text:
+            left, right = text.split(" - ", 1)
+            if len(left.split()) <= 4:
+                head, tail = left, right
+            else:
+                head, tail = text, ""
+
+        head = head.strip()
+        tail = tail.strip()
+
+        r_head = new_p.add_run(head)
+        r_head.bold = True
+
+        if tail:
+            new_p.add_run(" : " + tail)
+
+        last = new_p
+
+    return last
     
 def _education_end_year(block: list[str]) -> int:
     """
@@ -864,10 +913,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
     sections = _split_sections(cv_text)
 
-    # SKILLS en une seule ligne
+    # SKILLS : on garde plusieurs lignes, on nettoie juste les tirets
     if isinstance(sections.get("SKILLS"), list):
         cleaned = [x.strip().lstrip("-").strip() for x in sections["SKILLS"] if x.strip()]
-        sections["SKILLS"] = [" | ".join(cleaned)] if cleaned else [""]
+        sections["SKILLS"] = cleaned
 
     mapping = {
         "%%FULL_NAME%%": full_name,
@@ -886,6 +935,20 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             continue
 
         _clear_paragraph(p)
+
+        # ------- COMPÉTENCES & OUTILS : sous-titres en gras, pas de puces -------
+        if ph == "%%SKILLS%%" and isinstance(value, list):
+            _render_skills(p, value or [])
+            _remove_paragraph(p)
+            continue
+
+        # ------- LANGUES : une seule ligne en dessous du titre LANGUES -------
+        if ph == "%%LANGUAGES%%" and isinstance(value, list):
+            text = ", ".join([x.strip() for x in value if x.strip()])
+            if text:
+                run = p.add_run(text)
+                run.font.size = Pt(10)
+            continue
 
         # ------- FORMATION : style spécial -------
         if ph == "%%EDUCATION%%" and isinstance(value, list):
@@ -1132,18 +1195,23 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             ]
 
             for exp in exps:
-                # Récupérer le rôle brut
+                # Rôle brut tel que renvoyé par le modèle
                 raw_role = (exp.get("role") or "").strip()
 
-                # Enlever les prépositions parasites au début du rôle ("en Corporate Finance", etc.)
-                role = raw_role.strip()
-                role = re.sub(r"^(en|dans|au|aux)\s+", "", role, flags=re.IGNORECASE).strip()
+                # On enlève les petites prépositions moches au début : "en", "dans", "au", "aux"
+                role = re.sub(r"^(en|dans|au|aux)\s+", "", raw_role, flags=re.IGNORECASE).strip()
+                lower_role = role.lower()
 
+                # On supprime aussi les préfixes de type "Stage", "Internship", "Student job", etc.
                 for key in CONTRACT_PREFIXES:
                     if lower_role.startswith(key):
                         role = role[len(key):].lstrip(" -–—")
                         lower_role = role.lower()
                         break
+
+                company = (exp.get("company") or "").strip()
+                title_parts = [x for x in [role, company] if x]
+                title_line = " - ".join(title_parts)
 
                 # Petit nettoyage pour éviter "Student tutor" en anglais
                 if "student tutor" in lower_role:
