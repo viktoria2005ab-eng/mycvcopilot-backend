@@ -250,7 +250,7 @@ ACTIVITIES:
 
 CONTRAINTE LONGUEUR :
 - Maximum 12 bullet points au total.
-- Maximum 4 bullet points par expérience.
+- Maximum 3 bullet points par expérience.
 - Format concis.
 - Pas de phrases longues.
 
@@ -302,29 +302,63 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
 def translate_months_fr(text: str) -> str:
-    # Normalisation des versions "courtes" anglaises
-    months = {
-        "Jan": "Janv",
-        "Feb": "Fév",
-        "Mar": "Mars",
-        "Apr": "Avr",
-        "May": "Mai",
-        "Jun": "Juin",
-        "Jul": "Juil",
-        "Aug": "Août",
-        "Sep": "Sept",
-        "Oct": "Oct",
-        "Nov": "Nov",
-        "Dec": "Déc",
-    }
-    for en, fr in months.items():
-        text = text.replace(en, fr)
+    """
+    Normalise les mois :
+    - Anglais complet ou abrégé -> abréviation FR (Janv, Fév, Mars, Avr, Mai, Juin, Juil, Août, Sept, Oct, Nov, Déc)
+    - Français complet -> abréviation FR
+    On évite l'effet 'Septt' en ne remplaçant que des mots entiers.
+    """
+    if not text:
+        return text
 
-    # Cas particuliers où le modèle écrit en toutes lettres
-    text = text.replace("September", "Sept")
-    text = text.replace("Septembre", "Sept")
-    # Sécurité si jamais il invente "Septt"
-    text = text.replace("Septt", "Sept")
+    patterns = {
+        # EN full
+        r"(?i)\bJanuary\b": "Janv",
+        r"(?i)\bFebruary\b": "Fév",
+        r"(?i)\bMarch\b": "Mars",
+        r"(?i)\bApril\b": "Avr",
+        r"(?i)\bMay\b": "Mai",
+        r"(?i)\bJune\b": "Juin",
+        r"(?i)\bJuly\b": "Juil",
+        r"(?i)\bAugust\b": "Août",
+        r"(?i)\bSeptember\b": "Sept",
+        r"(?i)\bOctober\b": "Oct",
+        r"(?i)\bNovember\b": "Nov",
+        r"(?i)\bDecember\b": "Déc",
+
+        # EN short
+        r"(?i)\bJan\b": "Janv",
+        r"(?i)\bFeb\b": "Fév",
+        r"(?i)\bMar\b": "Mars",
+        r"(?i)\bApr\b": "Avr",
+        r"(?i)\bJun\b": "Juin",
+        r"(?i)\bJul\b": "Juil",
+        r"(?i)\bAug\b": "Août",
+        r"(?i)\bSep\b": "Sept",
+        r"(?i)\bOct\b": "Oct",
+        r"(?i)\bNov\b": "Nov",
+        r"(?i)\bDec\b": "Déc",
+
+        # FR full
+        r"(?i)\bJanvier\b": "Janv",
+        r"(?i)\bFévrier\b": "Fév",
+        r"(?i)\bFevrier\b": "Fév",
+        r"(?i)\bMars\b": "Mars",
+        r"(?i)\bAvril\b": "Avr",
+        r"(?i)\bMai\b": "Mai",
+        r"(?i)\bJuin\b": "Juin",
+        r"(?i)\bJuillet\b": "Juil",
+        r"(?i)\bAoût\b": "Août",
+        r"(?i)\bAout\b": "Août",
+        r"(?i)\bSeptembre\b": "Sept",
+        r"(?i)\bOctobre\b": "Oct",
+        r"(?i)\bNovembre\b": "Nov",
+        r"(?i)\bDécembre\b": "Déc",
+        r"(?i)\bDecembre\b": "Déc",
+    }
+
+    for pattern, repl in patterns.items():
+        text = re.sub(pattern, repl, text)
 
     return text
 def _remove_paragraph(p: Paragraph):
@@ -632,6 +666,28 @@ def _keep_bac_block(block: list[str]) -> bool:
         "henri iv", "henri-iv", "henry iv",
         "louis-le-grand", "louis le grand",
         "lycée international", "lycee international",
+        "lycée du parc", "lycee du parc",
+        "stanislas", "lycée stanislas",
+        "janson de sailly",
+        "franklin", "lycée franklin",
+        "fénelon", "fenelon",
+        "charlemagne",
+        "buffon",
+        "condorcet",
+        "sainte-geneviève", "sainte genevieve", "ginette",
+        "le parc",
+        "masséna", "massena",
+        "thiers",
+        "hoche",
+        "kléber", "kleber",
+        "clemenceau",
+        "du parc",
+        "chateaubriand",
+        "berthelot",
+        "pierre de fermat",
+        "montaigne",
+        "descartes",
+        "champollion",
     ]
 
     intl_keywords = [
@@ -663,22 +719,38 @@ def normalize_contract_type(t: str) -> str:
     if not t:
         return ""
 
-    t_clean = t.strip().lower()
+    original = t.strip()
+    t_clean = original.lower().strip()
 
-    mapping = {
+    base_mapping = {
         "internship": "Stage",
         "intern": "Stage",
-        "apprenticeship": "Alternance",
         "traineeship": "Stage",
+        "apprenticeship": "Alternance",
         "full-time": "CDI",
         "full time": "CDI",
         "part-time": "Temps partiel",
         "part time": "Temps partiel",
+        "part-time job": "Job étudiant",
+        "student job": "Job étudiant",
+        "summer job": "Job d'été",
         "temporary": "CDD",
         "contract": "CDD",
+        "volunteering": "Volontariat",
+        "volunteer": "Volontariat",
     }
 
-    return mapping.get(t_clean, t)
+    # Match exact
+    if t_clean in base_mapping:
+        return base_mapping[t_clean]
+
+    # Match préfixe (ex: "part-time job - barista")
+    for key, value in base_mapping.items():
+        if t_clean.startswith(key + " "):
+            suffix = original[len(key):].lstrip(" -–—")
+            return value + (f" – {suffix}" if suffix else "")
+
+    return original
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
     # Réduire les marges gauche/droite pour occuper plus de largeur sur la page
@@ -988,10 +1060,15 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     title_run.bold = True
                     title_run.font.size = Pt(11)
 
-                # Bullets de l'expérience
-                for b in exp.get("bullets", []):
+                # Bullets de l'expérience : max 3 + on vire les "not applicable"
+                bullets = (exp.get("bullets") or [])[:3]
+                for b in bullets:
                     if not b:
                         continue
+                    b_clean = b.strip().lower()
+                    if b_clean in {"n/a", "na", "not applicable", "non applicable", "non-applicable"}:
+                        continue
+
                     bp = left.add_paragraph()
                     try:
                         bp.style = "List Bullet"
@@ -1000,12 +1077,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         bp.text = f"• {b}"
                     bp.paragraph_format.space_after = Pt(0)
 
-                # --------- Colonne droite : dates + lieu + type (sur 3 lignes max) ---------
+                # --------- Colonne droite : dates + lieu + type sur 3 lignes ---------
                 rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
                 rp.paragraph_format.space_after = Pt(0)
 
-                # 1) Dates
+                # Dates
                 dates_raw = (exp.get("dates") or "").strip()
                 if dates_raw:
                     clean_date = dates_raw.replace("\r", " ").replace("\n", " ")
@@ -1018,17 +1095,18 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     r_date.italic = True
                     r_date.font.size = Pt(9)
 
-                # 2) Lieu
+                # Ligne 2 : lieu
                 location = (exp.get("location") or "").strip()
+                # Ligne 3 : type (normalisé en FR)
+                type_raw = (exp.get("type") or "").strip()
+                type_ = normalize_contract_type(type_raw)
+
                 if location:
                     rp.add_run("\n")
                     r_loc = rp.add_run(location)
                     r_loc.italic = True
                     r_loc.font.size = Pt(9)
 
-                # 3) Type de contrat (normalisé en français)
-                type_raw = (exp.get("type") or "").strip()
-                type_ = normalize_contract_type(type_raw)
                 if type_:
                     rp.add_run("\n")
                     r_type = rp.add_run(type_)
