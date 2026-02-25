@@ -213,6 +213,12 @@ ACTIVITIES (CENTRES D’INTÉRÊT) :
 - Tu n’y mets QUE des centres d’intérêt / activités personnelles (sport, langues, certifications, hobbies).
 - INTERDICTION d’y mettre BDE / associations / projets / expériences (ils vont uniquement dans EXPERIENCES).
 - Pas de doublons : si c’est dans EXPERIENCES, tu ne le répètes pas ailleurs.
+IMPORTANT :
+- Toute la sortie (EDUCATION, EXPERIENCES, SKILLS, LANGUAGES, ACTIVITIES)
+- doit être rédigée EN FRANÇAIS.
+- Si tu écris une phrase en anglais, tu la traduis immédiatement en français.
+- Seuls les noms propres (noms d’écoles, diplômes officiels, logiciels, intitulés exacts de postes)
+      peuvent rester en anglais.
 
 RÈGLES DE SORTIE (TRÈS IMPORTANT) :
 - Ne génère PAS de titre de section.
@@ -593,8 +599,9 @@ def _render_education(anchor: Paragraph, lines: list[str]):
             continue
 
         # Remplace le texte
-        if "Cours pertinents" in line:
+        if "Cours pertinents" in line or "Key coursework" in line:
             line = line.replace("Cours pertinents", "Matières fondamentales")
+            line = re.sub(r"(?i)key coursework", "Matières fondamentales", line)
 
         # Première ligne du bloc = nom d'école / programme -> gras
         if first_in_block:
@@ -900,29 +907,38 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 for idx_line, raw in enumerate(block):
                     t = (raw or "").strip()
                     lower_t = t.lower()
-                    if "," not in t:
+                    if not t:
                         continue
-                    parts = [p.strip() for p in t.split(",")]
-                    if len(parts) != 2:
-                        continue
-                    # on évite les phrases "académiques"
-                    if len(parts[0].split()) > 3:
-                        continue
-                    if (
-                        "matières" in lower_t
-                        or "cours pertinents" in lower_t
-                        or "gpa" in lower_t
-                        or "mention" in lower_t
-                        or "option" in lower_t
-                        or "majeure" in lower_t
-                        or "concours" in lower_t
-                        or "boursier" in lower_t
-                        or "dean" in lower_t
-                    ):
-                        continue
-                    location = t
-                    location_index = idx_line
-                    break
+
+                    candidate = None
+
+                    if "," in t:
+                        # Cas classique : "Lyon, France"
+                        parts = [p.strip() for p in t.split(",")]
+                        if len(parts) != 2:
+                            continue
+                        if len(parts[0].split()) > 3:
+                            continue
+                        candidate = t
+                    else:
+                        # Cas comme "Lyon" ou "Hong Kong" tout seul :
+                        # - ligne courte (≤ 3 mots)
+                        # - pas des mots type "cours, key, ranked, mention..."
+                        if len(t.split()) > 3:
+                            continue
+                        bad_tokens = [
+                            "cours", "course", "key", "ranked",
+                            "mention", "option", "majeure",
+                            "matières", "matieres", "gpa"
+                        ]
+                        if any(bt in lower_t for bt in bad_tokens):
+                            continue
+                        candidate = t
+
+                    if candidate:
+                        location = candidate
+                        location_index = idx_line
+                        break
 
                 # Détails sous le titre (en évitant la ligne "Ville, Pays" si on l'a détectée)
                 for idx_line, line in enumerate(block[1:], start=1):
@@ -997,8 +1013,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                 if location:
                     loc_text = location.strip()
-                    if "," not in loc_text:
-                        loc_text = loc_text + ", France"
                     rp.add_run("\n")
                     r_loc = rp.add_run(loc_text)
                     r_loc.italic = True
