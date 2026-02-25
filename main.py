@@ -968,19 +968,20 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                 # Chercher un lieu (ligne avec une virgule, mais pas du contenu académique)
                 location = ""
-                for line in block:
+                location_index = -1  # pour ne pas ré-afficher cette ligne à gauche
+
+                for idx_line, line in enumerate(block):
                     t = (line or "").strip()
                     lower_t = t.lower()
 
                     if "," not in t:
                         continue
-                    
-                    # On vérifie que ça ressemble vraiment à une ville
+
                     parts = [p.strip() for p in t.split(",")]
                     if len(parts) != 2:
                         continue
-                    
-                    # On évite les phrases longues (type description académique)
+
+                    # On évite les phrases académiques trop longues
                     if len(parts[0].split()) > 3:
                         continue
                     if (
@@ -997,6 +998,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         continue
 
                     location = t
+                    location_index = idx_line
                     break
 
                 if not location:
