@@ -823,21 +823,20 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             if current_block:
                 blocks.append(current_block)
 
-            # 2) Trier du plus RÉCENT au plus ANCIEN
+            # 2) Tri du plus RÉCENT au plus ANCIEN
             blocks_sorted = sorted(blocks, key=_education_end_year, reverse=True)
 
             # 3) Affichage du bac :
-            #    - Si l'étudiant n'a qu'UNE seule autre formation (licence, prépa, école, etc.)
+            #    - S'il n'y a qu'UNE seule autre formation (prépa/école/licence),
             #      on garde le bac pour ne pas avoir une section trop vide.
-            #    - Si deux formations supérieures ou plus, on cache le bac "classique"
+            #    - Si plusieurs formations supérieures, on cache le bac "classique"
             #      (sauf IB / lycée d'exception / mention d'honneur).
             non_bac_blocks = [b for b in blocks_sorted if not _is_bac_block(b)]
 
             if len(non_bac_blocks) <= 1:
-                # 0 ou 1 formation supérieure → on garde tout, y compris un bac "normal"
+                # 0 ou 1 formation supérieure → on garde tout
                 filtered_blocks = blocks_sorted[:]
             else:
-                # Profil chargé → on enlève le bac classique
                 filtered_blocks = []
                 for b in blocks_sorted:
                     if _is_bac_block(b) and not _keep_bac_block(b):
@@ -845,18 +844,17 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     filtered_blocks.append(b)
 
             # 4) Pour chaque formation, créer un tableau 1 ligne / 2 colonnes
-            for idx, block in enumerate(filtered_blocks):
+            for block in filtered_blocks:
                 if not block:
                     continue
 
                 first_line = block[0]
-                # --- Normalisation des intitulés d’échange en français ---
+
+                # Normalisation des intitulés d’échange en français
                 lower_first = first_line.lower()
-                
                 if "exchange semester" in lower_first or "exchange program" in lower_first:
                     first_line = re.sub(r"(?i)exchange semester", "Échange académique", first_line)
                     first_line = re.sub(r"(?i)exchange program", "Échange académique", first_line)
-                
                 if "study abroad" in lower_first:
                     first_line = re.sub(r"(?i)study abroad", "Échange académique", first_line)
 
@@ -869,11 +867,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         title_part = " — ".join(parts[:-1]).strip()
                         date_part = parts[-1].strip()
 
-                # Tableau 2 colonnes (texte / dates)
+                # Création du tableau
                 table = _add_table_after(anchor, rows=1, cols=2)
                 left = table.cell(0, 0)
                 right = table.cell(0, 1)
-
                 left.text = ""
                 right.text = ""
 
@@ -886,18 +883,51 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 lp.paragraph_format.left_indent = Pt(0)
                 lp.paragraph_format.first_line_indent = Pt(0)
 
-                # Titre en gras (taille 11)
+                # Titre en gras
                 title_run = lp.add_run(title_part)
                 title_run.bold = True
                 title_run.font.size = Pt(11)
 
-                # Lignes suivantes dans la même cellule (sous le titre)
-                for line in block[1:]:
+                # On va repérer la ligne qui contient la ville pour NE PAS la répéter à gauche
+                location = ""
+                location_index = -1
+                for idx_line, raw in enumerate(block):
+                    t = (raw or "").strip()
+                    lower_t = t.lower()
+                    if "," not in t:
+                        continue
+                    parts = [p.strip() for p in t.split(",")]
+                    if len(parts) != 2:
+                        continue
+                    # on évite les phrases "académiques"
+                    if len(parts[0].split()) > 3:
+                        continue
+                    if (
+                        "matières" in lower_t
+                        or "cours pertinents" in lower_t
+                        or "gpa" in lower_t
+                        or "mention" in lower_t
+                        or "option" in lower_t
+                        or "majeure" in lower_t
+                        or "concours" in lower_t
+                        or "boursier" in lower_t
+                        or "dean" in lower_t
+                    ):
+                        continue
+                    location = t
+                    location_index = idx_line
+                    break
+
+                # Détails sous le titre (en évitant la ligne "Ville, Pays" si on l'a détectée)
+                for idx_line, line in enumerate(block[1:], start=1):
+                    if idx_line == location_index:
+                        # on ne la remet pas à gauche, elle ira à droite
+                        continue
+
                     text = (line or "").strip()
                     if not text:
                         continue
 
-                    lower = text.lower()
                     para = left.add_paragraph()
                     try:
                         para.style = doc.styles["Normal"]
@@ -906,7 +936,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     para.paragraph_format.left_indent = Pt(0)
                     para.paragraph_format.first_line_indent = Pt(0)
 
-                    # ---------- Sous-titres génériques avec ":" souligné ----------
+                    # Labels du type "Matières fondamentales :"
                     label_text = None
                     after_text = None
 
@@ -916,12 +946,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         lower_before = before_clean.lower()
 
                         if "cours pertinents" in lower_before:
-                            # Cas spécial : on renomme en "Matières fondamentales"
                             label_text = "Matières fondamentales"
                             after_text = after or ""
                         else:
-                            # On ne considère comme "label" que les choses très courtes
-                            # ou clairement identifiées (GPA, HL, option, majeure, etc.)
                             word_count = len(before_clean.split())
                             keywords = [
                                 "gpa",
@@ -936,19 +963,15 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                                 after_text = after or ""
 
                     if label_text:
-                        # label souligné
-                        label_run = para.add_run(label_text + " :")
-                        label_run.underline = True
-                        label_run.font.size = Pt(10)
+                        r1 = para.add_run(label_text + " :")
+                        r1.underline = True
+                        r1.font.size = Pt(10)
                         if after_text and after_text.strip():
                             r2 = para.add_run(" " + after_text.strip())
                             r2.font.size = Pt(10)
                     else:
-                        # ligne normale
                         run = para.add_run(text)
                         run.font.size = Pt(10)
-
-                # Petit espace visuel sous chaque formation
 
                 # --------- Colonne droite : dates + lieu ---------
                 rp = right.paragraphs[0]
@@ -966,56 +989,17 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     r_date.italic = True
                     r_date.font.size = Pt(9)
 
-                # Chercher un lieu (ligne avec une virgule, mais pas du contenu académique)
-                location = ""
-                location_index = -1  # pour ne pas ré-afficher cette ligne à gauche
-
-                for idx_line, line in enumerate(block):
-                    t = (line or "").strip()
-                    lower_t = t.lower()
-
-                    if "," not in t:
-                        continue
-
-                    parts = [p.strip() for p in t.split(",")]
-                    if len(parts) != 2:
-                        continue
-
-                    # On évite les phrases académiques trop longues
-                    if len(parts[0].split()) > 3:
-                        continue
-                    if (
-                        "matières" in lower_t
-                        or "cours pertinents" in lower_t
-                        or "gpa" in lower_t
-                        or "mention" in lower_t
-                        or "option" in lower_t
-                        or "majeure" in lower_t
-                        or "concours" in lower_t
-                        or "boursier" in lower_t
-                        or "dean" in lower_t
-                    ):
-                        continue
-
-                    location = t
-                    location_index = idx_line
-                    break
-
-                if not location:
-                    location = ""
-
                 if location:
                     loc_text = location.strip()
                     if "," not in loc_text:
                         loc_text = loc_text + ", France"
-
                     rp.add_run("\n")
                     r_loc = rp.add_run(loc_text)
                     r_loc.italic = True
                     r_loc.font.size = Pt(9)
                     rp.paragraph_format.space_after = Pt(0)
 
-                # créer un paragraphe vide APRÈS le tableau pour servir d’ancre au suivant
+                # Paragraphe vide pour ancrer la formation suivante
                 new_p_elt = OxmlElement("w:p")
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
@@ -1023,7 +1007,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             _remove_paragraph(p)
             continue
 
-        # ------- EXPERIENCE : même logique que FORMATION (tableau 2 colonnes) -------
+        # ------- EXPERIENCE : tableau 2 colonnes (titre/bullets + dates/lieu/type) -------
         if ph == "%%EXPERIENCE%%":
             exps = parse_finance_experiences(value or [])
             anchor = p
@@ -1033,12 +1017,42 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 _insert_lines_after(p, value or [], make_bullets=True)
                 continue
 
+            # Préfixes à supprimer du ROLE (gauche)
+            CONTRACT_PREFIXES = [
+                "summer job",
+                "part-time job",
+                "student job",
+                "volunteering",
+                "volunteer",
+                "internship",
+                "intern",
+                "traineeship",
+                "apprenticeship",
+                "full-time",
+                "full time",
+                "part-time",
+                "part time",
+            ]
+
             for exp in exps:
-                # Création du tableau 1 ligne / 2 colonnes (comme pour la formation)
+                # Nettoyage du ROLE : on enlève "Summer job", "Volunteering", etc. au début
+                role = (exp.get("role") or "").strip()
+                original_role = role
+                lower_role = role.lower()
+
+                for key in CONTRACT_PREFIXES:
+                    if lower_role.startswith(key):
+                        role = role[len(key):].lstrip(" -–—")
+                        break
+
+                company = (exp.get("company") or "").strip()
+                title_parts = [x for x in [role, company] if x]
+                title_line = " - ".join(title_parts)
+
+                # Création du tableau
                 table = _add_table_after(anchor, rows=1, cols=2)
                 left = table.cell(0, 0)
                 right = table.cell(0, 1)
-
                 left.text = ""
                 right.text = ""
 
@@ -1051,18 +1065,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 lp.paragraph_format.left_indent = Pt(0)
                 lp.paragraph_format.first_line_indent = Pt(0)
 
-                # Titre = ROLE + COMPANY en gras
-                role = (exp.get("role") or "").strip()
-                company = (exp.get("company") or "").strip()
-                title_parts = [x for x in [role, company] if x]
-                title_line = " - ".join(title_parts)
-
                 if title_line:
                     title_run = lp.add_run(title_line)
                     title_run.bold = True
                     title_run.font.size = Pt(11)
 
-                # Bullets de l'expérience : max 3 + on vire les "not applicable"
+                # Bullets : max 3 + on enlève les "not applicable"
                 bullets = (exp.get("bullets") or [])[:3]
                 for b in bullets:
                     if not b:
@@ -1079,12 +1087,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         bp.text = f"• {b}"
                     bp.paragraph_format.space_after = Pt(0)
 
-                # --------- Colonne droite : dates + lieu + type sur 3 lignes ---------
+                # --------- Colonne droite : 3 lignes = dates / lieu / type ---------
                 rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
                 rp.paragraph_format.space_after = Pt(0)
 
-                # Dates
+                # 1) Dates
                 dates_raw = (exp.get("dates") or "").strip()
                 if dates_raw:
                     clean_date = dates_raw.replace("\r", " ").replace("\n", " ")
@@ -1097,25 +1105,24 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     r_date.italic = True
                     r_date.font.size = Pt(9)
 
-                # Ligne 2 : lieu
+                # 2) Lieu
                 location = (exp.get("location") or "").strip()
-                # Ligne 3 : type (normalisé en FR)
-                type_raw = (exp.get("type") or "").strip()
-                type_ = normalize_contract_type(type_raw)
-
                 if location:
                     rp.add_run("\n")
                     r_loc = rp.add_run(location)
                     r_loc.italic = True
                     r_loc.font.size = Pt(9)
 
+                # 3) Type (normalisé en FR)
+                type_raw = (exp.get("type") or "").strip()
+                type_ = normalize_contract_type(type_raw)
                 if type_:
                     rp.add_run("\n")
                     r_type = rp.add_run(type_)
                     r_type.italic = True
                     r_type.font.size = Pt(9)
 
-                # Paragraphe vide après le tableau pour ancrer l'expérience suivante
+                # Paragraphe vide pour ancrer l’expérience suivante
                 new_p_elt = OxmlElement("w:p")
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
