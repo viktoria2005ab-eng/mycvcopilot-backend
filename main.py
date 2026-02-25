@@ -1019,6 +1019,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
             # Préfixes à supprimer du ROLE (gauche)
             CONTRACT_PREFIXES = [
+                "stagiaire",
+                "stage",
                 "summer job",
                 "part-time job",
                 "student job",
