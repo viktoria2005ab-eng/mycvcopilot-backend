@@ -1003,14 +1003,22 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 if "study abroad" in lower_first:
                     first_line = re.sub(r"(?i)study abroad", "Échange académique", first_line)
 
-                # Découper titre / dates sur le dernier "—"
+                # --- NOUVEAU : séparer le titre et les dates sur le DERNIER tiret long (– ou —)
                 title_part = first_line
                 date_part = ""
-                if "—" in first_line:
-                    parts = first_line.split("—")
-                    if len(parts) >= 2:
-                        title_part = " — ".join(parts[:-1]).strip()
-                        date_part = parts[-1].strip()
+
+                for sep in ("–", "—"):
+                    idx = first_line.rfind(sep)
+                    if idx != -1:
+                        title_part = first_line[:idx].strip()
+                        date_part = first_line[idx + 1 :].strip()
+                        break
+
+                # Si on a détecté des dates, on enlève la dernière année qui traîne dans le titre
+                if date_part:
+                    m = re.search(r"(19|20)\d{2}\s*$", title_part)
+                    if m:
+                        title_part = title_part[:m.start()].rstrip(" ,–-")
 
                 # Création du tableau
                 table = _add_table_after(anchor, rows=1, cols=2)
@@ -1155,6 +1163,23 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 new_p_elt = OxmlElement("w:p")
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
+
+                for exp in exps:
+                # ... ton code existant ...
+                new_p_elt = OxmlElement("w:p")
+                table._tbl.addnext(new_p_elt)
+                anchor = Paragraph(new_p_elt, p._parent)
+
+            # NOUVEAU : on supprime le dernier paragraphe vide utilisé comme ancre
+            # sinon ça crée une ligne en trop avant "COMPÉTENCES & OUTILS"
+            try:
+                if anchor is not None:
+                    _remove_paragraph(anchor)
+            except Exception:
+                pass
+
+            _remove_paragraph(p)
+            continue
 
             _remove_paragraph(p)
             continue
