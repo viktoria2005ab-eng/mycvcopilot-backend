@@ -1164,7 +1164,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
 
-                for exp in exps:
+            for exp in exps:
                 # ... ton code existant ...
                 new_p_elt = OxmlElement("w:p")
                 table._tbl.addnext(new_p_elt)
