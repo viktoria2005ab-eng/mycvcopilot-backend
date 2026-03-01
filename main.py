@@ -893,6 +893,55 @@ def normalize_contract_type(t: str) -> str:
             return value + (f" – {suffix}" if suffix else "")
 
     return original
+
+def _split_education_block_on_degree_titles(block: list[str]) -> list[list[str]]:
+    """
+    Si l'IA enchaîne plusieurs diplômes dans un même bloc (sans ligne vide),
+    on découpe dès qu'une ligne commence par un mot typique de diplôme.
+    Exemple :
+      Master 2 Finance ...
+      Licence Finance ...
+      Baccalauréat ES ...
+
+    devient 3 blocs distincts.
+    """
+    if not block:
+        return []
+
+    DEGREE_STARTERS = (
+        "Master", "Master 1", "Master 2",
+        "Programme Grande École", "Programme Grande Ecole", "Programme",
+        "Licence", "License",
+        "Baccalauréat", "Baccalaureat",
+        "Classe préparatoire", "Classe préparatoire ECG",
+        "Classe preparatoire", "Classe preparatoire ECG",
+        "CPGE", "Prépa", "Prepa",
+    )
+
+    new_blocks: list[list[str]] = []
+    current: list[str] = []
+
+    for raw in block:
+        line = (raw or "").strip()
+        if not line:
+            # Lignes vides : on ferme le bloc en cours
+            if current:
+                new_blocks.append(current)
+                current = []
+            continue
+
+        # Si on tombe sur une nouvelle ligne qui ressemble à un début de diplôme
+        # on démarre un nouveau bloc
+        if current and any(line.startswith(prefix) for prefix in DEGREE_STARTERS):
+            new_blocks.append(current)
+            current = [line]
+        else:
+            current.append(line)
+
+    if current:
+        new_blocks.append(current)
+
+    return new_blocks
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
 
@@ -975,10 +1024,15 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             if current_block:
                 blocks.append(current_block)
 
-            # 2) Tri du plus récent au plus ancien
-            blocks_sorted = sorted(blocks, key=_education_end_year, reverse=True)
+            # 2) Découper les blocs s'il y a plusieurs diplômes collés
+            split_blocks = []
+            for b in blocks:
+                split_blocks.extend(_split_education_block_on_degree_titles(b))
 
-            # 3) Gestion du bac (on peut le masquer)
+            # 3) Tri du plus récent au plus ancien
+            blocks_sorted = sorted(split_blocks, key=_education_end_year, reverse=True)
+
+            # 4) Gestion du bac (on peut le masquer)
             non_bac_blocks = [b for b in blocks_sorted if not _is_bac_block(b)]
             if len(non_bac_blocks) <= 1:
                 filtered_blocks = blocks_sorted[:]
@@ -989,7 +1043,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         continue
                     filtered_blocks.append(b)
 
-            # 4) Pour chaque formation -> tableau 1 ligne / 2 colonnes
+            # 5) Pour chaque formation -> tableau 1 ligne / 2 colonnes
             for block in filtered_blocks:
                 if not block:
                     continue
