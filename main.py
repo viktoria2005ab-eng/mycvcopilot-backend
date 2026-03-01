@@ -1004,17 +1004,39 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 if "study abroad" in lower_first:
                     first_line = re.sub(r"(?i)study abroad", "Échange académique", first_line)
 
-                # Séparation Titre / Dates sur le DERNIER séparateur (–, — ou -)
+                # Séparation Titre / Dates en cherchant un VRAI intervalle de dates en fin de ligne
                 title_part = first_line
                 date_part = ""
-                for sep in ("–", "—", "-"):
-                    idx = first_line.rfind(sep)
-                    if idx != -1:
-                        title_part = first_line[:idx].strip()
-                        date_part = first_line[idx + 1:].strip()
+
+                # On cherche d'abord un pattern du type "Sept 2022 – Juin 2026"
+                date_range_patterns = [
+                    # Ex : "Sept 2022 – Juin 2026"
+                    r"(Janv|Fév|Fev|Mars|Avr|Mai|Juin|Juil|Août|Aout|Sept|Oct|Nov|Déc|Dec)\s+\d{4}\s*[–-]\s*(Janv|Fév|Fev|Mars|Avr|Mai|Juin|Juil|Août|Aout|Sept|Oct|Nov|Déc|Dec)\s+\d{4}\s*$",
+                    # Ex : "09/2023 – 06/2025"
+                    r"(0[1-9]|1[0-2])/\d{4}\s*[–-]\s*(0[1-9]|1[0-2])/\d{4}\s*$",
+                    # Ex : "2020 – 2023"
+                    r"(19|20)\d{4}?\s*[–-]\s*(19|20)\d{4}?\s*$"
+                ]
+
+                for pat in date_range_patterns:
+                    m = re.search(pat, first_line)
+                    if m:
+                        # Toute la plage de dates part à droite
+                        date_part = m.group(0).strip()
+                        # Tout ce qui est AVANT la plage reste dans le titre
+                        title_part = first_line[:m.start()].rstrip(" ,–-").strip()
                         break
 
-                # Si dates détectées, on retire la dernière année qui traîne dans le titre
+                # Si on n'a toujours pas trouvé, on retombe sur l'ancien fallback : dernier séparateur
+                if not date_part:
+                    for sep in ("–", "—", "-"):
+                        idx = first_line.rfind(sep)
+                        if idx != -1:
+                            title_part = first_line[:idx].strip()
+                            date_part = first_line[idx + 1:].strip()
+                            break
+
+                # Dernière sécurité : si une année traîne encore à la fin du titre, on la coupe
                 if date_part:
                     m = re.search(r"(19|20)\d{2}\s*$", title_part)
                     if m:
