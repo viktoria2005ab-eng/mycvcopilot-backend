@@ -175,15 +175,18 @@ OFFRE D’EMPLOI :
 \"\"\"{payload["job_posting"]}\"\"\"
 
 RÈGLES :
-- 1 page maximum.
-- Format de dates homogène (MMM YYYY – MMM YYYY).
+- 1 page maximum (ABSOLUMENT aucune 2e page).
+- Format de dates homogène, toujours sous la forme "MMM YYYY – MMM YYYY"
+  (exemple : "Sept 2023 – Juin 2025") et jamais "09/2023", "2023-2025" ou "au".
 - Chaque bullet = Verbe fort + Action + Impact business (sans inventer de chiffres).
-- 3 à 5 bullets maximum par expérience.
+- 2 à 3 bullets maximum par expérience (2 par défaut, 3 uniquement pour les expériences les plus pertinentes).
 - Interdiction des mots : assisted, helped, worked on.
 - Ton professionnel, précis, sobre.
 - Classe les expériences de la plus pertinente à la moins pertinente par rapport au poste visé.
+- Les expériences de tutorat / soutien scolaire sont plus pertinentes qu’un job de caisse générique et doivent être placées AU-DESSUS des jobs étudiants alimentaires.
 - Les expériences en finance / audit / assurance / banque / analyse financière doivent être tout en haut, même si elles sont plus anciennes.
 - Les jobs étudiants génériques (supermarché, baby-sitting, barista, etc.) doivent toujours être en bas de la section EXPÉRIENCES, même s’ils sont plus récents.
+- Si le contenu commence à être trop long pour tenir sur une page, tu SUPPRIMES d’abord les expériences les moins pertinentes (jobs étudiants génériques) et tu raccourcis les bullets les moins importantes.
 - Le CV doit être rédigé intégralement en français (même si l’offre ou les intitulés sont en anglais).
 - Tous les bullet points doivent être écrits en français.
 
@@ -225,6 +228,7 @@ SECTION ACTIVITIES (CENTRES D’INTÉRÊT) :
 - Tu n’y mets QUE des centres d’intérêt / activités personnelles (sport, voyages, engagements associatifs non listés en expérience, hobbies).
 - INTERDICTION d’y mettre BDE / associations / projets déjà listés dans EXPÉRIENCES.
 - Pas de doublons : si c’est dans EXPÉRIENCES, tu ne le répètes pas ailleurs.
+- Tu n’utilises JAMAIS de Markdown (**texte**, *texte*). Tu écris simplement le texte brut.
 - Format de chaque activité sur UNE LIGNE :
   Nom de l’activité en gras, suivi de ":" puis une phrase :
   - ce que la personne a fait concrètement (niveau / fréquence / contexte),
@@ -282,10 +286,12 @@ ACTIVITIES:
 <contenu>
 
 CONTRAINTE LONGUEUR :
-- Maximum 12 bullet points au total.
-- Maximum 3 bullet points par expérience.
+- Le CV doit absolument tenir sur UNE SEULE page.
+- Maximum 10 bullet points au total.
+- Maximum 2 à 3 bullet points par expérience (2 par défaut).
+- Tu raccourcis les expériences les moins importantes si besoin pour rester sur 1 page.
 - Format concis.
-- Pas de phrases longues.
+- Pas de phrases longues (une seule idée par bullet).
 
 PROFIL :
 Nom : {payload["full_name"]}
@@ -611,6 +617,7 @@ def _render_education(anchor: Paragraph, lines: list[str]):
     - Première ligne de chaque bloc en gras
     - 'Cours pertinents' -> 'Matières fondamentales'
     - 'Matières fondamentales :' souligné
+    - Dans la section EDUCATION, chaque diplôme ou programme est sur son propre paragraphe, séparé par UNE LIGNE VIDE du suivant (ex : Programme Grande École, ligne vide, puis Baccalauréat, etc.
     """
     last = anchor
     first_in_block = True
@@ -692,6 +699,10 @@ def _render_interests(anchor: Paragraph, lines: list[str]):
 
         head = head.strip()
         tail = tail.strip()
+
+        # Nettoyage des éventuels **...** ou *...* venant du modèle
+        while head.startswith("*") and head.endswith("*") and len(head) > 2:
+            head = head[1:-1].strip()
 
         r_head = new_p.add_run(head)
         r_head.bold = True
@@ -993,10 +1004,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 if "study abroad" in lower_first:
                     first_line = re.sub(r"(?i)study abroad", "Échange académique", first_line)
 
-                # Séparation Titre / Dates sur le DERNIER tiret long
+                # Séparation Titre / Dates sur le DERNIER séparateur (–, — ou -)
                 title_part = first_line
                 date_part = ""
-                for sep in ("–", "—"):
+                for sep in ("–", "—", "-"):
                     idx = first_line.rfind(sep)
                     if idx != -1:
                         title_part = first_line[:idx].strip()
@@ -1173,17 +1184,32 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
             for exp in exps:
                 raw_role = (exp.get("role") or "").strip()
-                role = re.sub(r"^(en|dans|au|aux)\s+", "", raw_role, flags=re.IGNORECASE).strip()
+                role = raw_role
+
+                # 1) Cas du type "Stage en audit financier" -> on vire "Stage + en/dans/au/aux"
+                role = re.sub(
+                    r"^(stage|stagiaire|internship|intern|traineeship)\s+(en|dans|au|aux)\s+",
+                    "",
+                    role,
+                    flags=re.IGNORECASE,
+                ).strip()
+
                 lower_role = role.lower()
 
+                # 2) Si le rôle commence encore par un type de contrat (hors "en ..."), on enlève juste ce préfixe
                 for key in CONTRACT_PREFIXES:
-                    if lower_role.startswith(key):
+                    if lower_role.startswith(key + " "):
                         role = role[len(key):].lstrip(" -–—")
                         lower_role = role.lower()
                         break
 
+                # 3) Cas particulier "Student tutor"
                 if "student tutor" in lower_role:
                     role = role.replace("Student tutor", "Tuteur bénévole").replace("student tutor", "Tuteur bénévole")
+
+                # 4) On force une majuscule au début du rôle si besoin
+                if role and role[0].islower():
+                    role = role[0].upper() + role[1:]
 
                 company = (exp.get("company") or "").strip()
                 title_parts = [x for x in [role, company] if x]
