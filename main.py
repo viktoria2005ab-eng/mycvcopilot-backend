@@ -4,6 +4,7 @@ import uuid
 import datetime as dt
 from typing import Optional, Dict, Any
 import glob 
+import json
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
@@ -578,49 +579,78 @@ def _no_space_len(s: str) -> int:
     """Longueur d'un texte sans compter les espaces."""
     return len(re.sub(r"\s+", "", s or ""))
 
-def _shrink_sentence_words(text: str, max_no_space: int) -> str:
+def shorten_experience_bullets_with_llm(
+    exps: list[dict],
+    max_no_space_per_bullet: int = 90,
+) -> list[dict]:
     """
-    Raccourcit une phrase à max_no_space caractères SANS espaces,
-    en enlevant des mots à la fin, SANS jamais couper un mot
-    et SANS jamais mettre '...'.
-
-    On termine toujours par un point propre si on a raccourci.
+    Réécrit les bullets via l'API pour qu'elles soient plus courtes,
+    sans changer le sens, sans inventer, et sans '...'.
     """
-    text = (text or "").strip()
-    if not text:
-        return ""
+    if not client:
+        return exps  # pas d'API dispo -> on ne touche pas
 
-    # Si déjà assez court, on le laisse tel quel
-    if _no_space_len(text) <= max_no_space:
-        # on ajoute juste un point si vraiment rien ne termine la phrase
-        if text[-1] not in ".!?":
-            text = text.rstrip(" ,;:") + "."
-        return text
+    # On prépare une version simplifiée pour l'IA
+    simple_exps = []
+    for e in exps:
+        simple_exps.append({
+            "role": e.get("role", ""),
+            "company": e.get("company", ""),
+            "bullets": e.get("bullets", []),
+        })
 
-    words = text.split()
-    kept: list[str] = []
+    payload = {
+        "max_no_space": max_no_space_per_bullet,
+        "experiences": simple_exps,
+    }
 
-    for w in words:
-        candidate = (" ".join(kept + [w])).strip()
-        if _no_space_len(candidate) > max_no_space:
-            break
-        kept.append(w)
+    prompt = f"""
+Tu es un recruteur en finance.
 
-    # Si on n'a rien pu garder (cas ultra rare) : on coupe à la barbare mais sans '...'
-    if not kept:
-        cut_pos = min(len(text), max_no_space + 10)
-        cut = text.rfind(" ", 0, cut_pos)
-        if cut == -1:
-            cut = cut_pos
-        result = text[:cut].rstrip(" ,;:")
-    else:
-        result = " ".join(kept).rstrip(" ,;:")
+On te donne des expériences avec leurs bullet points au format JSON.
 
-    # On finit proprement par un point si ce n'est pas déjà le cas
-    if result and result[-1] not in ".!?":
-        result = result + "."
+Pour CHAQUE bullet :
+- réécris-la en français,
+- garde le même sens (pas de nouvelles missions, pas de nouveaux chiffres, pas de nouveaux outils),
+- structure : verbe d'action + moyen + résultat,
+- phrase complète qui finit par un point,
+- MAXIMUM {max_no_space_per_bullet} caractères SANS espaces,
+- JAMAIS de points de suspension ("...").
 
-    return result
+NE CHANGE PAS :
+- le nombre d'expériences,
+- le nombre de bullets par expérience,
+- l'ordre des expériences et des bullets.
+
+Renvoie UNIQUEMENT un JSON de la forme :
+{{"experiences": [{{"bullets": ["...", "..."]}}, ...]}}
+
+Voici le JSON d'entrée :
+
+{json.dumps(payload, ensure_ascii=False)}
+"""
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    content = resp.choices[0].message.content.strip()
+
+    try:
+        data = json.loads(content)
+        new_exps = data.get("experiences", [])
+    except Exception:
+        # Si l'IA répond mal, on garde les bullets d'origine
+        return exps
+
+    for old, new in zip(exps, new_exps):
+        if isinstance(new, dict):
+            new_bullets = new.get("bullets")
+            if isinstance(new_bullets, list) and new_bullets:
+                old["bullets"] = [b for b in new_bullets if (b or "").strip()]
+
+    return exps
+
 
 def trim_finance_experiences(
     exps: list[dict],
@@ -628,19 +658,14 @@ def trim_finance_experiences(
     max_experiences: int = 4,
     max_total_bullets: int = 8,
     min_experiences: int = 2,
-    max_no_space_per_bullet: int = 80,  # ↓ un peu plus strict pour rester sur UNE ligne
+    max_no_space_per_bullet: int = 90,
 ) -> list[dict]:
     """
-    Objectif : que la section EXPÉRIENCES tienne sur une page,
-    SANS casser les phrases n'importe où et SANS '...'.
+    Objectif : section EXPÉRIENCES propre et lisible, sans phrases coupées.
 
-    - On garde plusieurs bullets par expérience.
-    - exp 1 : jusqu'à 3 bullets
-    - exp 2 : jusqu'à 2 bullets
-    - exp 3 et 4 : jusqu'à 2 bullets aussi
-    - Quand le CV est long, chaque bullet est raccourcie pour faire
-      environ max_no_space_per_bullet caractères SANS espaces,
-      en retirant des mots à la fin, et en terminant par un point.
+    - On limite le nombre d'expériences et de bullets.
+    - Puis, si le CV est long, on RÉÉCRIT les bullets via l'API
+      pour les raccourcir (verbe d'action + moyen + résultat).
     """
 
     # 1) Nettoyage des expériences vides
@@ -657,15 +682,11 @@ def trim_finance_experiences(
     if not cleaned:
         return []
 
-    # 🔹 CV court : pas de trimming agressif
-    if not is_cv_long:
-        return cleaned
-
-    # 2) On limite à max_experiences (ordre supposé déjà par pertinence)
+    # 2) Limite du nombre d'expériences (ordre déjà trié par pertinence)
     if len(cleaned) > max_experiences:
         cleaned = cleaned[:max_experiences]
 
-    # 3) Limite de bullets par expérience + raccourcissement propre
+    # 3) Limite du nombre de bullets par expérience (3 / 2 / 2 / 2)
     for idx, e in enumerate(cleaned):
         bullets = e.get("bullets") or []
         bullets = [b for b in bullets if (b or "").strip()]
@@ -675,30 +696,21 @@ def trim_finance_experiences(
             continue
 
         if idx == 0:
-            max_b = 3          # exp la plus pertinente
+            max_b = 3      # expérience principale
         elif idx == 1:
-            max_b = 2          # deuxième expérience
+            max_b = 2
         else:
-            max_b = 2          # exp 3 et 4
+            max_b = 2      # exp 3 et 4
 
-        bullets = bullets[:max_b]
+        e["bullets"] = bullets[:max_b]
 
-        # Si le CV est long, on raccourcit chaque bullet par MOTS,
-        # pour que ça reste sur une ligne, en finissant par un point.
-        if is_cv_long:
-            bullets = [
-                _shrink_sentence_words(b, max_no_space_per_bullet)
-                for b in bullets
-            ]
-
-        e["bullets"] = bullets
-
-    # 4) Sécurité globale : trop de bullets -> on enlève en bas
+    # 4) Sécurité globale sur le nombre total de bullets
     def total_bullets(exps_list: list[dict]) -> int:
         return sum(len(e.get("bullets", [])) for e in exps_list)
 
     while total_bullets(cleaned) > max_total_bullets and len(cleaned) > min_experiences:
         changed = False
+        # On enlève une bullet à partir des expériences les moins importantes
         for idx in range(len(cleaned) - 1, -1, -1):
             b_list = cleaned[idx].get("bullets", [])
             if len(b_list) > 1:
@@ -706,26 +718,87 @@ def trim_finance_experiences(
                 changed = True
                 break
         if not changed:
-            # En dernier recours, on supprime la DERNIÈRE expérience
+            # Dernier recours : supprimer la dernière expérience
             cleaned.pop()
             break
 
+    # 5) Réécriture PROPRE des bullets via l'API (si CV long)
+    if is_cv_long:
+        cleaned = shorten_experience_bullets_with_llm(
+            cleaned,
+            max_no_space_per_bullet=max_no_space_per_bullet,
+        )
+
     return cleaned
+
+
+def shorten_activities_with_llm(
+    lines: list[str],
+    max_no_space_per_activity: int = 90,
+) -> list[str]:
+    """
+    Réécrit chaque activité pour qu'elle tienne sur une ligne,
+    phrase complète, sans '...'.
+    """
+    if not client:
+        return lines
+
+    activities = [(l or "").strip() for l in lines if (l or "").strip()]
+    if not activities:
+        return []
+
+    payload = {
+        "max_no_space": max_no_space_per_activity,
+        "activities": activities,
+    }
+
+    prompt = f"""
+Tu es recruteur en finance.
+
+On te donne une liste d'activités / centres d'intérêt.
+
+Pour chaque activité :
+- garde UNE activité par ligne (pas de fusion),
+- réécris en français en gardant le sens,
+- fais une phrase complète qui se termine par un point,
+- ne mets JAMAIS de points de suspension ("..."),
+- la phrase doit faire au maximum {max_no_space_per_activity} caractères SANS espaces.
+
+Renvoie UNIQUEMENT un JSON de la forme :
+{{"activities": ["Activité 1 : ...", "Activité 2 : ...", ...]}}
+
+Voici les activités :
+
+{json.dumps(payload, ensure_ascii=False)}
+"""
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    content = resp.choices[0].message.content.strip()
+
+    try:
+        data = json.loads(content)
+        new_acts = data.get("activities", [])
+        return [(a or "").strip() for a in new_acts if (a or "").strip()]
+    except Exception:
+        # Si l'IA répond mal, on garde les lignes d'origine
+        return activities
+
 
 def trim_activities(
     lines: list[str],
     cv_is_long: bool,
     ideal_max: int = 3,
-    max_no_space_per_activity: int = 80,
+    max_no_space_per_activity: int = 90,
 ) -> list[str]:
     """
     ACTIVITÉS / CENTRES D'INTÉRÊT :
 
-    - 1 activité = 1 ligne (1 puce).
-    - Le nom de l'activité (avant ":" ou " - ") reste intact.
-    - Si le CV est long, on RÉDUIT la description pour que
-      (titre + description) <= max_no_space_per_activity caractères SANS espaces,
-      en retirant des mots, SANS '...' et en finissant par un point.
+    - 1 activité = 1 ligne.
+    - Si le CV est long, on les réécrit via l'API pour qu'elles soient
+      courtes, propres, sans '...'.
     """
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
@@ -734,61 +807,14 @@ def trim_activities(
     # On garde au max 3 activités
     cleaned = cleaned[:ideal_max]
 
-    # Si le CV n'est pas long, on ne touche à rien
     if not cv_is_long:
         return cleaned
 
-    def compress(text: str) -> str:
-        text = (text or "").strip()
-        if not text:
-            return ""
-
-        # 1) Séparer TITRE / DESCRIPTION
-        head = text
-        tail = ""
-        sep = ""
-
-        if ":" in text:
-            head, tail = text.split(":", 1)
-            sep = ":"
-        elif " - " in text:
-            left, right = text.split(" - ", 1)
-            if len(left.split()) <= 4:
-                head, tail = left, right
-                sep = ":"
-            else:
-                head, tail = text, ""
-                sep = ""
-
-        head = head.strip()
-        tail = tail.strip()
-
-        # 2) Budget de caractères SANS espaces
-        base_ns = _no_space_len(head)
-        if sep:
-            base_ns += _no_space_len(sep)
-
-        remaining = max_no_space_per_activity - base_ns
-
-        # Si aucun budget ou pas de description -> seulement le titre (avec point)
-        if remaining <= 0 or not tail:
-            if head and head[-1] not in ".!?":
-                head = head.rstrip(" ,;:") + "."
-            return head
-
-        # 3) On raccourcit la description MOT PAR MOT
-        desc = _shrink_sentence_words(tail, remaining)
-        desc = desc.rstrip(" ,;:")
-
-        if not desc:
-            if head and head[-1] not in ".!?":
-                head = head.rstrip(" ,;:") + "."
-            return head
-
-        # 4) Reconstruction
-        return f"{head}: {desc}"
-
-    return [compress(t) for t in cleaned]
+    # Réécriture propre via LLM
+    return shorten_activities_with_llm(
+        cleaned,
+        max_no_space_per_activity=max_no_space_per_activity,
+    )
 
 def _find_paragraph_containing(doc: Document, needle: str):
     for p in doc.paragraphs:
