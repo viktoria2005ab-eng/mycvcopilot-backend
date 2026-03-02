@@ -353,16 +353,50 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
     else:
         prompt = build_prompt(payload)
 
+    # 1er appel : génération normale
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
     )
 
+    cv_text = resp.choices[0].message.content.strip()
+
+    # --- Contrôle de longueur : si c'est TROP court, on demande une version un peu développée ---
+    raw = cv_text.replace("\r\n", "\n")
+    chars_no_space = len(re.sub(r"\s+", "", raw))
+
+    # En-dessous d'environ 2050 caractères (sans espaces) → la page n'est pas assez remplie
+    if chars_no_space < 2050:
+        expand_prompt = f"""
+Le CV suivant est trop court (environ {chars_no_space} caractères sans espaces) et ne remplit pas une page Word.
+
+Sans inventer de nouvelles expériences, missions, outils ni chiffres, améliore ce CV en :
+- développant légèrement les bullet points des 1 ou 2 expériences les plus pertinentes ;
+- développant un peu la description des ACTIVITIES les plus fortes.
+
+Contraintes OBLIGATOIRES :
+- Tu gardes EXACTEMENT la même structure et les mêmes sections :
+  EDUCATION:, EXPERIENCES:, SKILLS:, LANGUAGES:, ACTIVITIES: (ou INTERESTS:).
+- Tu ne crées PAS de nouvelles expériences ni de nouvelles sections.
+- Tu n'ajoutes PAS de nouveaux outils, ni de nouveaux chiffres inventés.
+- Tu ne dépasses pas environ 2300 caractères sans espaces.
+- Le format des sections doit rester identique (mêmes balises, même ordre).
+
+Voici le CV de départ à améliorer (garde le même format) :
+
+\"\"\"{cv_text}\"\"\"
+"""
+        resp2 = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": expand_prompt}],
+        )
+        cv_text = resp2.choices[0].message.content.strip()
+
     print("=== RAW CV TEXT ===")
-    print(resp.choices[0].message.content)
+    print(cv_text)
     print("=== END RAW CV TEXT ===")
 
-    return resp.choices[0].message.content.strip()
+    return cv_text
 
 from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -582,16 +616,6 @@ def trim_finance_experiences(
     if len(cleaned) > max_experiences:
         cleaned = cleaned[:max_experiences]
 
-    # 2bis) Heuristique volume de texte : si 4 grosses expériences, on peut redescendre à 3
-    if len(cleaned) == 4:
-        total_chars = 0
-        for e in cleaned:
-            total_chars += len(e.get("role", ""))
-            total_chars += len(e.get("company", ""))
-            total_chars += sum(len(b) for b in e.get("bullets", []))
-        if total_chars > 550:
-            cleaned = cleaned[:3]
-
     # 3) Limite de bullets par expérience
     for idx, e in enumerate(cleaned):
         bullets = e.get("bullets") or []
@@ -652,31 +676,29 @@ def trim_activities(
     lines: list[str],
     cv_is_long: bool,
     ideal_max: int = 3,
-    hard_max_when_long: int = 2,
+    hard_max_when_long: int = 3,
     max_chars_per_activity: int = 140,
-    long_total_threshold: int = 260,
 ) -> list[str]:
     """
-    - CV court -> on garde jusqu'à 3 activités, sans coupe violente.
-    - CV long :
-        * on raccourcit proprement chaque phrase,
-        * si l'ensemble reste trop long, on FUSIONNE les activités en 1 seule ligne
-          au lieu d'en supprimer une (on ne "perd" pas une activité).
+    ACTIVITÉS / CENTRES D'INTÉRÊT :
+
+    - On garde la structure : 1 activité = 1 ligne = 1 puce.
+    - Le nom de l'activité (avant ":" ou " - ") reste intact pour que le sous-titre soit propre.
+    - Si le CV est long, on raccourcit juste la description de chaque activité,
+      mais on NE FUSIONNE PAS toutes les activités entre elles.
     """
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
         return []
 
+    # On garde au max 3 activités (tu en as 3 : danse, course, voyages)
     cleaned = cleaned[:ideal_max]
-
-    # 🔹 CV court -> on laisse tel quel
-    if not cv_is_long:
-        return cleaned
 
     def shorten(text: str) -> str:
         if len(text) <= max_chars_per_activity:
             return text
 
+        # On coupe proprement sur un séparateur qui tombe avant la limite
         candidates = []
         for sep in [".", ";", ",", " et "]:
             idx = text.rfind(sep, 0, max_chars_per_activity)
@@ -687,22 +709,19 @@ def trim_activities(
             cut = max(candidates)
             return text[:cut].rstrip(" ,;et") + "…"
 
+        # Sinon on coupe brutal mais propre
         return text[: max_chars_per_activity - 1].rstrip() + "…"
 
+    # CV court -> on laisse quasiment tout
+    if not cv_is_long:
+        return [shorten(t) for t in cleaned]
+
+    # CV long -> on raccourcit chaque activité, mais on les garde séparées
     shortened = [shorten(t) for t in cleaned]
 
-    # Si on a 3 activités assez verbeuses -> on fusionne tout en 1 seule ligne
-    if len(shortened) == ideal_max:
-        total_len = sum(len(t) for t in shortened)
-        if total_len > long_total_threshold:
-            merged = "; ".join(shortened)
-            # on évite le pavé de 3 lignes en une
-            max_merged = max_chars_per_activity * 2
-            if len(merged) > max_merged:
-                merged = merged[: max_merged - 1].rstrip(" ,;") + "…"
-            return [merged]
-
-    return shortened
+    # Si vraiment un jour tu veux forcer à 2 activités max quand c'est très long,
+    # on pourra faire : shortened = shortened[:2]
+    return shortened[:hard_max_when_long]
 
 def _find_paragraph_containing(doc: Document, needle: str):
     for p in doc.paragraphs:
