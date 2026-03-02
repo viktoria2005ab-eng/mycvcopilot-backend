@@ -640,11 +640,14 @@ def shorten_experience_bullets_with_llm(
     max_no_space_per_bullet: int = 90,
 ) -> list[dict]:
     """
-    Réécrit les bullets via l'API pour qu'elles soient plus courtes,
-    sans changer le sens, sans inventer, et sans '...'.
+    RÉÉCRIT les bullets via l'API pour qu'elles soient plus courtes,
+    SANS changer le sens, SANS inventer, SANS '...'
+    et SANS JAMAIS changer le nombre de bullets.
+
+    Si l'IA ne respecte pas ça -> on garde la version ORIGINALE.
     """
     if not client:
-        return exps  # pas d'API dispo -> on ne touche pas
+        return exps  # pas d'API dispo -> on ne touche rien
 
     # On prépare une version simplifiée pour l'IA
     simple_exps = []
@@ -665,20 +668,27 @@ Tu es un recruteur en finance.
 
 On te donne des expériences avec leurs bullet points au format JSON.
 
-Pour CHAQUE bullet :
-- réécris-la en français,
-- garde le même sens (pas de nouvelles missions, pas de nouveaux chiffres, pas de nouveaux outils),
+POUR CHAQUE BULLET :
+- tu la réécris en français,
+- tu gardes le MÊME sens (pas de nouvelles missions, pas de nouveaux chiffres, pas de nouveaux outils),
 - structure : verbe d'action + moyen + résultat,
 - phrase complète qui finit par un point,
 - MAXIMUM {max_no_space_per_bullet} caractères SANS espaces,
 - JAMAIS de points de suspension ("...").
 
-NE CHANGE PAS :
-- le nombre d'expériences,
-- le nombre de bullets par expérience,
-- l'ordre des expériences et des bullets.
+INTERDIT :
+- ne pas répondre en JSON,
+- modifier le nombre d'expériences,
+- modifier le nombre de bullets d'une expérience,
+- réordonner les expériences,
+- réordonner les bullets.
 
-Renvoie UNIQUEMENT un JSON de la forme :
+TU DOIS garder STRICTEMENT :
+- le même nombre d'expériences,
+- le même nombre de bullets par expérience,
+- le même ordre.
+
+Réponds UNIQUEMENT avec un JSON de la forme :
 {{"experiences": [{{"bullets": ["...", "..."]}}, ...]}}
 
 Voici le JSON d'entrée :
@@ -696,17 +706,53 @@ Voici le JSON d'entrée :
         data = json.loads(content)
         new_exps = data.get("experiences", [])
     except Exception:
-        # Si l'IA répond mal, on garde les bullets d'origine
+        # Si l'IA ne répond pas en JSON -> on garde TOUT tel quel
         return exps
 
+    # Sécurité maximale : si la longueur ne colle pas, on ne change RIEN
+    if not isinstance(new_exps, list) or len(new_exps) != len(exps):
+        return exps
+
+    result: list[dict] = []
+
     for old, new in zip(exps, new_exps):
-        if isinstance(new, dict):
-            new_bullets = new.get("bullets")
-            if isinstance(new_bullets, list) and new_bullets:
-                old["bullets"] = [b for b in new_bullets if (b or "").strip()]
+        if not isinstance(new, dict):
+            result.append(old)
+            continue
 
-    return exps
+        old_bullets = old.get("bullets") or []
+        new_bullets = new.get("bullets")
 
+        if not isinstance(new_bullets, list):
+            result.append(old)
+            continue
+
+        # ⚠️ SI le nombre de bullets ne correspond pas -> on garde l'ancien
+        if len(new_bullets) != len(old_bullets):
+            result.append(old)
+            continue
+
+        cleaned_bullets = []
+        invalid = False
+        for b in new_bullets:
+            txt = (b or "").strip()
+            if not txt:
+                invalid = True
+                break
+            cleaned_bullets.append(txt)
+        if invalid:
+            result.append(old)
+            continue
+
+        updated = dict(old)
+        updated["bullets"] = cleaned_bullets
+        result.append(updated)
+
+    # Par sécurité : si on a un souci, on renvoie l'original
+    if len(result) != len(exps):
+        return exps
+
+    return result
 
 def trim_finance_experiences(
     exps: list[dict],
@@ -717,20 +763,20 @@ def trim_finance_experiences(
     max_no_space_per_bullet: int = 90,
 ) -> list[dict]:
     """
-    Objectif : section EXPÉRIENCES propre et lisible, sans phrases coupées.
-
-    - On limite le nombre d'expériences et de bullets.
-    - Puis, si le CV est long, on RÉÉCRIT les bullets via l'API
-      pour les raccourcir (verbe d'action + moyen + résultat).
+    NOUVELLE VERSION :
+    - NE SUPPRIME PLUS JAMAIS d'expérience.
+    - NE SUPPRIME PLUS JAMAIS de bullet.
+    - Se contente de nettoyer les vides et, si le CV est long,
+      de faire RÉÉCRIRE les bullets via l'API pour les raccourcir.
     """
 
-    # 1) Nettoyage des expériences vides
+    # 1) Nettoyage des expériences VRAIMENT vides
     cleaned: list[dict] = []
     for e in exps:
         role = (e.get("role") or "").strip()
         bullets = [b for b in (e.get("bullets") or []) if (b or "").strip()]
         if not role and not bullets:
-            continue
+            continue  # là c'est du vide total, ça ne sert à rien
         e["role"] = role
         e["bullets"] = bullets
         cleaned.append(e)
@@ -738,55 +784,17 @@ def trim_finance_experiences(
     if not cleaned:
         return []
 
-    # 2) Limite du nombre d'expériences (ordre déjà trié par pertinence)
-    if len(cleaned) > max_experiences:
-        cleaned = cleaned[:max_experiences]
+    # 2) Si le CV n'est pas long -> on NE TOUCHE À RIEN
+    if not is_cv_long:
+        return cleaned
 
-    # 3) Limite du nombre de bullets par expérience (3 / 2 / 2 / 2)
-    for idx, e in enumerate(cleaned):
-        bullets = e.get("bullets") or []
-        bullets = [b for b in bullets if (b or "").strip()]
-
-        if not bullets:
-            e["bullets"] = []
-            continue
-
-        if idx == 0:
-            max_b = 3      # expérience principale
-        elif idx == 1:
-            max_b = 2
-        else:
-            max_b = 2      # exp 3 et 4
-
-        e["bullets"] = bullets[:max_b]
-
-    # 4) Sécurité globale sur le nombre total de bullets
-    def total_bullets(exps_list: list[dict]) -> int:
-        return sum(len(e.get("bullets", [])) for e in exps_list)
-
-    while total_bullets(cleaned) > max_total_bullets and len(cleaned) > min_experiences:
-        changed = False
-        # On enlève une bullet à partir des expériences les moins importantes
-        for idx in range(len(cleaned) - 1, -1, -1):
-            b_list = cleaned[idx].get("bullets", [])
-            if len(b_list) > 1:
-                b_list.pop()
-                changed = True
-                break
-        if not changed:
-            # Dernier recours : supprimer la dernière expérience
-            cleaned.pop()
-            break
-
-    # 5) Réécriture PROPRE des bullets via l'API (si CV long)
-    if is_cv_long:
-        cleaned = shorten_experience_bullets_with_llm(
-            cleaned,
-            max_no_space_per_bullet=max_no_space_per_bullet,
-        )
+    # 3) Si le CV est long -> on raccourcit PAR RÉÉCRITURE (pas par suppression)
+    cleaned = shorten_experience_bullets_with_llm(
+        cleaned,
+        max_no_space_per_bullet=max_no_space_per_bullet,
+    )
 
     return cleaned
-
 
 def shorten_activities_with_llm(
     lines: list[str],
@@ -794,7 +802,9 @@ def shorten_activities_with_llm(
 ) -> list[str]:
     """
     Réécrit chaque activité pour qu'elle tienne sur une ligne,
-    phrase complète, sans '...'.
+    phrase complète, sans '...', SANS jamais changer le NOMBRE d'activités.
+
+    Si l'IA ne respecte pas ça -> on garde les lignes d'origine.
     """
     if not client:
         return lines
@@ -813,14 +823,18 @@ Tu es recruteur en finance.
 
 On te donne une liste d'activités / centres d'intérêt.
 
-Pour chaque activité :
-- garde UNE activité par ligne (pas de fusion),
-- réécris en français en gardant le sens,
-- fais une phrase complète qui se termine par un point,
-- ne mets JAMAIS de points de suspension ("..."),
+POUR CHAQUE ACTIVITÉ :
+- tu gardes UNE activité par ligne (pas de fusion),
+- tu réécris en français en gardant le sens,
+- tu fais une phrase complète qui se termine par un point,
+- tu ne mets JAMAIS de points de suspension ("..."),
 - la phrase doit faire au maximum {max_no_space_per_activity} caractères SANS espaces.
 
-Renvoie UNIQUEMENT un JSON de la forme :
+INTERDIT :
+- changer le nombre d'activités,
+- fusionner plusieurs activités en une seule.
+
+Réponds UNIQUEMENT avec un JSON de la forme :
 {{"activities": ["Activité 1 : ...", "Activité 2 : ...", ...]}}
 
 Voici les activités :
@@ -837,10 +851,23 @@ Voici les activités :
     try:
         data = json.loads(content)
         new_acts = data.get("activities", [])
-        return [(a or "").strip() for a in new_acts if (a or "").strip()]
     except Exception:
-        # Si l'IA répond mal, on garde les lignes d'origine
+        # L'IA n'a pas répondu comme il faut -> on garde tout
         return activities
+
+    # Sécurité : si le nombre ne correspond pas -> on garde l'original
+    if not isinstance(new_acts, list) or len(new_acts) != len(activities):
+        return activities
+
+    out: list[str] = []
+    for old, new in zip(activities, new_acts):
+        txt = (new or "").strip()
+        if not txt:
+            # si une activité disparaît -> on annule tout
+            return activities
+        out.append(txt)
+
+    return out
 
 
 def trim_activities(
@@ -852,21 +879,22 @@ def trim_activities(
     """
     ACTIVITÉS / CENTRES D'INTÉRÊT :
 
-    - 1 activité = 1 ligne.
-    - Si le CV est long, on les réécrit via l'API pour qu'elles soient
-      courtes, propres, sans '...'.
+    NOUVELLE LOGIQUE :
+    - on NE SUPPRIME plus des activités,
+    - on nettoie juste les lignes vides,
+    - si le CV est long, on demande à l'IA de RÉÉCRIRE plus court,
+      sans fusionner ni supprimer.
     """
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
         return []
 
-    # On garde au max 3 activités
-    cleaned = cleaned[:ideal_max]
+    # On NE coupe PLUS la liste (plus de cleaned = cleaned[:ideal_max])
 
     if not cv_is_long:
         return cleaned
 
-    # Réécriture propre via LLM
+    # Si CV long -> reformulation via LLM, SANS suppression
     return shorten_activities_with_llm(
         cleaned,
         max_no_space_per_activity=max_no_space_per_activity,
