@@ -546,11 +546,13 @@ def trim_finance_experiences(
     """
     Objectif : être SÛR que la section EXPÉRIENCES ne déborde pas.
 
-    - Si le CV n'est PAS long (is_cv_long=False) :
-        ➜ on NE TOUCHE PAS aux bullets, on garde tout ce que le modèle a généré.
-    - Si le CV est long (is_cv_long=True) :
-        ➜ on limite à max_experiences
-        ➜ on ne réduit vraiment les bullets que si on dépasse max_total_bullets.
+    - CV court -> on ne touche (presque) à rien.
+    - CV long -> on limite le nombre d'expériences et de bullets,
+      mais sans faire disparaître les idées clés :
+        * exp 1 = jusqu'à 3 bullets
+        * exp 2 = jusqu'à 2 bullets
+        * exp 3 et 4 = 1 bullet qui RESUME toutes les bullets de l'expérience
+                       (on fusionne les bullets au lieu d'en jeter).
     """
 
     # 1) Nettoyage des expériences vides
@@ -568,64 +570,75 @@ def trim_finance_experiences(
         return []
 
     # 🔹 CAS CV COURT : on ne fait PAS de trimming agressif
-    # -> on garde toutes les expériences et tous les bullets
     if not is_cv_long:
         return cleaned
 
-    # Fonctions utilitaires
-    def total_bullets(exps_list: list[dict]) -> int:
-        return sum(len(e.get("bullets", [])) for e in exps_list)
-
-    def total_chars(exps_list: list[dict]) -> int:
-        s = 0
-        for e in exps_list:
-            s += len(e.get("role", "") or "")
-            s += len(e.get("company", "") or "")
-            s += sum(len(b or "") for b in e.get("bullets", []))
-        return s
-
-    # 2) On limite quand même le nombre d'expériences
+    # 2) On limite quand même à max_experiences (ordre supposé trié par pertinence dans le prompt)
     if len(cleaned) > max_experiences:
         cleaned = cleaned[:max_experiences]
 
-    # 2bis) Heuristique de volume : si 4 expériences TRES verbeuses -> on descend à 3
-    if len(cleaned) == 4 and total_chars(cleaned) > 550:
-        cleaned = cleaned[:3]
+    # 2bis) Heuristique volume de texte : si 4 grosses expériences, on peut redescendre à 3
+    if len(cleaned) == 4:
+        total_chars = 0
+        for e in cleaned:
+            total_chars += len(e.get("role", ""))
+            total_chars += len(e.get("company", ""))
+            total_chars += sum(len(b) for b in e.get("bullets", []))
+        if total_chars > 550:
+            cleaned = cleaned[:3]
 
-    # À ce stade, si on est déjà sous le plafond de bullets,
-    # on ne touche PAS au détail des bullets (on laisse 3/3/3 par ex.).
-    if total_bullets(cleaned) <= max_total_bullets:
-        return cleaned
-
-    # 3) On applique un plafonnement des bullets par expérience
+    # 3) Limite de bullets par expérience
     for idx, e in enumerate(cleaned):
+        bullets = e.get("bullets") or []
+
         if idx == 0:
             max_b = 3
+            e["bullets"] = bullets[:max_b]
+
         elif idx == 1:
             max_b = 2
+            e["bullets"] = bullets[:max_b]
+
         else:
-            max_b = 1
-        e["bullets"] = e.get("bullets", [])[:max_b]
+            # Pour les expériences 3 et 4 (typiquement associations / jobs secondaires) :
+            # on garde UNE seule bullet qui RESUME toutes les autres.
+            if not bullets:
+                e["bullets"] = []
+                continue
 
-    # 4) Si on est encore au-dessus du plafond, on enlève des bullets en partant du bas,
-    #    puis, en tout dernier recours, on supprime la DERNIÈRE expérience.
-    while total_bullets(cleaned) > max_total_bullets and cleaned:
+            # On fusionne toutes les bullets en une phrase unique
+            parts = []
+            for b in bullets:
+                txt = (b or "").strip().rstrip(".;")
+                if txt:
+                    parts.append(txt)
+            if not parts:
+                e["bullets"] = []
+                continue
+
+            merged = "; ".join(parts)
+            # On évite les romans de 10 km
+            if len(merged) > 260:
+                merged = merged[:259].rstrip(" ,;") + "…"
+
+            e["bullets"] = [merged]
+
+    # 4) Sécurité : si vraiment on dépassait encore max_total_bullets,
+    # on enlève seulement des bullets à partir des expériences du bas.
+    def total_bullets(exps_list: list[dict]) -> int:
+        return sum(len(e.get("bullets", [])) for e in exps_list)
+
+    while total_bullets(cleaned) > max_total_bullets and len(cleaned) > min_experiences:
         changed = False
-
-        # a) enlever une bullet sur la dernière expérience qui en a encore
         for idx in range(len(cleaned) - 1, -1, -1):
             b_list = cleaned[idx].get("bullets", [])
-            if len(b_list) > 0:
+            if len(b_list) > 1:
                 b_list.pop()
                 changed = True
                 break
-
-        # b) si plus aucune bullet et > min_experiences -> supprimer la dernière expérience
-        if not changed and len(cleaned) > min_experiences:
-            cleaned.pop()
-            changed = True
-
         if not changed:
+            # En dernier recours, on supprime la DERNIÈRE expérience
+            cleaned.pop()
             break
 
     return cleaned
@@ -639,32 +652,26 @@ def trim_activities(
     long_total_threshold: int = 260,
 ) -> list[str]:
     """
-    - Idéalement on garde jusqu'à 3 activités.
-    - Si le CV est court -> on ne coupe PAS les phrases et on garde jusqu'à 3 lignes telles quelles.
-    - Si le CV est long :
-        * on raccourcit proprement les phrases trop longues,
-        * et si les 3 activités occupent trop de place, on n'en garde que 2
-          (on supprime la moins développée = la plus courte).
+    - CV court -> on garde jusqu'à 3 activités, sans coupe violente.
+    - CV long :
+        * on raccourcit proprement chaque phrase,
+        * si l'ensemble reste trop long, on FUSIONNE les activités en 1 seule ligne
+          au lieu d'en supprimer une (on ne "perd" pas une activité).
     """
-    # 1) Nettoyage des lignes vides
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
         return []
 
-    # 2) On garde au maximum 3 lignes brutes
     cleaned = cleaned[:ideal_max]
 
-    # 🔹 CAS 1 : CV COURT -> aucune contrainte de longueur ici
+    # 🔹 CV court -> on laisse tel quel
     if not cv_is_long:
         return cleaned
 
-    # 🔹 CAS 2 : CV LONG -> on applique la logique de trimming
     def shorten(text: str) -> str:
-        # Si la phrase est courte → on ne touche à rien
         if len(text) <= max_chars_per_activity:
             return text
 
-        # Sinon on coupe proprement près d'un séparateur AVANT la limite
         candidates = []
         for sep in [".", ";", ",", " et "]:
             idx = text.rfind(sep, 0, max_chars_per_activity)
@@ -675,18 +682,20 @@ def trim_activities(
             cut = max(candidates)
             return text[:cut].rstrip(" ,;et") + "…"
 
-        # Fallback : coupe brutale mais courte
         return text[: max_chars_per_activity - 1].rstrip() + "…"
 
     shortened = [shorten(t) for t in cleaned]
 
-    # Si on a 3 activités et qu'elles sont très verbeuses,
-    # on en garde 2 (on supprime la moins développée)
+    # Si on a 3 activités assez verbeuses -> on fusionne tout en 1 seule ligne
     if len(shortened) == ideal_max:
         total_len = sum(len(t) for t in shortened)
-        if total_len > long_total_threshold and hard_max_when_long < ideal_max:
-            idx_to_drop = min(range(len(shortened)), key=lambda i: len(shortened[i]))
-            shortened.pop(idx_to_drop)
+        if total_len > long_total_threshold:
+            merged = "; ".join(shortened)
+            # on évite le pavé de 3 lignes en une
+            max_merged = max_chars_per_activity * 2
+            if len(merged) > max_merged:
+                merged = merged[: max_merged - 1].rstrip(" ,;") + "…"
+            return [merged]
 
     return shortened
 
@@ -1592,8 +1601,16 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
         # ------- Listes classiques (si jamais) -------
         _insert_lines_after(p, value or [], make_bullets=True)
-
-    doc.save(out_path)
+        # Nettoyage des paragraphes vides en fin de document pour éviter la page blanche
+        try:
+            for p in reversed(doc.paragraphs):
+                if (p.text or "").strip():
+                    break
+                _remove_paragraph(p)
+        except Exception:
+            pass
+    
+        doc.save(out_path)
 
 def write_pdf_simple(cv_text: str, out_path: str) -> None:
     c = canvas.Canvas(out_path, pagesize=A4)
