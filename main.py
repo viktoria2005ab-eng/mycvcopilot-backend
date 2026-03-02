@@ -574,6 +574,41 @@ PLACEHOLDERS = [
     "%%LANGUAGES%%",
     "%%INTERESTS%%",
 ]
+def _no_space_len(s: str) -> int:
+    """Longueur d'un texte sans compter les espaces."""
+    return len(re.sub(r"\s+", "", s or ""))
+
+def _shrink_sentence_words(text: str, max_no_space: int) -> str:
+    """
+    Raccourcit une phrase à max_no_space caractères SANS espaces,
+    en enlevant des mots à la fin, sans jamais couper un mot au milieu.
+    Ajoute "…" si on a dû raccourcir.
+    """
+    text = (text or "").strip()
+    if not text:
+        return ""
+
+    if _no_space_len(text) <= max_no_space:
+        return text
+
+    words = text.split()
+    kept: list[str] = []
+
+    for w in words:
+        candidate = (" ".join(kept + [w])).strip()
+        if _no_space_len(candidate) > max_no_space:
+            break
+        kept.append(w)
+
+    result = " ".join(kept).rstrip(" ,;:.")
+    if not result:
+        # dernier filet de sécurité : on coupe sur le dernier espace avant la limite
+        cut_pos = min(len(text), max_no_space + 10)
+        cut = text.rfind(" ", 0, cut_pos)
+        if cut == -1:
+            cut = cut_pos
+        result = text[:cut].rstrip(" ,;:.")
+    return result + "…"
 
 def trim_finance_experiences(
     exps: list[dict],
@@ -581,17 +616,19 @@ def trim_finance_experiences(
     max_experiences: int = 4,
     max_total_bullets: int = 8,
     min_experiences: int = 2,
+    max_no_space_per_bullet: int = 90,
 ) -> list[dict]:
     """
-    Objectif : être SÛR que la section EXPÉRIENCES ne déborde pas.
+    Objectif : que la section EXPÉRIENCES tienne sur une page,
+    SANS casser les phrases n'importe où.
 
-    - CV court -> on ne touche (presque) à rien.
-    - CV long -> on limite le nombre d'expériences et de bullets,
-      mais sans faire disparaître les idées clés :
-        * exp 1 = jusqu'à 3 bullets
-        * exp 2 = jusqu'à 2 bullets
-        * exp 3 et 4 = 1 bullet qui RESUME toutes les bullets de l'expérience
-                       (on fusionne les bullets au lieu d'en jeter).
+    - On garde plusieurs bullets par expérience (pas de fusion moche avec ";").
+    - exp 1 : jusqu'à 3 bullets
+    - exp 2 : jusqu'à 2 bullets
+    - exp 3 et 4 : jusqu'à 2 bullets aussi
+    - Quand le CV est long, chaque bullet est raccourcie pour faire
+      environ max_no_space_per_bullet caractères SANS espaces,
+      en retirant des mots à la fin (jamais de mot coupé).
     """
 
     # 1) Nettoyage des expériences vides
@@ -612,48 +649,40 @@ def trim_finance_experiences(
     if not is_cv_long:
         return cleaned
 
-    # 2) On limite quand même à max_experiences (ordre supposé trié par pertinence dans le prompt)
+    # 2) On limite quand même à max_experiences (ordre supposé déjà trié par pertinence)
     if len(cleaned) > max_experiences:
         cleaned = cleaned[:max_experiences]
 
-    # 3) Limite de bullets par expérience
+    # 3) Limite de bullets par expérience + raccourcissement propre
     for idx, e in enumerate(cleaned):
         bullets = e.get("bullets") or []
+        bullets = [b for b in bullets if (b or "").strip()]
+
+        if not bullets:
+            e["bullets"] = []
+            continue
 
         if idx == 0:
-            max_b = 3
-            e["bullets"] = bullets[:max_b]
-
+            max_b = 3          # exp la plus pertinente
         elif idx == 1:
-            max_b = 2
-            e["bullets"] = bullets[:max_b]
-
+            max_b = 2          # deuxième expérience
         else:
-            # Pour les expériences 3 et 4 (typiquement associations / jobs secondaires) :
-            # on garde UNE seule bullet qui RESUME toutes les autres.
-            if not bullets:
-                e["bullets"] = []
-                continue
+            max_b = 2          # exp 3 et 4
 
-            # On fusionne toutes les bullets en une phrase unique
-            parts = []
-            for b in bullets:
-                txt = (b or "").strip().rstrip(".;")
-                if txt:
-                    parts.append(txt)
-            if not parts:
-                e["bullets"] = []
-                continue
+        bullets = bullets[:max_b]
 
-            merged = "; ".join(parts)
-            # On évite les romans de 10 km
-            if len(merged) > 260:
-                merged = merged[:259].rstrip(" ,;") + "…"
+        # Si le CV est long, on raccourcit chaque bullet par MOTS,
+        # pour que ça reste sur une ligne.
+        if is_cv_long:
+            bullets = [
+                _shrink_sentence_words(b, max_no_space_per_bullet)
+                for b in bullets
+            ]
 
-            e["bullets"] = [merged]
+        e["bullets"] = bullets
 
-    # 4) Sécurité : si vraiment on dépassait encore max_total_bullets,
-    # on enlève seulement des bullets à partir des expériences du bas.
+    # 4) Sécurité globale : si on a encore trop de bullets,
+    # on enlève d'abord celles du bas.
     def total_bullets(exps_list: list[dict]) -> int:
         return sum(len(e.get("bullets", [])) for e in exps_list)
 
@@ -681,24 +710,22 @@ def trim_activities(
     """
     ACTIVITÉS / CENTRES D'INTÉRÊT :
 
-    - On garde 1 activité = 1 ligne (1 puce).
+    - 1 activité = 1 ligne (1 puce).
     - Le nom de l'activité (avant ":" ou " - ") reste intact.
-    - Si le CV est long, on réduit la description pour que
-      (titre + description) ≈ max_no_space_per_activity caractères sans espaces.
+    - Si le CV est long, on RÉDUIT la description pour que
+      (titre + description) <= max_no_space_per_activity caractères SANS espaces,
+      sans jamais couper un mot.
     """
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
         return []
 
-    # On garde au max 3 activités (Danse / Course / Voyages)
+    # On garde au max 3 activités
     cleaned = cleaned[:ideal_max]
 
-    # Si le CV n'est pas long, on laisse tel quel
+    # Si le CV n'est pas long, on ne touche à rien
     if not cv_is_long:
         return cleaned
-
-    def no_space_len(s: str) -> int:
-        return len(re.sub(r"\s+", "", s or ""))
 
     def compress(text: str) -> str:
         text = (text or "").strip()
@@ -708,64 +735,46 @@ def trim_activities(
         # 1) Séparer TITRE / DESCRIPTION
         head = text
         tail = ""
+        sep = ""
 
         if ":" in text:
             head, tail = text.split(":", 1)
             sep = ":"
         elif " - " in text:
             left, right = text.split(" - ", 1)
-            # On considère que la partie gauche est le titre si elle est courte
             if len(left.split()) <= 4:
                 head, tail = left, right
                 sep = ":"
             else:
                 head, tail = text, ""
                 sep = ""
-        else:
-            sep = ""
 
         head = head.strip()
         tail = tail.strip()
 
-        # 2) Calculer l'espace dispo pour la description
-        base_ns = no_space_len(head)
+        # 2) Budget de caractères SANS espaces
+        base_ns = _no_space_len(head)
         if sep:
-            base_ns += no_space_len(sep)
+            base_ns += _no_space_len(sep)
 
         remaining = max_no_space_per_activity - base_ns
 
-        # Si aucune marge → on ne garde que le titre
+        # Si aucun budget ou pas de description -> seulement le titre
         if remaining <= 0 or not tail:
             return head
 
-        desc = tail
+        # 3) On raccourcit la description MOT PAR MOT
+        desc = _shrink_sentence_words(tail, remaining)
+        desc = desc.rstrip(" ,;.")
 
-        # 3) Si la description est trop longue, on coupe proprement
-        if no_space_len(desc) > remaining:
-            # on essaye d'abord de couper sur un séparateur "propre"
-            best = desc
-            for sep2 in [".", ";", ",", " et "]:
-                idx = desc.rfind(sep2)
-                if idx != -1:
-                    candidate = desc[:idx]
-                    if no_space_len(candidate) <= remaining:
-                        best = candidate
-                        break
-
-            desc = best
-
-            # si c'est encore trop long, on raccourcit caractère par caractère
-            while no_space_len(desc) > remaining and len(desc) > 0:
-                desc = desc[:-1]
-
-            desc = desc.rstrip(" ,;et")
-
-        # Si au final on n'a plus rien de propre → juste le titre
         if not desc:
             return head
 
-        # On reconstruit "Titre : description"
-        return f"{head}: {desc}"
+        # 4) Reconstruction
+        if sep:
+            return f"{head}: {desc}"
+        else:
+            return f"{head}: {desc}"
 
     return [compress(t) for t in cleaned]
 
