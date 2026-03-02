@@ -519,8 +519,12 @@ def parse_finance_experiences(lines: list[str]) -> list[dict]:
             cur["type"] = line.replace("TYPE:", "").strip()
         elif line.startswith("BULLETS:"):
             mode = "bullets"
-        elif mode == "bullets" and line.startswith("-"):
-            cur["bullets"].append(line[1:].strip())
+        elif mode == "bullets" and line.lstrip().startswith("-"):
+            # On tolère les espaces avant le tiret ("  - bullet")
+            stripped = line.lstrip()
+            bullet_text = stripped[1:].strip()
+            if bullet_text:
+                cur["bullets"].append(bullet_text)
 
     push()
     return exps
@@ -1136,14 +1140,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
     # On mesure la longueur du texte pour savoir si on doit "tailler" ou pas.
     raw_text = cv_text or ""
-    cv_length = len(raw_text)                 # caractères avec espaces
-    nb_lines = raw_text.count("\n") + 1       # nombre de lignes brutes
+    nb_lines = raw_text.count("\n") + 1  # nombre de lignes brutes
 
-    # ➜ Seuils beaucoup plus tolérants :
-    # - un CV "normal" tourne plutôt autour de 1800–2600 caractères
-    # - on ne bascule en mode "long" que si vraiment c'est chargé
-    cv_is_long = (cv_length > 3200) or (nb_lines > 85)
-    # Test 1 (≈ 1864 caractères sans espaces) restera donc en "court"
+    # Longueur SANS espaces (celle que tu mesures)
+    chars_no_space = len(re.sub(r"\s+", "", raw_text))
+
+    # Zone idéale ≈ 2100–2225 -> au-delà de ~2250 on considère que c'est "long"
+    cv_is_long = (chars_no_space > 2250) or (nb_lines > 85)
 
     # Marges plus petites pour mieux utiliser la largeur
     for section in doc.sections:
