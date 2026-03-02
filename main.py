@@ -536,6 +536,76 @@ PLACEHOLDERS = [
     "%%INTERESTS%%",
 ]
 
+def trim_finance_experiences(
+    exps: list[dict],
+    max_experiences: int = 4,
+    max_total_bullets: int = 9,
+    min_experiences: int = 3,
+) -> list[dict]:
+    """
+    Nettoie et réduit les expériences pour respecter la contrainte d'1 page :
+    - max 4 expériences (les premières sont les plus importantes)
+    - max 9 bullet points au total
+    - 3 bullets max pour les 2 expériences clés, 2 max pour les autres
+    - on enlève d'abord des bullets aux expériences les moins importantes,
+      et en dernier recours on supprime un job étudiant générique sans bullet.
+    """
+
+    # 1) On vire les expériences totalement vides
+    cleaned: list[dict] = []
+    for e in exps:
+        role = (e.get("role") or "").strip()
+        bullets = [b for b in (e.get("bullets") or []) if (b or "").strip()]
+        if not role and not bullets:
+            continue
+        e["role"] = role
+        e["bullets"] = bullets
+        cleaned.append(e)
+
+    if not cleaned:
+        return []
+
+    # 2) On garde max 4 expériences (en pratique, le modèle a déjà trié par pertinence)
+    if len(cleaned) > max_experiences:
+        cleaned = cleaned[:max_experiences]
+
+    # 3) Limite de bullets par expérience
+    for idx, e in enumerate(cleaned):
+        max_b = 3 if idx < 2 else 2   # les 2 premières peuvent aller jusqu'à 3 bullets
+        e["bullets"] = e["bullets"][:max_b]
+
+    # 4) Limite globale de bullets
+    def total_bullets(exps_list: list[dict]) -> int:
+        return sum(len(e.get("bullets", [])) for e in exps_list)
+
+    # Tant qu'on dépasse le max_total_bullets, on enlève des bullets en partant des dernières expériences
+    while total_bullets(cleaned) > max_total_bullets and cleaned:
+        changed = False
+
+        # On parcourt les expériences de la moins prioritaire à la plus prioritaire
+        for idx in range(len(cleaned) - 1, -1, -1):
+            b_list = cleaned[idx].get("bullets", [])
+            # On essaie d'abord de passer de 3 -> 2 ou de 2 -> 1
+            if len(b_list) > 1 or len(cleaned) > min_experiences:
+                if b_list:
+                    b_list.pop()
+                    changed = True
+                    # on sort de la boucle for dès qu'on a enlevé 1 bullet
+                    break
+
+        # Si on n'a plus rien à enlever, on sort pour éviter boucle infinie
+        if not changed:
+            break
+
+        # On supprime les expériences qui n'ont plus aucun bullet ET qui sont en bas de liste
+        # → typiquement les jobs étudiants génériques
+        cleaned = [
+            e for i, e in enumerate(cleaned)
+            if e.get("bullets") or i < min_experiences
+        ]
+
+    return cleaned
+
 
 def _find_paragraph_containing(doc: Document, needle: str):
     for p in doc.paragraphs:
@@ -1266,9 +1336,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             _remove_paragraph(p)
             continue
 
-        # ------- EXPERIENCE -------
         if ph == "%%EXPERIENCE%%":
             exps = parse_finance_experiences(value or [])
+            exps = trim_finance_experiences(exps)  # 💡 NOUVEAU
             anchor = p
 
             # Si le modèle ne respecte pas le format, on retombe sur une liste simple
