@@ -543,11 +543,13 @@ def trim_finance_experiences(
     min_experiences: int = 2,
 ) -> list[dict]:
     """
-    Objectif : être SÛR que la section EXPÉRIENCES ne déborde pas.
-    - On garde max 4 expériences (en pratique : souvent 3).
-    - On vise max ~8 bullets au total.
-    - 1ère expérience = la plus développée.
-    - On raccourcit fort la 3ᵉ / 4ᵉ et on supprime la dernière si ça reste trop long.
+    Objectif : contrôler la longueur de la section EXPÉRIENCES sans être brutal.
+
+    - On garde jusqu'à 4 expériences.
+    - On vise ~8 bullets max au total.
+    - On réduit d'abord le nombre de bullets sur les expériences les moins importantes.
+    - On NE SUPPRIME la 4ᵉ expérience qu'en DERNIER RECOURS, si malgré tout
+      le nombre total de bullets reste trop élevé.
     """
 
     # 1) Nettoyage des expériences vides
@@ -568,14 +570,17 @@ def trim_finance_experiences(
     if len(cleaned) > max_experiences:
         cleaned = cleaned[:max_experiences]
 
-    # 3) Limite de bullets par expérience
+    # 3) Limite initiale de bullets par expérience
     #    - exp 0 : max 3 bullets
     #    - exp 1 : max 2 bullets
-    #    - exp 2 et 3 : max 1 bullet
+    #    - exp 2 : max 2 bullets
+    #    - exp 3 : max 1 bullet
     for idx, e in enumerate(cleaned):
         if idx == 0:
             max_b = 3
         elif idx == 1:
+            max_b = 2
+        elif idx == 2:
             max_b = 2
         else:
             max_b = 1
@@ -584,23 +589,27 @@ def trim_finance_experiences(
     def total_bullets(exps_list: list[dict]) -> int:
         return sum(len(e.get("bullets", [])) for e in exps_list)
 
-    # 4) Si on est encore trop long → on enlève des bullets en partant du bas,
-    #    puis en dernier recours on supprime la DERNIÈRE expérience.
+    # 4) Ajustement progressif : on enlève des bullets en partant du bas,
+    #    puis seulement si nécessaire on supprime la dernière expérience.
     while total_bullets(cleaned) > max_total_bullets and cleaned:
         changed = False
 
-        # a) on enlève une bullet à la dernière expérience qui en a encore plusieurs
+        # a) On enlève une bullet des expériences les moins prioritaires
+        #    (4ᵉ, puis 3ᵉ, puis 2ᵉ), en gardant un minimum de contenu
         for idx in range(len(cleaned) - 1, -1, -1):
             b_list = cleaned[idx].get("bullets", [])
-            if len(b_list) > 0:
+            # on évite de vider complètement les 2 premières expériences
+            if idx <= 1 and len(b_list) <= 1:
+                continue
+            if b_list:
                 b_list.pop()
                 changed = True
                 break
 
-        # b) si vraiment plus aucune bullet à enlever et qu'on a > min_experiences,
-        #    on supprime la DERNIÈRE expérience (la moins prioritaire).
+        # b) Si on ne peut plus enlever de bullets et qu'on a 4 expériences,
+        #    on supprime alors la DERNIÈRE (la moins prioritaire).
         if not changed and len(cleaned) > min_experiences:
-            cleaned.pop()
+            cleaned.pop()  # supprime la dernière expérience (souvent job étudiant)
             changed = True
 
         if not changed:
@@ -1088,7 +1097,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     if isinstance(interests_raw, list):
         interests_value = trim_activities(interests_raw)
     else:
-        interests_value = interests_ra
+        interests_value = interests_raw
     mapping = {
         "%%FULL_NAME%%": full_name,
         "%%CONTACT_LINE%%": contact_line,
