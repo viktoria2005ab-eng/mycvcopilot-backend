@@ -1132,7 +1132,21 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     if isinstance(sections.get("SKILLS"), list):
         cleaned = [x.strip().lstrip("-").strip() for x in sections["SKILLS"] if x.strip()]
         sections["SKILLS"] = cleaned
-
+    
+    # ⬇️ Langues intégrées dans Compétences & Outils
+    languages_raw = sections.get("LANGUAGES") or []
+    if isinstance(languages_raw, list):
+        lang_text = ", ".join(x.strip() for x in languages_raw if x.strip())
+    else:
+        lang_text = str(languages_raw).strip()
+    
+    if lang_text:
+        skills_list = sections.get("SKILLS") or []
+        skills_list.append(f"Langues : {lang_text}")
+        sections["SKILLS"] = skills_list
+    
+    sections["LANGUAGES"] = []
+    
     interests_raw = sections.get("INTERESTS", []) or sections.get("ACTIVITIES", [])
 
     if isinstance(interests_raw, list):
