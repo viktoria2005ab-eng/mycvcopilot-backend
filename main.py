@@ -539,19 +539,18 @@ PLACEHOLDERS = [
 def trim_finance_experiences(
     exps: list[dict],
     max_experiences: int = 4,
-    max_total_bullets: int = 9,
-    min_experiences: int = 3,
+    max_total_bullets: int = 8,
+    min_experiences: int = 2,
 ) -> list[dict]:
     """
-    Nettoie et réduit les expériences pour respecter la contrainte d'1 page :
-    - max 4 expériences (les premières sont les plus importantes)
-    - max 9 bullet points au total
-    - 3 bullets max pour les 2 expériences clés, 2 max pour les autres
-    - on enlève d'abord des bullets aux expériences les moins importantes,
-      et en dernier recours on supprime un job étudiant générique sans bullet.
+    Objectif : être SÛR que la section EXPÉRIENCES ne déborde pas.
+    - On garde max 4 expériences (en pratique : souvent 3).
+    - On vise max ~8 bullets au total.
+    - 1ère expérience = la plus développée.
+    - On raccourcit fort la 3ᵉ / 4ᵉ et on supprime la dernière si ça reste trop long.
     """
 
-    # 1) On vire les expériences totalement vides
+    # 1) Nettoyage des expériences vides
     cleaned: list[dict] = []
     for e in exps:
         role = (e.get("role") or "").strip()
@@ -565,47 +564,59 @@ def trim_finance_experiences(
     if not cleaned:
         return []
 
-    # 2) On garde max 4 expériences (en pratique, le modèle a déjà trié par pertinence)
+    # 2) On garde max 4 expériences (on suppose déjà triées par pertinence)
     if len(cleaned) > max_experiences:
         cleaned = cleaned[:max_experiences]
 
     # 3) Limite de bullets par expérience
+    #    - exp 0 : max 3 bullets
+    #    - exp 1 : max 2 bullets
+    #    - exp 2 et 3 : max 1 bullet
     for idx, e in enumerate(cleaned):
-        max_b = 3 if idx < 2 else 2   # les 2 premières peuvent aller jusqu'à 3 bullets
+        if idx == 0:
+            max_b = 3
+        elif idx == 1:
+            max_b = 2
+        else:
+            max_b = 1
         e["bullets"] = e["bullets"][:max_b]
 
-    # 4) Limite globale de bullets
     def total_bullets(exps_list: list[dict]) -> int:
         return sum(len(e.get("bullets", [])) for e in exps_list)
 
-    # Tant qu'on dépasse le max_total_bullets, on enlève des bullets en partant des dernières expériences
+    # 4) Si on est encore trop long → on enlève des bullets en partant du bas,
+    #    puis en dernier recours on supprime la DERNIÈRE expérience.
     while total_bullets(cleaned) > max_total_bullets and cleaned:
         changed = False
 
-        # On parcourt les expériences de la moins prioritaire à la plus prioritaire
+        # a) on enlève une bullet à la dernière expérience qui en a encore plusieurs
         for idx in range(len(cleaned) - 1, -1, -1):
             b_list = cleaned[idx].get("bullets", [])
-            # On essaie d'abord de passer de 3 -> 2 ou de 2 -> 1
-            if len(b_list) > 1 or len(cleaned) > min_experiences:
-                if b_list:
-                    b_list.pop()
-                    changed = True
-                    # on sort de la boucle for dès qu'on a enlevé 1 bullet
-                    break
+            if len(b_list) > 0:
+                b_list.pop()
+                changed = True
+                break
 
-        # Si on n'a plus rien à enlever, on sort pour éviter boucle infinie
+        # b) si vraiment plus aucune bullet à enlever et qu'on a > min_experiences,
+        #    on supprime la DERNIÈRE expérience (la moins prioritaire).
+        if not changed and len(cleaned) > min_experiences:
+            cleaned.pop()
+            changed = True
+
         if not changed:
             break
 
-        # On supprime les expériences qui n'ont plus aucun bullet ET qui sont en bas de liste
-        # → typiquement les jobs étudiants génériques
-        cleaned = [
-            e for i, e in enumerate(cleaned)
-            if e.get("bullets") or i < min_experiences
-        ]
-
     return cleaned
 
+def trim_activities(lines: list[str], max_activities: int = 3) -> list[str]:
+    """
+    Garde au max `max_activities` activités, en supprimant les plus bas dans la liste.
+    On enlève les lignes vides avant.
+    """
+    cleaned = [l for l in (lines or []) if (l or "").strip()]
+    if len(cleaned) <= max_activities:
+        return cleaned
+    return cleaned[:max_activities]
 
 def _find_paragraph_containing(doc: Document, needle: str):
     for p in doc.paragraphs:
@@ -1045,8 +1056,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     for section in doc.sections:
         section.left_margin = Cm(1.0)
         section.right_margin = Cm(1.0)
-        section.top_margin = Cm(1.5)      
-        section.bottom_margin = Cm(1.5)   
+        section.top_margin = Cm(1.2)      
+        section.bottom_margin = Cm(1.2)   
 
     # ------- Données générales -------
     payload = payload or {}
@@ -1072,6 +1083,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         cleaned = [x.strip().lstrip("-").strip() for x in sections["SKILLS"] if x.strip()]
         sections["SKILLS"] = cleaned
 
+    interests_raw = sections.get("INTERESTS", []) or sections.get("ACTIVITIES", [])
+
+    if isinstance(interests_raw, list):
+        interests_value = trim_activities(interests_raw)
+    else:
+        interests_value = interests_ra
     mapping = {
         "%%FULL_NAME%%": full_name,
         "%%CONTACT_LINE%%": contact_line,
@@ -1080,7 +1097,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         "%%EXPERIENCE%%": sections.get("EXPERIENCES", []),
         "%%SKILLS%%": sections.get("SKILLS", []),
         "%%LANGUAGES%%": sections.get("LANGUAGES", []),
-        "%%INTERESTS%%": sections.get("INTERESTS", []) or sections.get("ACTIVITIES", []),
+        "%%INTERESTS%%": interests_value,
     }
 
     for ph, value in mapping.items():
