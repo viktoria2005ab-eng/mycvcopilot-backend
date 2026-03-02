@@ -545,14 +545,12 @@ def trim_finance_experiences(
 ) -> list[dict]:
     """
     Objectif : être SÛR que la section EXPÉRIENCES ne déborde pas.
-    - On garde max 4 expériences (en pratique souvent 3).
-    - On vise ~8 bullets au total.
-    - 1ère expérience = la plus développée.
-    - On raccourcit fort la 3ᵉ / 4ᵉ et on supprime la dernière si ça reste trop long.
 
-    Heuristique "intelligente" :
-    - Tant que le volume de texte est raisonnable → on peut garder 4 expériences.
-    - Si le volume est trop gros (beaucoup de bullets très longues) → on passe à 3 expériences.
+    - Si le CV n'est PAS long (is_cv_long=False) :
+        ➜ on NE TOUCHE PAS aux bullets, on garde tout ce que le modèle a généré.
+    - Si le CV est long (is_cv_long=True) :
+        ➜ on limite à max_experiences
+        ➜ on ne réduit vraiment les bullets que si on dépasse max_total_bullets.
     """
 
     # 1) Nettoyage des expériences vides
@@ -570,25 +568,36 @@ def trim_finance_experiences(
         return []
 
     # 🔹 CAS CV COURT : on ne fait PAS de trimming agressif
-    # On garde toutes les expériences et tous les bullets (dans la limite de ce que le modèle a généré).
+    # -> on garde toutes les expériences et tous les bullets
     if not is_cv_long:
         return cleaned
 
-    # 2) On limite quand même à max_experiences (ordre supposé trié par pertinence dans le prompt)
+    # Fonctions utilitaires
+    def total_bullets(exps_list: list[dict]) -> int:
+        return sum(len(e.get("bullets", [])) for e in exps_list)
+
+    def total_chars(exps_list: list[dict]) -> int:
+        s = 0
+        for e in exps_list:
+            s += len(e.get("role", "") or "")
+            s += len(e.get("company", "") or "")
+            s += sum(len(b or "") for b in e.get("bullets", []))
+        return s
+
+    # 2) On limite quand même le nombre d'expériences
     if len(cleaned) > max_experiences:
         cleaned = cleaned[:max_experiences]
 
-    # 2bis) Heuristique volume de texte
-    if len(cleaned) == 4:
-        total_chars = 0
-        for e in cleaned:
-            total_chars += len(e.get("role", ""))
-            total_chars += len(e.get("company", ""))
-            total_chars += sum(len(b) for b in e.get("bullets", []))
-        if total_chars > 550:
-            cleaned = cleaned[:3]
+    # 2bis) Heuristique de volume : si 4 expériences TRES verbeuses -> on descend à 3
+    if len(cleaned) == 4 and total_chars(cleaned) > 550:
+        cleaned = cleaned[:3]
 
-    # 3) Limite de bullets par expérience
+    # À ce stade, si on est déjà sous le plafond de bullets,
+    # on ne touche PAS au détail des bullets (on laisse 3/3/3 par ex.).
+    if total_bullets(cleaned) <= max_total_bullets:
+        return cleaned
+
+    # 3) On applique un plafonnement des bullets par expérience
     for idx, e in enumerate(cleaned):
         if idx == 0:
             max_b = 3
@@ -596,15 +605,14 @@ def trim_finance_experiences(
             max_b = 2
         else:
             max_b = 1
-        e["bullets"] = e["bullets"][:max_b]
+        e["bullets"] = e.get("bullets", [])[:max_b]
 
-    def total_bullets(exps_list: list[dict]) -> int:
-        return sum(len(e.get("bullets", [])) for e in exps_list)
-
-    # 4) Si on est encore trop long → on enlève des bullets puis, en dernier recours, une expérience
+    # 4) Si on est encore au-dessus du plafond, on enlève des bullets en partant du bas,
+    #    puis, en tout dernier recours, on supprime la DERNIÈRE expérience.
     while total_bullets(cleaned) > max_total_bullets and cleaned:
         changed = False
 
+        # a) enlever une bullet sur la dernière expérience qui en a encore
         for idx in range(len(cleaned) - 1, -1, -1):
             b_list = cleaned[idx].get("bullets", [])
             if len(b_list) > 0:
@@ -612,6 +620,7 @@ def trim_finance_experiences(
                 changed = True
                 break
 
+        # b) si plus aucune bullet et > min_experiences -> supprimer la dernière expérience
         if not changed and len(cleaned) > min_experiences:
             cleaned.pop()
             changed = True
@@ -1114,11 +1123,17 @@ def _split_education_block_on_degree_titles(block: list[str]) -> list[list[str]]
     return new_blocks
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
-    # On mesure grossièrement la longueur du CV texte
-    cv_length = len(cv_text or "")
-    # D'après tes tests, un CV bien plein ≈ 2300 caractères espaces compris
-    # -> au-dessus de ~2300 : on considère que c'est "long"
-    cv_is_long = cv_length > 2300
+
+    # On mesure la longueur du texte pour savoir si on doit "tailler" ou pas.
+    raw_text = cv_text or ""
+    cv_length = len(raw_text)                 # caractères avec espaces
+    nb_lines = raw_text.count("\n") + 1       # nombre de lignes brutes
+
+    # ➜ Seuils beaucoup plus tolérants :
+    # - un CV "normal" tourne plutôt autour de 1800–2600 caractères
+    # - on ne bascule en mode "long" que si vraiment c'est chargé
+    cv_is_long = (cv_length > 3200) or (nb_lines > 85)
+    # Test 1 (≈ 1864 caractères sans espaces) restera donc en "court"
 
     # Marges plus petites pour mieux utiliser la largeur
     for section in doc.sections:
