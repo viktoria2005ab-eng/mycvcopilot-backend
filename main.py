@@ -288,32 +288,36 @@ ACTIVITIES:
 CONTRAINTE LONGUEUR (INTELLIGENTE) :
 
 Le CV doit tenir STRICTEMENT sur UNE SEULE page Word.
+Tu dois viser une densité pro optimale :
+- ni trop vide
+- ni surchargé
+- une page pleine mais aérée.
+
+RÈGLE STRUCTURELLE DE BASE :
+- Maximum 9 bullet points au total (jamais plus de 9).
+- 2 bullet points par défaut par expérience.
+- 3 bullet points uniquement pour les 1 ou 2 expériences **les plus pertinentes** pour l’offre.
+- Tu ne crées pas plus de 4 expériences au total (hors éventuellement 1 job étudiant très court).
+- Tu ne supprimes **jamais** une expérience en finance / audit / banque / BDE / projet important, sauf si le profil en contient vraiment trop.
 
 RÈGLE D’AJUSTEMENT AUTOMATIQUE :
 
 1️⃣ Si le contenu devient trop long :
-- Tu réduis d’abord les expériences les moins pertinentes.
+- Tu réduis d’abord les expériences les **moins pertinentes** (jobs étudiants génériques, etc.).
 - Tu limites à 2 bullet points maximum pour les expériences secondaires.
-- Tu supprimes totalement les jobs étudiants génériques si nécessaire.
-- Tu raccourcis les formulations (phrases plus directes).
-- Tu limites à 8–9 bullet points maximum au total si besoin.
+- Tu raccourcis les formulations (phrases plus directes, une seule idée par bullet).
+- Tu supprimes **uniquement en dernier recours** un job étudiant générique (caisse, vente, etc.), jamais une expérience en finance / audit / BDE / projet sérieux.
+- Tu gardes toujours au moins 3 expériences au total si possible.
 
-2️⃣ Si le CV semble trop court (moins d’une page complète) :
-- Tu renforces les expériences les plus pertinentes (3 bullet points au lieu de 2).
-- Tu détailles davantage l’impact concret.
+2️⃣ Si le CV semble trop court (moins d’une page) :
+- Tu passes à 3 bullet points pour les expériences les plus pertinentes.
+- Tu détailles davantage l’impact concret (toujours sans inventer de chiffres).
 - Tu enrichis légèrement la section EDUCATION (matières clés, spécialisation, classement si fourni).
-- Tu ajoutes de la précision professionnelle sans inventer.
+- Tu développes un peu les ACTIVITÉS les plus fortes (sport intensif, voyages marquants, engagement régulier).
 
-RÈGLES STRUCTURELLES :
-- Maximum 10 bullet points au total.
-- 2 bullet points par défaut par expérience.
-- 3 bullet points uniquement pour les expériences les plus pertinentes.
+RÈGLES D’ÉCRITURE :
 - Phrases courtes, une seule idée par bullet.
-
-Tu dois viser une densité professionnelle optimale :
-- Ni trop vide
-- Ni surchargé
-- Un recruteur doit voir une page pleine mais aérée.
+- Tu évites les répétitions entre les bullets et entre les expériences.
 
 PROFIL :
 Nom : {payload["full_name"]}
