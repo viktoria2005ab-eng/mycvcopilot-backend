@@ -1177,14 +1177,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             _remove_paragraph(p)
             continue
 
-        # ------- LANGUES -------
-        if ph == "%%LANGUAGES%%" and isinstance(value, list):
-            text = ", ".join([x.strip() for x in value if x.strip()])
-            if text:
-                run = p.add_run(text)
-                run.font.size = Pt(10)
-            continue
-
         # ------- FORMATION -------
         if ph == "%%EDUCATION%%" and isinstance(value, list):
             anchor = p
