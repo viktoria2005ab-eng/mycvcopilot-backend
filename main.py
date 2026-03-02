@@ -630,21 +630,25 @@ def trim_finance_experiences(
 
 def trim_activities(
     lines: list[str],
-    max_activities: int = 3,
+    ideal_max: int = 3,
+    hard_max_when_long: int = 2,
     max_chars_per_activity: int = 140,
+    long_total_threshold: int = 260,
 ) -> list[str]:
     """
-    - Garde au maximum `max_activities` activités.
-    - Chaque activité reste sur UNE phrase max (on coupe proprement si c'est trop long).
-    - Si tout est raisonnable, on ne touche à rien.
+    - Idéalement on garde jusqu'à 3 activités.
+    - Si elles sont très verbeuses (beaucoup de texte au total), on n'en garde que 2
+      en supprimant la moins développée (la plus courte).
+    - Chaque activité est éventuellement raccourcie proprement (une phrase max).
     """
+
     # 1) Nettoyage des lignes vides
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
         return []
 
-    # 2) On garde uniquement les N premières (tu peux les ordonner par pertinence côté prompt)
-    kept = cleaned[:max_activities]
+    # 2) On garde au maximum 3 bruts (avant filtrage long/court)
+    cleaned = cleaned[:ideal_max]
 
     def shorten(text: str) -> str:
         # Si la phrase est courte → on ne touche à rien
@@ -665,8 +669,21 @@ def trim_activities(
         # Fallback : coupe brutale mais courte
         return text[: max_chars_per_activity - 1].rstrip() + "…"
 
-    # 3) On retourne les activités éventuellement raccourcies
-    return [shorten(t) for t in kept]
+    # 3) On raccourcit chaque activité si besoin
+    shortened = [shorten(t) for t in cleaned]
+
+    # 4) Heuristique "CV serré" :
+    #    - Si on a 3 activités
+    #    - ET que le total de texte est élevé
+    #    -> on n'en garde que 2 (en supprimant la moins développée)
+    if len(shortened) == ideal_max:
+        total_len = sum(len(t) for t in shortened)
+        if total_len > long_total_threshold and hard_max_when_long < ideal_max:
+            # index de la phrase la plus courte => moins développée
+            idx_to_drop = min(range(len(shortened)), key=lambda i: len(shortened[i]))
+            shortened.pop(idx_to_drop)
+
+    return shortened
 
 def _find_paragraph_containing(doc: Document, needle: str):
     for p in doc.paragraphs:
