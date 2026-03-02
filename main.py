@@ -676,52 +676,98 @@ def trim_activities(
     lines: list[str],
     cv_is_long: bool,
     ideal_max: int = 3,
-    hard_max_when_long: int = 3,
-    max_chars_per_activity: int = 140,
+    max_no_space_per_activity: int = 90,
 ) -> list[str]:
     """
     ACTIVITÉS / CENTRES D'INTÉRÊT :
 
-    - On garde la structure : 1 activité = 1 ligne = 1 puce.
-    - Le nom de l'activité (avant ":" ou " - ") reste intact pour que le sous-titre soit propre.
-    - Si le CV est long, on raccourcit juste la description de chaque activité,
-      mais on NE FUSIONNE PAS toutes les activités entre elles.
+    - On garde 1 activité = 1 ligne (1 puce).
+    - Le nom de l'activité (avant ":" ou " - ") reste intact.
+    - Si le CV est long, on réduit la description pour que
+      (titre + description) ≈ max_no_space_per_activity caractères sans espaces.
     """
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
         return []
 
-    # On garde au max 3 activités (tu en as 3 : danse, course, voyages)
+    # On garde au max 3 activités (Danse / Course / Voyages)
     cleaned = cleaned[:ideal_max]
 
-    def shorten(text: str) -> str:
-        if len(text) <= max_chars_per_activity:
-            return text
-
-        # On coupe proprement sur un séparateur qui tombe avant la limite
-        candidates = []
-        for sep in [".", ";", ",", " et "]:
-            idx = text.rfind(sep, 0, max_chars_per_activity)
-            if idx != -1:
-                candidates.append(idx)
-
-        if candidates:
-            cut = max(candidates)
-            return text[:cut].rstrip(" ,;et") + "…"
-
-        # Sinon on coupe brutal mais propre
-        return text[: max_chars_per_activity - 1].rstrip() + "…"
-
-    # CV court -> on laisse quasiment tout
+    # Si le CV n'est pas long, on laisse tel quel
     if not cv_is_long:
-        return [shorten(t) for t in cleaned]
+        return cleaned
 
-    # CV long -> on raccourcit chaque activité, mais on les garde séparées
-    shortened = [shorten(t) for t in cleaned]
+    def no_space_len(s: str) -> int:
+        return len(re.sub(r"\s+", "", s or ""))
 
-    # Si vraiment un jour tu veux forcer à 2 activités max quand c'est très long,
-    # on pourra faire : shortened = shortened[:2]
-    return shortened[:hard_max_when_long]
+    def compress(text: str) -> str:
+        text = (text or "").strip()
+        if not text:
+            return ""
+
+        # 1) Séparer TITRE / DESCRIPTION
+        head = text
+        tail = ""
+
+        if ":" in text:
+            head, tail = text.split(":", 1)
+            sep = ":"
+        elif " - " in text:
+            left, right = text.split(" - ", 1)
+            # On considère que la partie gauche est le titre si elle est courte
+            if len(left.split()) <= 4:
+                head, tail = left, right
+                sep = ":"
+            else:
+                head, tail = text, ""
+                sep = ""
+        else:
+            sep = ""
+
+        head = head.strip()
+        tail = tail.strip()
+
+        # 2) Calculer l'espace dispo pour la description
+        base_ns = no_space_len(head)
+        if sep:
+            base_ns += no_space_len(sep)
+
+        remaining = max_no_space_per_activity - base_ns
+
+        # Si aucune marge → on ne garde que le titre
+        if remaining <= 0 or not tail:
+            return head
+
+        desc = tail
+
+        # 3) Si la description est trop longue, on coupe proprement
+        if no_space_len(desc) > remaining:
+            # on essaye d'abord de couper sur un séparateur "propre"
+            best = desc
+            for sep2 in [".", ";", ",", " et "]:
+                idx = desc.rfind(sep2)
+                if idx != -1:
+                    candidate = desc[:idx]
+                    if no_space_len(candidate) <= remaining:
+                        best = candidate
+                        break
+
+            desc = best
+
+            # si c'est encore trop long, on raccourcit caractère par caractère
+            while no_space_len(desc) > remaining and len(desc) > 0:
+                desc = desc[:-1]
+
+            desc = desc.rstrip(" ,;et")
+
+        # Si au final on n'a plus rien de propre → juste le titre
+        if not desc:
+            return head
+
+        # On reconstruit "Titre : description"
+        return f"{head}: {desc}"
+
+    return [compress(t) for t in cleaned]
 
 def _find_paragraph_containing(doc: Document, needle: str):
     for p in doc.paragraphs:
@@ -1161,11 +1207,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     raw_text = cv_text or ""
     nb_lines = raw_text.count("\n") + 1  # nombre de lignes brutes
 
-    # Longueur SANS espaces (celle que tu mesures)
+    # Longueur SANS espaces (celle que tu mesures dans Word)
     chars_no_space = len(re.sub(r"\s+", "", raw_text))
 
-    # Zone idéale ≈ 2100–2225 -> au-delà de ~2250 on considère que c'est "long"
-    cv_is_long = (chars_no_space > 2250) or (nb_lines > 85)
+    # Au-delà d’environ 2225 caractères sans espaces → CV considéré comme "long"
+    cv_is_long = (chars_no_space > 2225) or (nb_lines > 85)
 
     # Marges plus petites pour mieux utiliser la largeur
     for section in doc.sections:
