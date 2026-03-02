@@ -365,6 +365,62 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
     # --- Contrôle de longueur : si c'est TROP court, on demande une version un peu développée ---
     raw = cv_text.replace("\r\n", "\n")
     chars_no_space = len(re.sub(r"\s+", "", raw))
+    
+    # --- Contrôle de longueur : si c'est TROP LONG, on demande une version raccourcie ---
+    # Objectif : viser ~2225 caractères sans espaces, sans casser les phrases.
+    TARGET_NO_SPACE = 2225
+    MAX_NO_SPACE = 2400      # seuil au-delà duquel on raccourcit
+    MIN_NO_SPACE = 2000      # on évite de trop vider le CV
+
+    if chars_no_space > MAX_NO_SPACE:
+        shrink_prompt = f"""
+Le CV suivant est trop long (environ {chars_no_space} caractères sans espaces).
+
+Objectif :
+- le ramener autour de {TARGET_NO_SPACE} caractères sans espaces
+  (entre {MIN_NO_SPACE} et {MAX_NO_SPACE}).
+
+Contraintes OBLIGATOIRES :
+- Tu gardes EXACTEMENT les mêmes sections et balises :
+  EDUCATION:, EXPERIENCES:, SKILLS:, LANGUAGES:, ACTIVITIES: (ou INTERESTS:).
+- Tu NE CRÉES PAS de nouvelles sections.
+- Tu NE SUPPRIMES PAS complètement une expérience en finance / audit / banque / BDE.
+- Tu peux raccourcir :
+  - les formulations trop longues des bullet points les moins importantes,
+  - les détails secondaires dans EDUCATION,
+  - les descriptions dans ACTIVITIES / INTERESTS,
+  - les phrases redondantes.
+- Chaque bullet reste une phrase complète (verbe d’action + moyen + résultat),
+  et se termine par un point.
+- Tu NE COUPES JAMAIS une phrase au milieu.
+- Tu n'utilises JAMAIS de points de suspension ("...").
+- Tu n’inventes PAS de nouvelles missions, outils, logiciels ni chiffres.
+- Tu ne fusionnes pas plusieurs activités en une seule ligne.
+
+Format de sortie :
+- Tu renvoies UNIQUEMENT le CV complet,
+- avec les mêmes balises de section et le même ordre qu’à l’origine.
+
+Voici le CV à raccourcir (garde le même format exact) :
+
+\"\"\"{cv_text}\"\"\"
+"""
+
+        resp_shrink = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": shrink_prompt}],
+        )
+        shrunk = resp_shrink.choices[0].message.content.strip()
+
+        # On vérifie vite fait que ce n'est ni trop vide ni encore plus long
+        shrunk_raw = shrunk.replace("\r\n", "\n")
+        shrunk_chars = len(re.sub(r"\s+", "", shrunk_raw))
+
+        if MIN_NO_SPACE <= shrunk_chars <= MAX_NO_SPACE:
+            cv_text = shrunk
+            raw = shrunk_raw
+            chars_no_space = shrunk_chars
+        # sinon : on garde la version initiale (un peu longue) pour éviter les dégats
 
     # En-dessous d'environ 2050 caractères (sans espaces) → la page n'est pas assez remplie
     if chars_no_space < 2050:
