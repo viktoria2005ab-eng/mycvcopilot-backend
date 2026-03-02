@@ -1602,16 +1602,17 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
         # ------- Listes classiques (si jamais) -------
         _insert_lines_after(p, value or [], make_bullets=True)
-        # Nettoyage des paragraphes vides en fin de document pour éviter la page blanche
-        try:
-            for p in reversed(doc.paragraphs):
-                if (p.text or "").strip():
-                    break
-                _remove_paragraph(p)
-        except Exception:
-            pass
+        
+    # Nettoyage des paragraphes vides en fin de document pour éviter la page blanche
+    try:
+        for p in reversed(doc.paragraphs):
+            if (p.text or "").strip():
+                break
+            _remove_paragraph(p)
+    except Exception:
+        pass
     
-        doc.save(out_path)
+    doc.save(out_path)
 
 def write_pdf_simple(cv_text: str, out_path: str) -> None:
     c = canvas.Canvas(out_path, pagesize=A4)
