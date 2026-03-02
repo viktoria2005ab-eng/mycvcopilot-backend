@@ -538,6 +538,7 @@ PLACEHOLDERS = [
 
 def trim_finance_experiences(
     exps: list[dict],
+    is_cv_long: bool = True,
     max_experiences: int = 4,
     max_total_bullets: int = 8,
     min_experiences: int = 2,
@@ -577,26 +578,17 @@ def trim_finance_experiences(
     if len(cleaned) > max_experiences:
         cleaned = cleaned[:max_experiences]
 
-    # 2bis) Heuristique volume de texte :
-    # - si on a 4 expériences ET que les bullets sont très verbeuses,
-    #   on supprime la 4ᵉ (la moins prioritaire).
+    # 2bis) Heuristique volume de texte
     if len(cleaned) == 4:
-        # Score "volume" très simple : nb de caractères dans titres + bullets
         total_chars = 0
         for e in cleaned:
             total_chars += len(e.get("role", ""))
             total_chars += len(e.get("company", ""))
             total_chars += sum(len(b) for b in e.get("bullets", []))
-
-        # Seuil assez haut pour ne pas supprimer la 4ᵉ pour rien.
-        # Au-delà, on considère que la section risque de faire déborder la page.
         if total_chars > 550:
             cleaned = cleaned[:3]
 
-    # 3) Limite de bullets par expérience :
-    #    - exp 0 : max 3 bullets
-    #    - exp 1 : max 2 bullets
-    #    - exp 2 et 3 : max 1 bullet
+    # 3) Limite de bullets par expérience
     for idx, e in enumerate(cleaned):
         if idx == 0:
             max_b = 3
@@ -609,12 +601,10 @@ def trim_finance_experiences(
     def total_bullets(exps_list: list[dict]) -> int:
         return sum(len(e.get("bullets", [])) for e in exps_list)
 
-    # 4) Si on est encore trop long → on enlève des bullets en partant du bas,
-    #    puis en dernier recours on supprime la DERNIÈRE expérience.
+    # 4) Si on est encore trop long → on enlève des bullets puis, en dernier recours, une expérience
     while total_bullets(cleaned) > max_total_bullets and cleaned:
         changed = False
 
-        # a) On enlève une bullet à la dernière expérience qui en a encore
         for idx in range(len(cleaned) - 1, -1, -1):
             b_list = cleaned[idx].get("bullets", [])
             if len(b_list) > 0:
@@ -622,8 +612,6 @@ def trim_finance_experiences(
                 changed = True
                 break
 
-        # b) Si plus aucune bullet à enlever et qu'on a > min_experiences,
-        #    on supprime la DERNIÈRE expérience (la moins prioritaire).
         if not changed and len(cleaned) > min_experiences:
             cleaned.pop()
             changed = True
