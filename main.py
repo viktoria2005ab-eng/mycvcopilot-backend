@@ -285,13 +285,35 @@ LANGUAGES:
 ACTIVITIES:
 <contenu>
 
-CONTRAINTE LONGUEUR :
-- Le CV doit absolument tenir sur UNE SEULE page.
+CONTRAINTE LONGUEUR (INTELLIGENTE) :
+
+Le CV doit tenir STRICTEMENT sur UNE SEULE page Word.
+
+RÈGLE D’AJUSTEMENT AUTOMATIQUE :
+
+1️⃣ Si le contenu devient trop long :
+- Tu réduis d’abord les expériences les moins pertinentes.
+- Tu limites à 2 bullet points maximum pour les expériences secondaires.
+- Tu supprimes totalement les jobs étudiants génériques si nécessaire.
+- Tu raccourcis les formulations (phrases plus directes).
+- Tu limites à 8–9 bullet points maximum au total si besoin.
+
+2️⃣ Si le CV semble trop court (moins d’une page complète) :
+- Tu renforces les expériences les plus pertinentes (3 bullet points au lieu de 2).
+- Tu détailles davantage l’impact concret.
+- Tu enrichis légèrement la section EDUCATION (matières clés, spécialisation, classement si fourni).
+- Tu ajoutes de la précision professionnelle sans inventer.
+
+RÈGLES STRUCTURELLES :
 - Maximum 10 bullet points au total.
-- Maximum 2 à 3 bullet points par expérience (2 par défaut).
-- Tu raccourcis les expériences les moins importantes si besoin pour rester sur 1 page.
-- Format concis.
-- Pas de phrases longues (une seule idée par bullet).
+- 2 bullet points par défaut par expérience.
+- 3 bullet points uniquement pour les expériences les plus pertinentes.
+- Phrases courtes, une seule idée par bullet.
+
+Tu dois viser une densité professionnelle optimale :
+- Ni trop vide
+- Ni surchargé
+- Un recruteur doit voir une page pleine mais aérée.
 
 PROFIL :
 Nom : {payload["full_name"]}
