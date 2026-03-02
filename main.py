@@ -179,7 +179,7 @@ RÈGLES :
 - Format de dates homogène, toujours sous la forme "MMM YYYY – MMM YYYY"
   (exemple : "Sept 2023 – Juin 2025") et jamais "09/2023", "2023-2025" ou "au".
 - Chaque bullet = Verbe fort + Action + Impact business (sans inventer de chiffres).
-- 2 à 3 bullets maximum par expérience (2 par défaut, 3 uniquement pour les expériences les plus pertinentes).
+- 2 à 3 bullets maximum par expérience (3 par défaut, 2 uniquement pour les expériences les moins pertinentes).
 - Interdiction des mots : assisted, helped, worked on.
 - Ton professionnel, précis, sobre.
 - Classe les expériences de la plus pertinente à la moins pertinente par rapport au poste visé.
@@ -568,6 +568,11 @@ def trim_finance_experiences(
     if not cleaned:
         return []
 
+    # 🔹 CAS CV COURT : on ne fait PAS de trimming agressif
+    # On garde toutes les expériences et tous les bullets (dans la limite de ce que le modèle a généré).
+    if not is_cv_long:
+        return cleaned
+
     # 2) On limite quand même à max_experiences (ordre supposé trié par pertinence dans le prompt)
     if len(cleaned) > max_experiences:
         cleaned = cleaned[:max_experiences]
@@ -630,6 +635,7 @@ def trim_finance_experiences(
 
 def trim_activities(
     lines: list[str],
+    cv_is_long: bool,
     ideal_max: int = 3,
     hard_max_when_long: int = 2,
     max_chars_per_activity: int = 140,
@@ -637,19 +643,25 @@ def trim_activities(
 ) -> list[str]:
     """
     - Idéalement on garde jusqu'à 3 activités.
-    - Si elles sont très verbeuses (beaucoup de texte au total), on n'en garde que 2
-      en supprimant la moins développée (la plus courte).
-    - Chaque activité est éventuellement raccourcie proprement (une phrase max).
+    - Si le CV est court -> on ne coupe PAS les phrases et on garde jusqu'à 3 lignes telles quelles.
+    - Si le CV est long :
+        * on raccourcit proprement les phrases trop longues,
+        * et si les 3 activités occupent trop de place, on n'en garde que 2
+          (on supprime la moins développée = la plus courte).
     """
-
     # 1) Nettoyage des lignes vides
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
         return []
 
-    # 2) On garde au maximum 3 bruts (avant filtrage long/court)
+    # 2) On garde au maximum 3 lignes brutes
     cleaned = cleaned[:ideal_max]
 
+    # 🔹 CAS 1 : CV COURT -> aucune contrainte de longueur ici
+    if not cv_is_long:
+        return cleaned
+
+    # 🔹 CAS 2 : CV LONG -> on applique la logique de trimming
     def shorten(text: str) -> str:
         # Si la phrase est courte → on ne touche à rien
         if len(text) <= max_chars_per_activity:
@@ -669,17 +681,13 @@ def trim_activities(
         # Fallback : coupe brutale mais courte
         return text[: max_chars_per_activity - 1].rstrip() + "…"
 
-    # 3) On raccourcit chaque activité si besoin
     shortened = [shorten(t) for t in cleaned]
 
-    # 4) Heuristique "CV serré" :
-    #    - Si on a 3 activités
-    #    - ET que le total de texte est élevé
-    #    -> on n'en garde que 2 (en supprimant la moins développée)
+    # Si on a 3 activités et qu'elles sont très verbeuses,
+    # on en garde 2 (on supprime la moins développée)
     if len(shortened) == ideal_max:
         total_len = sum(len(t) for t in shortened)
         if total_len > long_total_threshold and hard_max_when_long < ideal_max:
-            # index de la phrase la plus courte => moins développée
             idx_to_drop = min(range(len(shortened)), key=lambda i: len(shortened[i]))
             shortened.pop(idx_to_drop)
 
@@ -1118,6 +1126,11 @@ def _split_education_block_on_degree_titles(block: list[str]) -> list[list[str]]
     return new_blocks
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
+    # On mesure grossièrement la longueur du CV texte
+    cv_length = len(cv_text or "")
+    # D'après tes tests, un CV bien plein ≈ 2300 caractères espaces compris
+    # -> au-dessus de ~2300 : on considère que c'est "long"
+    cv_is_long = cv_length > 2300
 
     # Marges plus petites pour mieux utiliser la largeur
     for section in doc.sections:
@@ -1167,7 +1180,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     interests_raw = sections.get("INTERESTS", []) or sections.get("ACTIVITIES", [])
 
     if isinstance(interests_raw, list):
-        interests_value = trim_activities(interests_raw)
+        interests_value = trim_activities(interests_raw, cv_is_long=cv_is_long)
     else:
         interests_value = interests_raw
     mapping = {
@@ -1428,7 +1441,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
         if ph == "%%EXPERIENCE%%":
             exps = parse_finance_experiences(value or [])
-            exps = trim_finance_experiences(exps)  # 💡 NOUVEAU
+            exps = trim_finance_experiences(exps, is_cv_long=cv_is_long)
             anchor = p
 
             # Si le modèle ne respecte pas le format, on retombe sur une liste simple
