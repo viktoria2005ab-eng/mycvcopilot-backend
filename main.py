@@ -543,13 +543,15 @@ def trim_finance_experiences(
     min_experiences: int = 2,
 ) -> list[dict]:
     """
-    Objectif : contrôler la longueur de la section EXPÉRIENCES sans être brutal.
+    Objectif : être SÛR que la section EXPÉRIENCES ne déborde pas.
+    - On garde max 4 expériences (en pratique souvent 3).
+    - On vise ~8 bullets au total.
+    - 1ère expérience = la plus développée.
+    - On raccourcit fort la 3ᵉ / 4ᵉ et on supprime la dernière si ça reste trop long.
 
-    - On garde jusqu'à 4 expériences.
-    - On vise ~8 bullets max au total.
-    - On réduit d'abord le nombre de bullets sur les expériences les moins importantes.
-    - On NE SUPPRIME la 4ᵉ expérience qu'en DERNIER RECOURS, si malgré tout
-      le nombre total de bullets reste trop élevé.
+    Heuristique "intelligente" :
+    - Tant que le volume de texte est raisonnable → on peut garder 4 expériences.
+    - Si le volume est trop gros (beaucoup de bullets très longues) → on passe à 3 expériences.
     """
 
     # 1) Nettoyage des expériences vides
@@ -566,21 +568,34 @@ def trim_finance_experiences(
     if not cleaned:
         return []
 
-    # 2) On garde max 4 expériences (on suppose déjà triées par pertinence)
+    # 2) On limite quand même à max_experiences (ordre supposé trié par pertinence dans le prompt)
     if len(cleaned) > max_experiences:
         cleaned = cleaned[:max_experiences]
 
-    # 3) Limite initiale de bullets par expérience
+    # 2bis) Heuristique volume de texte :
+    # - si on a 4 expériences ET que les bullets sont très verbeuses,
+    #   on supprime la 4ᵉ (la moins prioritaire).
+    if len(cleaned) == 4:
+        # Score "volume" très simple : nb de caractères dans titres + bullets
+        total_chars = 0
+        for e in cleaned:
+            total_chars += len(e.get("role", ""))
+            total_chars += len(e.get("company", ""))
+            total_chars += sum(len(b) for b in e.get("bullets", []))
+
+        # Seuil assez haut pour ne pas supprimer la 4ᵉ pour rien.
+        # Au-delà, on considère que la section risque de faire déborder la page.
+        if total_chars > 550:
+            cleaned = cleaned[:3]
+
+    # 3) Limite de bullets par expérience :
     #    - exp 0 : max 3 bullets
     #    - exp 1 : max 2 bullets
-    #    - exp 2 : max 2 bullets
-    #    - exp 3 : max 1 bullet
+    #    - exp 2 et 3 : max 1 bullet
     for idx, e in enumerate(cleaned):
         if idx == 0:
             max_b = 3
         elif idx == 1:
-            max_b = 2
-        elif idx == 2:
             max_b = 2
         else:
             max_b = 1
@@ -589,27 +604,23 @@ def trim_finance_experiences(
     def total_bullets(exps_list: list[dict]) -> int:
         return sum(len(e.get("bullets", [])) for e in exps_list)
 
-    # 4) Ajustement progressif : on enlève des bullets en partant du bas,
-    #    puis seulement si nécessaire on supprime la dernière expérience.
+    # 4) Si on est encore trop long → on enlève des bullets en partant du bas,
+    #    puis en dernier recours on supprime la DERNIÈRE expérience.
     while total_bullets(cleaned) > max_total_bullets and cleaned:
         changed = False
 
-        # a) On enlève une bullet des expériences les moins prioritaires
-        #    (4ᵉ, puis 3ᵉ, puis 2ᵉ), en gardant un minimum de contenu
+        # a) On enlève une bullet à la dernière expérience qui en a encore
         for idx in range(len(cleaned) - 1, -1, -1):
             b_list = cleaned[idx].get("bullets", [])
-            # on évite de vider complètement les 2 premières expériences
-            if idx <= 1 and len(b_list) <= 1:
-                continue
-            if b_list:
+            if len(b_list) > 0:
                 b_list.pop()
                 changed = True
                 break
 
-        # b) Si on ne peut plus enlever de bullets et qu'on a 4 expériences,
-        #    on supprime alors la DERNIÈRE (la moins prioritaire).
+        # b) Si plus aucune bullet à enlever et qu'on a > min_experiences,
+        #    on supprime la DERNIÈRE expérience (la moins prioritaire).
         if not changed and len(cleaned) > min_experiences:
-            cleaned.pop()  # supprime la dernière expérience (souvent job étudiant)
+            cleaned.pop()
             changed = True
 
         if not changed:
@@ -617,15 +628,45 @@ def trim_finance_experiences(
 
     return cleaned
 
-def trim_activities(lines: list[str], max_activities: int = 3) -> list[str]:
+def trim_activities(
+    lines: list[str],
+    max_activities: int = 3,
+    max_chars_per_activity: int = 140,
+) -> list[str]:
     """
-    Garde au max `max_activities` activités, en supprimant les plus bas dans la liste.
-    On enlève les lignes vides avant.
+    - Garde au maximum `max_activities` activités.
+    - Chaque activité reste sur UNE phrase max (on coupe proprement si c'est trop long).
+    - Si tout est raisonnable, on ne touche à rien.
     """
-    cleaned = [l for l in (lines or []) if (l or "").strip()]
-    if len(cleaned) <= max_activities:
-        return cleaned
-    return cleaned[:max_activities]
+    # 1) Nettoyage des lignes vides
+    cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
+    if not cleaned:
+        return []
+
+    # 2) On garde uniquement les N premières (tu peux les ordonner par pertinence côté prompt)
+    kept = cleaned[:max_activities]
+
+    def shorten(text: str) -> str:
+        # Si la phrase est courte → on ne touche à rien
+        if len(text) <= max_chars_per_activity:
+            return text
+
+        # Sinon on coupe proprement près d'un séparateur AVANT la limite
+        candidates = []
+        for sep in [".", ";", ",", " et "]:
+            idx = text.rfind(sep, 0, max_chars_per_activity)
+            if idx != -1:
+                candidates.append(idx)
+
+        if candidates:
+            cut = max(candidates)
+            return text[:cut].rstrip(" ,;et") + "…"
+
+        # Fallback : coupe brutale mais courte
+        return text[: max_chars_per_activity - 1].rstrip() + "…"
+
+    # 3) On retourne les activités éventuellement raccourcies
+    return [shorten(t) for t in kept]
 
 def _find_paragraph_containing(doc: Document, needle: str):
     for p in doc.paragraphs:
