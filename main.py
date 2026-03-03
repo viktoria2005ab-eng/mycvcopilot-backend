@@ -158,6 +158,7 @@ EXIGENCES:
   EN-TÊTE, TITRE, ACCROCHE, COMPETENCES, EXPERIENCES, FORMATION, LANGUES, CENTRES D'INTERET.
 - Ne donne PAS d'explications, uniquement le CV.
 """
+    
 def build_prompt_finance(payload: Dict[str, Any]) -> str:
     return f"""
 Tu es un ancien recruteur en banque d’investissement et en Big 4.
@@ -207,7 +208,7 @@ Ces règles priment sur toutes les autres instructions.
 - Chaque bullet doit refléter une contribution concrète.
 
 BDE / ASSOCIATIONS / PROJETS ÉTUDIANTS :
-- Tu DOIS les mettre dans "EXPÉRIENCES PROFESSIONNELLES" (même si ce n’est pas une entreprise).
+- Tu DOIS les mettre dans "EXPERIENCES" (même si ce n’est pas une entreprise).
 - Tu les écris comme une expérience (titre + dates si disponibles + 2-3 bullets).
 - INTERDICTION ABSOLUE d’inventer des chiffres : aucun %, aucun volume, aucun "5 sponsors", aucun "100 participants" si ce n’est pas fourni.
 
@@ -232,13 +233,9 @@ SECTION ACTIVITIES (CENTRES D’INTÉRÊT) :
 - Pas de doublons : si c’est dans EXPÉRIENCES, tu ne le répètes pas ailleurs.
 - Tu n’utilises JAMAIS de Markdown (**texte**, *texte*). Tu écris simplement le texte brut.
 - Format de chaque activité sur UNE LIGNE :
-  Nom de l’activité en gras, suivi de ":" puis une phrase :
+  Nom de l’activité en gras (nous ferons le gras côté Word), suivi de ":" puis une phrase :
   - ce que la personne a fait concrètement (niveau / fréquence / contexte),
   - ce que ça développe comme qualités utiles en finance / environnement exigeant.
-- Exemples de structure (à adapter aux infos réelles) :
-  - Équitation (niveau national) : calendrier d’entraînement ajusté aux études, renforçant discipline, résilience et gestion du stress.
-  - Course à pied & charity runs : participation régulière à des courses caritatives, développant endurance, persévérance et sens de l’engagement.
-  - Voyages en Asie : voyages prolongés dans plusieurs pays, renforçant adaptabilité et sensibilité aux environnements multiculturels.
 
 IMPORTANT :
 - Toute la sortie (EDUCATION, EXPERIENCES, SKILLS, LANGUAGES, ACTIVITIES)
@@ -248,21 +245,43 @@ IMPORTANT :
   peuvent rester en anglais.
 
 RÈGLES DE SORTIE (TRÈS IMPORTANT) :
-- Ne génère PAS de titre de section.
-- Ne génère PAS le nom.
-- Ne génère PAS les coordonnées.
-- Ne génère PAS d'accroche.
-- Génère uniquement le contenu brut des sections.
+- Tu génères UNIQUEMENT les sections suivantes, dans cet ordre :
+  EDUCATION:
+  EXPERIENCES:
+  SKILLS:
+  LANGUAGES:
+  ACTIVITIES:
+- Tu ne génères PAS de titre de section supplémentaire.
+- Tu ne génères PAS le nom.
+- Tu ne génères PAS les coordonnées.
+- Tu ne génères PAS d'accroche.
 
 FORMAT EXACT À RESPECTER :
 
+EDUCATION:
+DEGREE: <intitulé du diplôme ou programme>
+SCHOOL: <école ou université>
+LOCATION: <Ville, Pays>
+DATES: <MMM YYYY – MMM YYYY ou MMM YYYY – Present>
+DETAILS:
+- <ligne de détail 1 (ex : Matières fondamentales : ... )>
+- <ligne de détail 2>
+- <ligne de détail 3>
+
+DEGREE: <autre diplôme ou échange académique>
+SCHOOL: <école ou université>
+LOCATION: <Ville, Pays>
+DATES: <MMM YYYY – MMM YYYY ou MMM YYYY – Present>
+DETAILS:
+- <détail 1>
+- <détail 2>
 
 EXPERIENCES:
 ROLE: <intitulé exact>
-COMPANY: <nom exact>
+COMPANY: <nom exact ou nom de l’association / BDE>
 DATES: <MMM YYYY – MMM YYYY ou MMM YYYY – Present>
 LOCATION: <Ville, Pays>
-TYPE: <Internship / Apprenticeship / CDI / etc. si fourni sinon vide>
+TYPE: <Internship / Alternance / CDI / etc. si fourni sinon vide>
 BULLETS:
 - ...
 - ...
@@ -312,8 +331,8 @@ RÈGLE D’AJUSTEMENT AUTOMATIQUE :
 2️⃣ Si le CV semble trop court (moins d’une page) :
 - Tu passes à 3 bullet points pour les expériences les plus pertinentes.
 - Tu détailles davantage l’impact concret (toujours sans inventer de chiffres).
-- Tu enrichis légèrement la section EDUCATION (matières clés, spécialisation, classement si fourni).
-- Tu développes un peu les ACTIVITÉS les plus fortes (sport intensif, voyages marquants, engagement régulier).
+- Tu enrichis un peu la section EDUCATION (matières clés, spécialisation, classement si fourni).
+- Tu développes un peu les ACTIVITIES les plus fortes (sport intensif, voyages marquants, engagement régulier).
 
 RÈGLES D’ÉCRITURE :
 - Phrases courtes, une seule idée par bullet.
@@ -1469,6 +1488,122 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
         # ------- FORMATION -------
         if ph == "%%EDUCATION%%" and isinstance(value, list):
+
+            # 🔹 CAS 1 : format structuré avec DEGREE:/SCHOOL:/LOCATION:/DATES:/DETAILS:
+            if any((line or "").strip().startswith("DEGREE:") for line in value):
+                programs = parse_education_structured(value)
+                anchor = p
+
+                for edu in programs:
+                    degree = (edu.get("degree") or "").strip()
+                    school = (edu.get("school") or "").strip()
+                    location = (edu.get("location") or "").strip()
+                    dates = (edu.get("dates") or "").strip()
+                    details = edu.get("details") or []
+
+                    # Création du tableau 2 colonnes
+                    table = _add_table_after(anchor, rows=1, cols=2)
+                    left = table.cell(0, 0)
+                    right = table.cell(0, 1)
+                    left.text = ""
+                    right.text = ""
+
+                    # ---- Colonne gauche : diplôme + école + détails ----
+                    lp = left.paragraphs[0]
+                    try:
+                        lp.style = doc.styles["Normal"]
+                    except Exception:
+                        pass
+                    lp.paragraph_format.left_indent = Pt(0)
+                    lp.paragraph_format.first_line_indent = Pt(0)
+
+                    title_parts = [x for x in [degree, school] if x]
+                    title_line = " – ".join(title_parts) if title_parts else (degree or school)
+
+                    if title_line:
+                        r_title = lp.add_run(title_line)
+                        r_title.bold = True
+                        r_title.font.size = Pt(11)
+
+                    # Détails sous le titre
+                    for d in details:
+                        text = (d or "").strip()
+                        if not text:
+                            continue
+
+                        para = left.add_paragraph()
+                        try:
+                            para.style = doc.styles["Normal"]
+                        except Exception:
+                            pass
+                        para.paragraph_format.left_indent = Pt(0)
+                        para.paragraph_format.first_line_indent = Pt(0)
+
+                        label_text = None
+                        after_text = None
+                        lower = text.lower()
+
+                        # Normalisation "Matières fondamentales"
+                        if "matières fondamentales" in lower or "cours pertinents" in lower or "key coursework" in lower:
+                            label_text = "Matières fondamentales"
+                            if ":" in text:
+                                _, _, after = text.partition(":")
+                                after_text = after
+                        elif ":" in text:
+                            before, sep, after = text.partition(":")
+                            before_clean = before.strip()
+                            if len(before_clean.split()) <= 4:
+                                label_text = before_clean
+                                after_text = after
+
+                        if label_text:
+                            r1 = para.add_run(label_text + " :")
+                            r1.underline = True
+                            r1.font.size = Pt(10)
+                            if after_text and after_text.strip():
+                                r2 = para.add_run(" " + after_text.strip())
+                                r2.font.size = Pt(10)
+                        else:
+                            r = para.add_run(text)
+                            r.font.size = Pt(10)
+
+                    # ---- Colonne droite : dates + lieu ----
+                    rp = right.paragraphs[0]
+                    rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                    rp.paragraph_format.space_after = Pt(0)
+
+                    if dates:
+                        clean_date = dates.replace("\r", " ").replace("\n", " ")
+                        clean_date = re.sub(r"\s+", " ", clean_date.strip())
+                        clean_date = translate_months_fr(clean_date)
+                        clean_date = clean_date.replace(" - ", " – ")
+                        clean_date = clean_date.replace(" ", "\u00A0")
+                        r_date = rp.add_run(clean_date)
+                        r_date.italic = True
+                        r_date.font.size = Pt(9)
+
+                    if location:
+                        rp.add_run("\n")
+                        r_loc = rp.add_run(location.strip())
+                        r_loc.italic = True
+                        r_loc.font.size = Pt(9)
+
+                    # Paragraphe vide pour ancrer la prochaine formation
+                    new_p_elt = OxmlElement("w:p")
+                    table._tbl.addnext(new_p_elt)
+                    anchor = Paragraph(new_p_elt, p._parent)
+
+                # On supprime le dernier paragraphe vide utilisé comme ancre
+                try:
+                    if anchor is not None:
+                        _remove_paragraph(anchor)
+                except Exception:
+                    pass
+
+                _remove_paragraph(p)
+                continue
+
+            # 🔹 CAS 2 : ancien format libre (on garde ton ancien comportement)
             anchor = p
 
             # 1) Regrouper les lignes par formation (blocs séparés par ligne vide)
@@ -1523,26 +1658,19 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 title_part = first_line
                 date_part = ""
 
-                # On cherche d'abord un pattern du type "Sept 2022 – Juin 2026"
                 date_range_patterns = [
-                    # Ex : "Sept 2022 – Juin 2026"
                     r"(Janv|Fév|Fev|Mars|Avr|Mai|Juin|Juil|Août|Aout|Sept|Oct|Nov|Déc|Dec)\s+\d{4}\s*[–-]\s*(Janv|Fév|Fev|Mars|Avr|Mai|Juin|Juil|Août|Aout|Sept|Oct|Nov|Déc|Dec)\s+\d{4}\s*$",
-                    # Ex : "09/2023 – 06/2025"
                     r"(0[1-9]|1[0-2])/\d{4}\s*[–-]\s*(0[1-9]|1[0-2])/\d{4}\s*$",
-                    # Ex : "2020 – 2023"
                     r"(19|20)\d{4}?\s*[–-]\s*(19|20)\d{4}?\s*$"
                 ]
 
                 for pat in date_range_patterns:
                     m = re.search(pat, first_line)
                     if m:
-                        # Toute la plage de dates part à droite
                         date_part = m.group(0).strip()
-                        # Tout ce qui est AVANT la plage reste dans le titre
                         title_part = first_line[:m.start()].rstrip(" ,–-").strip()
                         break
 
-                # Si on n'a toujours pas trouvé, on retombe sur l'ancien fallback : dernier séparateur
                 if not date_part:
                     for sep in ("–", "—", "-"):
                         idx = first_line.rfind(sep)
@@ -1551,20 +1679,17 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                             date_part = first_line[idx + 1:].strip()
                             break
 
-                # Dernière sécurité : si une année traîne encore à la fin du titre, on la coupe
                 if date_part:
                     m = re.search(r"(19|20)\d{2}\s*$", title_part)
                     if m:
                         title_part = title_part[:m.start()].rstrip(" ,–-")
 
-                # Création du tableau
                 table = _add_table_after(anchor, rows=1, cols=2)
                 left = table.cell(0, 0)
                 right = table.cell(0, 1)
                 left.text = ""
                 right.text = ""
 
-                # ---- Colonne gauche : titre + détails ----
                 lp = left.paragraphs[0]
                 try:
                     lp.style = doc.styles["Normal"]
@@ -1577,7 +1702,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 title_run.bold = True
                 title_run.font.size = Pt(11)
 
-                # On repère la ligne "ville, pays" pour ne pas la répéter à gauche
                 location = ""
                 location_index = -1
                 for idx_line, raw in enumerate(block):
@@ -1606,7 +1730,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         location_index = idx_line
                         break
 
-                # Détails sous le titre (on saute la ligne du lieu si détectée)
                 for idx_line, line in enumerate(block[1:], start=1):
                     if idx_line == location_index:
                         continue
@@ -1656,7 +1779,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         run = para.add_run(text)
                         run.font.size = Pt(10)
 
-                # ---- Colonne droite : dates + lieu ----
                 rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
                 rp.paragraph_format.space_after = Pt(0)
@@ -1678,153 +1800,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     r_loc.font.size = Pt(9)
                     rp.paragraph_format.space_after = Pt(0)
 
-                # Paragraphe vide pour ancrer la prochaine formation
                 new_p_elt = OxmlElement("w:p")
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
 
-            # On supprime le dernier paragraphe vide utilisé comme ancre
-            try:
-                if anchor is not None:
-                    _remove_paragraph(anchor)
-            except Exception:
-                pass
-
-            _remove_paragraph(p)
-            continue
-
-        # ------- ACTIVITIES / INTERESTS -------
-        if ph == "%%INTERESTS%%" and isinstance(value, list):
-            _render_interests(p, value or [])
-            _remove_paragraph(p)
-            continue
-
-        if ph == "%%EXPERIENCE%%":
-            exps = parse_finance_experiences(value or [])
-            exps = trim_finance_experiences(exps, is_cv_long=cv_is_long)
-            anchor = p
-
-            # Si le modèle ne respecte pas le format, on retombe sur une liste simple
-            if not exps:
-                _insert_lines_after(p, value or [], make_bullets=True)
-                continue
-
-            CONTRACT_PREFIXES = [
-                "stagiaire", "stage",
-                "summer job", "part-time job", "student job",
-                "volunteering", "volunteer",
-                "internship", "intern", "traineeship",
-                "apprenticeship",
-                "full-time", "full time",
-                "part-time", "part time",
-            ]
-
-            for exp in exps:
-                raw_role = (exp.get("role") or "").strip()
-                role = raw_role
-
-                # 1) Cas du type "Stage en audit financier" -> on vire "Stage + en/dans/au/aux"
-                role = re.sub(
-                    r"^(stage|stagiaire|internship|intern|traineeship)\s+(en|dans|au|aux)\s+",
-                    "",
-                    role,
-                    flags=re.IGNORECASE,
-                ).strip()
-
-                lower_role = role.lower()
-
-                # 2) Si le rôle commence encore par un type de contrat (hors "en ..."), on enlève juste ce préfixe
-                for key in CONTRACT_PREFIXES:
-                    if lower_role.startswith(key + " "):
-                        role = role[len(key):].lstrip(" -–—")
-                        lower_role = role.lower()
-                        break
-
-                # 3) Cas particulier "Student tutor"
-                if "student tutor" in lower_role:
-                    role = role.replace("Student tutor", "Tuteur bénévole").replace("student tutor", "Tuteur bénévole")
-
-                # 4) On force une majuscule au début du rôle si besoin
-                if role and role[0].islower():
-                    role = role[0].upper() + role[1:]
-
-                company = (exp.get("company") or "").strip()
-                title_parts = [x for x in [role, company] if x]
-                title_line = " - ".join(title_parts)
-
-                # Tableau 2 colonnes
-                table = _add_table_after(anchor, rows=1, cols=2)
-                left = table.cell(0, 0)
-                right = table.cell(0, 1)
-                left.text = ""
-                right.text = ""
-
-                # Colonne gauche : titre + bullets
-                lp = left.paragraphs[0]
-                try:
-                    lp.style = doc.styles["Normal"]
-                except Exception:
-                    pass
-                lp.paragraph_format.left_indent = Pt(0)
-                lp.paragraph_format.first_line_indent = Pt(0)
-
-                if title_line:
-                    title_run = lp.add_run(title_line)
-                    title_run.bold = True
-                    title_run.font.size = Pt(11)
-
-                bullets = (exp.get("bullets") or [])[:3]
-                for b in bullets:
-                    if not b:
-                        continue
-                    b_clean = b.strip().lower()
-                    if b_clean in {"n/a", "na", "not applicable", "non applicable", "non-applicable"}:
-                        continue
-                    bp = left.add_paragraph()
-                    try:
-                        bp.style = "List Bullet"
-                        bp.add_run(b)
-                    except Exception:
-                        bp.text = f"• {b}"
-                    bp.paragraph_format.space_after = Pt(0)
-
-                # Colonne droite : dates / lieu / type
-                rp = right.paragraphs[0]
-                rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                rp.paragraph_format.space_after = Pt(0)
-
-                dates_raw = (exp.get("dates") or "").strip()
-                if dates_raw:
-                    clean_date = dates_raw.replace("\r", " ").replace("\n", " ")
-                    clean_date = re.sub(r"\s+", " ", clean_date.strip())
-                    clean_date = translate_months_fr(clean_date)
-                    clean_date = clean_date.replace(" - ", " – ")
-                    clean_date = clean_date.replace(" ", "\u00A0")
-                    r_date = rp.add_run(clean_date)
-                    r_date.italic = True
-                    r_date.font.size = Pt(9)
-
-                location = (exp.get("location") or "").strip()
-                if location:
-                    rp.add_run("\n")
-                    r_loc = rp.add_run(location)
-                    r_loc.italic = True
-                    r_loc.font.size = Pt(9)
-
-                type_raw = (exp.get("type") or "").strip()
-                type_ = normalize_contract_type(type_raw)
-                if type_:
-                    rp.add_run("\n")
-                    r_type = rp.add_run(type_)
-                    r_type.italic = True
-                    r_type.font.size = Pt(9)
-
-                # Paragraphe vide pour ancrer l'expérience suivante
-                new_p_elt = OxmlElement("w:p")
-                table._tbl.addnext(new_p_elt)
-                anchor = Paragraph(new_p_elt, p._parent)
-
-            # On supprime le dernier paragraphe vide utilisé comme ancre
             try:
                 if anchor is not None:
                     _remove_paragraph(anchor)
