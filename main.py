@@ -257,7 +257,21 @@ RÈGLES DE SORTIE (TRÈS IMPORTANT) :
 FORMAT EXACT À RESPECTER :
 
 EDUCATION:
-<contenu>
+DEGREE: <intitulé du diplôme ou programme>
+SCHOOL: <école / université>
+LOCATION: <Ville, Pays>
+DATES: <MMM YYYY – MMM YYYY ou MMM YYYY – Present>
+DETAILS:
+- ...
+- ...
+
+DEGREE: ...
+SCHOOL: ...
+LOCATION: ...
+DATES: ...
+DETAILS:
+- ...
+- ...
 
 EXPERIENCES:
 ROLE: <intitulé exact>
@@ -631,6 +645,58 @@ PLACEHOLDERS = [
     "%%LANGUAGES%%",
     "%%INTERESTS%%",
 ]
+def parse_education_structured(lines: list[str]) -> list[dict]:
+    """
+    Parse une section EDUCATION structurée avec les tags :
+    DEGREE:, SCHOOL:, LOCATION:, DATES:, DETAILS:
+    """
+    programs = []
+    cur = None
+    mode = None
+
+    def push():
+        nonlocal cur
+        if cur and (cur.get("degree") or cur.get("school")):
+            # On s'assure d'avoir toujours une liste de détails
+            cur.setdefault("details", [])
+            programs.append(cur)
+        cur = None
+
+    for raw in (lines or []):
+        line = (raw or "").strip()
+        if not line:
+            continue
+
+        if line.startswith("DEGREE:"):
+            push()
+            cur = {
+                "degree": line.replace("DEGREE:", "").strip(),
+                "school": "",
+                "location": "",
+                "dates": "",
+                "details": [],
+            }
+            mode = None
+            continue
+
+        if not cur:
+            continue
+
+        if line.startswith("SCHOOL:"):
+            cur["school"] = line.replace("SCHOOL:", "").strip()
+        elif line.startswith("LOCATION:"):
+            cur["location"] = line.replace("LOCATION:", "").strip()
+        elif line.startswith("DATES:"):
+            cur["dates"] = line.replace("DATES:", "").strip()
+        elif line.startswith("DETAILS:"):
+            mode = "details"
+        elif mode == "details" and line.lstrip().startswith("-"):
+            txt = line.lstrip()[1:].strip()
+            if txt:
+                cur["details"].append(txt)
+
+    push()
+    return programs
 def _no_space_len(s: str) -> int:
     """Longueur d'un texte sans compter les espaces."""
     return len(re.sub(r"\s+", "", s or ""))
