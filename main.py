@@ -1839,6 +1839,146 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             _remove_paragraph(p)
             continue
 
+        # ------- EXPÉRIENCES PROFESSIONNELLES -------
+        if ph == "%%EXPERIENCE%%":
+            # On parse les expériences au format structuré ROLE/COMPANY/DATES/...
+            exps = parse_finance_experiences(value or [])
+            exps = trim_finance_experiences(exps, is_cv_long=cv_is_long)
+            anchor = p
+
+            # Si jamais le modèle n'a pas respecté le format structuré,
+            # on retombe sur un simple rendu en liste pour ne pas tout casser.
+            if not exps:
+                _insert_lines_after(p, value or [], make_bullets=True)
+                continue
+
+            # Mots-clés qui correspondent plutôt à un type de contrat qu'à un vrai rôle
+            CONTRACT_PREFIXES = [
+                "stagiaire", "stage",
+                "summer job", "part-time job", "student job",
+                "volunteering", "volunteer",
+                "internship", "intern", "traineeship",
+                "apprenticeship",
+                "full-time", "full time",
+                "part-time", "part time",
+            ]
+
+            for exp in exps:
+                raw_role = (exp.get("role") or "").strip()
+                role = raw_role
+
+                # 1) Cas du type "Stage en audit financier" -> on vire "Stage + en/dans/au/aux"
+                role = re.sub(
+                    r"^(stage|stagiaire|internship|intern|traineeship)\s+(en|dans|au|aux)\s+",
+                    "",
+                    role,
+                    flags=re.IGNORECASE,
+                ).strip()
+
+                lower_role = role.lower()
+
+                # 2) Si le rôle commence encore par un type de contrat (hors "en ..."),
+                #    on enlève juste ce préfixe, mais on garde la suite.
+                for key in CONTRACT_PREFIXES:
+                    if lower_role.startswith(key + " "):
+                        role = role[len(key):].lstrip(" -–—")
+                        lower_role = role.lower()
+                        break
+
+                # 3) Cas particulier "Student tutor"
+                if "student tutor" in lower_role:
+                    role = role.replace("Student tutor", "Tuteur bénévole").replace("student tutor", "Tuteur bénévole")
+
+                # 4) On force une majuscule au début du rôle si besoin
+                if role and role[0].islower():
+                    role = role[0].upper() + role[1:]
+
+                company = (exp.get("company") or "").strip()
+                title_parts = [x for x in [role, company] if x]
+                title_line = " - ".join(title_parts)
+
+                # Tableau 2 colonnes (mêmes tailles qu'avant via _add_table_after)
+                table = _add_table_after(anchor, rows=1, cols=2)
+                left = table.cell(0, 0)
+                right = table.cell(0, 1)
+                left.text = ""
+                right.text = ""
+
+                # ----- Colonne gauche : rôle + bullets -----
+                lp = left.paragraphs[0]
+                try:
+                    lp.style = doc.styles["Normal"]
+                except Exception:
+                    pass
+                lp.paragraph_format.left_indent = Pt(0)
+                lp.paragraph_format.first_line_indent = Pt(0)
+
+                if title_line:
+                    title_run = lp.add_run(title_line)
+                    title_run.bold = True
+                    title_run.font.size = Pt(11)
+
+                bullets = (exp.get("bullets") or [])[:3]
+                for b in bullets:
+                    if not b:
+                        continue
+                    b_clean = b.strip().lower()
+                    if b_clean in {"n/a", "na", "not applicable", "non applicable", "non-applicable"}:
+                        continue
+                    bp = left.add_paragraph()
+                    try:
+                        bp.style = "List Bullet"
+                        bp.add_run(b)
+                    except Exception:
+                        bp.text = f"• {b}"
+                    bp.paragraph_format.space_after = Pt(0)
+
+                # ----- Colonne droite : dates, lieu, type -----
+                rp = right.paragraphs[0]
+                rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                rp.paragraph_format.space_after = Pt(0)
+
+                dates_raw = (exp.get("dates") or "").strip()
+                if dates_raw:
+                    clean_date = dates_raw.replace("\r", " ").replace("\n", " ")
+                    clean_date = re.sub(r"\s+", " ", clean_date.strip())
+                    clean_date = translate_months_fr(clean_date)
+                    clean_date = clean_date.replace(" - ", " – ")
+                    clean_date = clean_date.replace(" ", "\u00A0")  # espaces insécables
+                    r_date = rp.add_run(clean_date)
+                    r_date.italic = True
+                    r_date.font.size = Pt(9)
+
+                location = (exp.get("location") or "").strip()
+                if location:
+                    rp.add_run("\n")
+                    r_loc = rp.add_run(location)
+                    r_loc.italic = True
+                    r_loc.font.size = Pt(9)
+
+                type_raw = (exp.get("type") or "").strip()
+                type_ = normalize_contract_type(type_raw)
+                if type_:
+                    rp.add_run("\n")
+                    r_type = rp.add_run(type_)
+                    r_type.italic = True
+                    r_type.font.size = Pt(9)
+
+                # Paragraphe vide pour ancrer l'expérience suivante
+                new_p_elt = OxmlElement("w:p")
+                table._tbl.addnext(new_p_elt)
+                anchor = Paragraph(new_p_elt, p._parent)
+
+            # On supprime le dernier paragraphe vide utilisé comme ancre
+            try:
+                if anchor is not None:
+                    _remove_paragraph(anchor)
+            except Exception:
+                pass
+
+            _remove_paragraph(p)
+            continue
+
         # ------- Texte simple (nom, titre, contact) -------
         if isinstance(value, str):
             run = p.add_run(value)
