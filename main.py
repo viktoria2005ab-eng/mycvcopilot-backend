@@ -368,9 +368,9 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
     
     # --- Contrôle de longueur : si c'est TROP LONG, on demande une version raccourcie ---
     # Objectif : viser ~2225 caractères sans espaces, sans casser les phrases.
-    TARGET_NO_SPACE = 2225
-    MAX_NO_SPACE = 2400      # seuil au-delà duquel on raccourcit
-    MIN_NO_SPACE = 2000      # on évite de trop vider le CV
+    TARGET_NO_SPACE = 2150
+    MAX_NO_SPACE = 2250      # seuil au-delà duquel on raccourcit
+    MIN_NO_SPACE = 2050      # on évite de trop vider le CV
 
     if chars_no_space > MAX_NO_SPACE:
         shrink_prompt = f"""
@@ -664,34 +664,34 @@ def shorten_experience_bullets_with_llm(
     }
 
     prompt = f"""
-Tu es un recruteur en finance.
+Tu es recruteur en finance.
 
-On te donne des expériences avec leurs bullet points au format JSON.
+On te donne une liste d'activités / centres d'intérêt.
 
-POUR CHAQUE BULLET :
-- tu la réécris en français,
-- tu gardes le MÊME sens (pas de nouvelles missions, pas de nouveaux chiffres, pas de nouveaux outils),
-- structure : verbe d'action + moyen + résultat,
-- phrase complète qui finit par un point,
-- MAXIMUM {max_no_space_per_bullet} caractères SANS espaces,
+POUR CHAQUE ACTIVITÉ :
+- tu gardes UNE activité par ligne (pas de fusion),
+- tu réécris en français en gardant le sens exact,
+- tu utilises une formulation nominale professionnelle,
+  PAS de "je", PAS de phrase narrative.
+- Structure recommandée :
+  "Nom activité : Participation / Organisation / Pratique ... développant ..."
+- Phrase complète qui se termine par un point.
+- Maximum {max_no_space_per_activity} caractères SANS espaces.
 - JAMAIS de points de suspension ("...").
 
 INTERDIT :
-- ne pas répondre en JSON,
-- modifier le nombre d'expériences,
-- modifier le nombre de bullets d'une expérience,
-- réordonner les expériences,
-- réordonner les bullets.
+- changer le nombre d'activités,
+- fusionner plusieurs activités,
+- inventer des éléments.
 
-TU DOIS garder STRICTEMENT :
-- le même nombre d'expériences,
-- le même nombre de bullets par expérience,
-- le même ordre.
+Exemple de BON style :
+- Course à pied : Participation régulière à des courses caritatives développant endurance et discipline.
+- Voyages en Asie : Organisation autonome de séjours renforçant adaptabilité et ouverture culturelle.
 
-Réponds UNIQUEMENT avec un JSON de la forme :
-{{"experiences": [{{"bullets": ["...", "..."]}}, ...]}}
+Réponds UNIQUEMENT avec un JSON :
+{{"activities": ["...", "..."]}}
 
-Voici le JSON d'entrée :
+Voici les activités :
 
 {json.dumps(payload, ensure_ascii=False)}
 """
