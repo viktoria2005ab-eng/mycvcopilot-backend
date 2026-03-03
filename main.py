@@ -1465,8 +1465,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     for section in doc.sections:
         section.left_margin = Cm(1.0)
         section.right_margin = Cm(1.0)
-        section.top_margin = Cm(1.2)      
-        section.bottom_margin = Cm(1.2)   
+        section.top_margin = Cm(1.0)      
+        section.bottom_margin = Cm(1.0)   
 
     # ------- Données générales -------
     payload = payload or {}
