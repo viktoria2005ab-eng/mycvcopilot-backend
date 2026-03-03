@@ -666,32 +666,30 @@ def shorten_experience_bullets_with_llm(
     prompt = f"""
 Tu es recruteur en finance.
 
-On te donne une liste d'activités / centres d'intérêt.
+On te donne des expériences avec leurs bullet points au format JSON.
 
-POUR CHAQUE ACTIVITÉ :
-- tu gardes UNE activité par ligne (pas de fusion),
-- tu réécris en français en gardant le sens exact,
-- tu utilises une formulation nominale professionnelle,
-  PAS de "je", PAS de phrase narrative.
-- Structure recommandée :
-  "Nom activité : Participation / Organisation / Pratique ... développant ..."
-- Phrase complète qui se termine par un point.
-- Maximum {max_no_space_per_activity} caractères SANS espaces.
+POUR CHAQUE BULLET :
+- tu réécris la phrase en français,
+- tu gardes exactement le même sens (aucune nouvelle mission, aucun nouveau chiffre, aucun nouvel outil),
+- tu gardes la structure : verbe d'action + moyen + résultat,
+- la phrase est complète et se termine par un point,
+- maximum {max_no_space_per_bullet} caractères SANS espaces,
 - JAMAIS de points de suspension ("...").
 
 INTERDIT :
-- changer le nombre d'activités,
-- fusionner plusieurs activités,
+- changer le nombre d'expériences,
+- changer le nombre de bullets,
+- réordonner les bullets,
 - inventer des éléments.
 
-Exemple de BON style :
-- Course à pied : Participation régulière à des courses caritatives développant endurance et discipline.
-- Voyages en Asie : Organisation autonome de séjours renforçant adaptabilité et ouverture culturelle.
+Tu dois renvoyer UNIQUEMENT un JSON de la forme :
 
-Réponds UNIQUEMENT avec un JSON :
-{{"activities": ["...", "..."]}}
+{{"experiences": [
+  {{"bullets": ["...", "..."]}},
+  {{"bullets": ["...", "..."]}}
+]}}
 
-Voici les activités :
+Voici le JSON d'entrée :
 
 {json.dumps(payload, ensure_ascii=False)}
 """
