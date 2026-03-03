@@ -409,9 +409,9 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
     
     # --- Contrôle de longueur : si c'est TROP LONG, on demande une version raccourcie ---
     # Objectif : viser ~2225 caractères sans espaces, sans casser les phrases.
-    TARGET_NO_SPACE = 2150
-    MAX_NO_SPACE = 2250      # seuil au-delà duquel on raccourcit
-    MIN_NO_SPACE = 2050      # on évite de trop vider le CV
+    TARGET_NO_SPACE = 2050
+    MAX_NO_SPACE = 2130      # seuil au-delà duquel on raccourcit
+    MIN_NO_SPACE = 1950      # on évite de trop vider le CV
 
     if chars_no_space > MAX_NO_SPACE:
         shrink_prompt = f"""
@@ -477,7 +477,7 @@ Contraintes OBLIGATOIRES :
   EDUCATION:, EXPERIENCES:, SKILLS:, LANGUAGES:, ACTIVITIES: (ou INTERESTS:).
 - Tu ne crées PAS de nouvelles expériences ni de nouvelles sections.
 - Tu n'ajoutes PAS de nouveaux outils, ni de nouveaux chiffres inventés.
-- Tu ne dépasses pas environ 2300 caractères sans espaces.
+- Tu ne dépasses pas environ 2150 caractères sans espaces.
 - Le format des sections doit rester identique (mêmes balises, même ordre).
 
 Voici le CV de départ à améliorer (garde le même format) :
@@ -493,6 +493,28 @@ Voici le CV de départ à améliorer (garde le même format) :
     print("=== RAW CV TEXT ===")
     print(cv_text)
     print("=== END RAW CV TEXT ===")
+
+    # --- Nettoyage final : on vire les "..." et les phrases de commentaire ---
+    lines = cv_text.replace("\r\n", "\n").split("\n")
+    cleaned_lines = []
+    for ln in lines:
+        s = ln.strip()
+        if not s:
+            cleaned_lines.append(ln)
+            continue
+
+        # lignes qui ne sont que ponctuation / guillemets
+        if s in {".", "..", "...", "\"", "''", "\"\"", "\"\"\""}:
+            continue
+
+        # phrases méta qu'on ne veut jamais dans le CV
+        lower = s.lower()
+        if lower.startswith("cette version") or lower.startswith("ce cv") or lower.startswith("note :"):
+            continue
+
+        cleaned_lines.append(ln)
+
+    cv_text = "\n".join(cleaned_lines)
 
     return cv_text
 
@@ -964,28 +986,30 @@ Voici les activités :
 def trim_activities(
     lines: list[str],
     cv_is_long: bool,
-    ideal_max: int = 3,
+    ideal_max: int = 2,
     max_no_space_per_activity: int = 90,
 ) -> list[str]:
     """
     ACTIVITÉS / CENTRES D'INTÉRÊT :
 
-    NOUVELLE LOGIQUE :
-    - on NE SUPPRIME plus des activités,
-    - on nettoie juste les lignes vides,
-    - si le CV est long, on demande à l'IA de RÉÉCRIRE plus court,
-      sans fusionner ni supprimer.
+    - On nettoie les lignes vides.
+    - Si le CV n'est pas long -> on garde tout.
+    - Si le CV est long -> on garde au maximum `ideal_max` activités
+      (les premières, normalement les plus pertinentes),
+      puis on les fait reformuler plus court par l'IA.
     """
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
         return []
 
-    # On NE coupe PLUS la liste (plus de cleaned = cleaned[:ideal_max])
-
     if not cv_is_long:
         return cleaned
 
-    # Si CV long -> reformulation via LLM, SANS suppression
+    # CV long : on garde max 2 activités
+    if len(cleaned) > ideal_max:
+        cleaned = cleaned[:ideal_max]
+
+    # Reformulation plus courte (sans fusion ni suppression)
     return shorten_activities_with_llm(
         cleaned,
         max_no_space_per_activity=max_no_space_per_activity,
@@ -1509,6 +1533,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         # ------- COMPÉTENCES & OUTILS -------
         if ph == "%%SKILLS%%" and isinstance(value, list):
             _render_skills(p, value or [])
+            _remove_paragraph(p)
+            continue
+
+        # ------- ACTIVITÉS / CENTRES D'INTÉRÊT -------
+        if ph == "%%INTERESTS%%" and isinstance(value, list):
+            _render_interests(p, value or [])
             _remove_paragraph(p)
             continue
 
