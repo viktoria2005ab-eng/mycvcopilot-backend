@@ -258,6 +258,29 @@ RÈGLES DE SORTIE (TRÈS IMPORTANT) :
 
 FORMAT EXACT À RESPECTER :
 
+1️⃣ TU DOIS ABSOLUMENT PRODUIRE CES 5 BLOCS DANS CET ORDRE EXACT,
+   CHAQUE EN-TÊTE SUR SA PROPRE LIGNE :
+
+EDUCATION:
+<contenu éducation>
+
+EXPERIENCES:
+<contenu expériences>
+
+SKILLS:
+<contenu compétences>
+
+LANGUAGES:
+<contenu langues>
+
+ACTIVITIES:
+<contenu activités>
+
+2️⃣ TU NE DOIS RIEN ÉCRIRE AVANT "EDUCATION:" NI APRÈS LA DERNIÈRE LIGNE D’ACTIVITIES.
+   PAS DE COMMENTAIRES, PAS DE TEXTE EXPLICATIF, PAS D’INTRODUCTION, RIEN.
+
+3️⃣ FORMAT PRÉCIS DE CHAQUE BLOC :
+
 EDUCATION:
 DEGREE: <intitulé du diplôme ou programme>
 SCHOOL: <école ou université>
@@ -277,16 +300,17 @@ DETAILS:
 - <détail 2>
 
 EXPERIENCES:
-ROLE: <intitulé exact>
-COMPANY: <nom exact ou nom de l’association / BDE>
+ROLE: <intitulé exact du poste>
+COMPANY: <nom exact de l’entreprise ou de l’association>
 DATES: <MMM YYYY – MMM YYYY ou MMM YYYY – Present>
 LOCATION: <Ville, Pays>
 TYPE: <Internship / Alternance / CDI / etc. si fourni sinon vide>
 BULLETS:
-- ...
-- ...
+- <bullet 1>
+- <bullet 2>
+- <bullet 3>
 
-ROLE: ...
+ROLE: <autre poste>
 COMPANY: ...
 DATES: ...
 LOCATION: ...
@@ -299,10 +323,10 @@ SKILLS:
 <2 à 3 lignes, chacune commençant par "Certifications :", "Maîtrise des logiciels :" ou "Capacités professionnelles :">
 
 LANGUAGES:
-<contenu>
+<une seule ligne ou plusieurs, mais sans puces>
 
 ACTIVITIES:
-<contenu>
+<une activité par ligne, sans puces, sous la forme "Nom de l’activité : description">
 
 CONTRAINTE LONGUEUR (INTELLIGENTE) :
 
@@ -1372,6 +1396,8 @@ def _split_education_block_on_degree_titles(block: list[str]) -> list[list[str]]
         "Classe préparatoire", "Classe préparatoire ECG",
         "Classe preparatoire", "Classe preparatoire ECG",
         "CPGE", "Prépa", "Prepa",
+        "Échange académique", "Echange académique", "Exchange programme", "Exchange program"
+        "BBA", "Bachelor"
     )
 
     new_blocks: list[list[str]] = []
