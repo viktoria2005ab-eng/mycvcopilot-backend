@@ -1723,7 +1723,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     new_p_elt = OxmlElement("w:p")
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
-                    anchor.paragraph_format.space_after = Pt(6)
+                    
+                    # ✅ spacer "réel" (pas vide) => espacement visible entre formations
+                    anchor.add_run(" ")
+                    anchor.paragraph_format.space_after = Pt(10)
+                    anchor.paragraph_format.space_before = Pt(0)
 
                 # ✅ pas de paragraphe vide supplémentaire, on garde juste l'ancre
                 anchor.paragraph_format.space_after = Pt(2)
@@ -1961,8 +1965,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
                 
-                # ✅ ESPACE entre deux formations
-                anchor.paragraph_format.space_after = Pt(6)
+                # ✅ spacer "réel" (pas vide) => espacement visible entre formations
+                anchor.add_run(" ")
+                anchor.paragraph_format.space_after = Pt(10)
+                anchor.paragraph_format.space_before = Pt(0)
 
             try:
                 if anchor is not None:
@@ -2119,7 +2125,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 new_p_elt = OxmlElement("w:p")
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
-                anchor.paragraph_format.space_after = Pt(6)
+                
+                # ✅ spacer "réel" (pas vide) => spacing enfin visible
+                anchor.add_run(" ")  # important: paragraphe non vide
+                anchor.paragraph_format.space_after = Pt(10)  # augmente l'air entre expériences
+                anchor.paragraph_format.space_before = Pt(0)
 
             _remove_paragraph(p)
             continue
