@@ -1712,11 +1712,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     new_p_elt = OxmlElement("w:p")
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
+                    anchor.paragraph_format.space_after = Pt(6)
 
-                sp = _insert_paragraph_after(anchor, "")
-                sp.paragraph_format.space_after = Pt(2)
-                anchor = sp
-
+                # ✅ pas de paragraphe vide supplémentaire, on garde juste l'ancre
+                anchor.paragraph_format.space_after = Pt(2)
+                
                 _remove_paragraph(p)
                 continue
 
@@ -2017,6 +2017,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     title_run.bold = True
                     title_run.font.size = Pt(11)
 
+                lp.paragraph_format.space_after = Pt(1)
+
                 bullets = (exp.get("bullets") or [])[:3]
                 for b in bullets:
                     if not b:
@@ -2067,11 +2069,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 new_p_elt = OxmlElement("w:p")
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
-
-                # Spacer après chaque expérience (petit espace)
-                sp = _insert_paragraph_after(anchor, "")
-                sp.paragraph_format.space_after = Pt(4)
-                anchor = sp
+                
+                # ✅ Espacement contrôlé (sans ajouter un 2e paragraphe vide)
+                anchor.paragraph_format.space_after = Pt(6)
 
             _remove_paragraph(p)
             continue
