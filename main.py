@@ -1490,9 +1490,16 @@ def _split_education_block_on_degree_titles(block: list[str]) -> list[list[str]]
     return new_blocks
 
 def collapse_blank_paragraphs(doc: Document, max_consecutive: int = 1):
+    """
+    Supprime les paragraphes vides, MAIS aussi ceux qui ne contiennent
+    que des 'spacers' invisibles (ex: \\u200b).
+    """
     blanks = 0
     for p in list(doc.paragraphs):
-        if (p.text or "").strip() == "":
+        txt = (p.text or "")
+        # Considère "vide" si c'est vide OU seulement des zero-width spaces
+        blankish = (txt.replace("\u200b", "").strip() == "")
+        if blankish:
             blanks += 1
             if blanks > max_consecutive:
                 _remove_paragraph(p)
@@ -1601,7 +1608,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 anchor = p
                 first_edu = True
 
-                for edu in programs:
+                for idx, edu in enumerate(programs):
                     degree = (edu.get("degree") or "").strip()
                     school = (edu.get("school") or "").strip()
                     location = (edu.get("location") or "").strip()
@@ -1753,11 +1760,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
                     
-                    # ✅ spacer "réel" (pas vide) => espacement visible entre formations
-                    r = anchor.add_run("\u200b")
-                    r.font.size = Pt(1)
-                    anchor.paragraph_format.space_after = Pt(4)
-                    anchor.paragraph_format.space_before = Pt(0)
+                    # ✅ spacer uniquement ENTRE les formations (pas après la dernière)
+                    if idx < len(programs) - 1:
+                        r = anchor.add_run("\u200b")
+                        r.font.size = Pt(1)
+                        anchor.paragraph_format.space_after = Pt(2)
+                        anchor.paragraph_format.space_before = Pt(0)
 
                 # ✅ pas de paragraphe vide supplémentaire, on garde juste l'ancre
                 anchor.paragraph_format.space_after = Pt(2)
@@ -2035,7 +2043,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 "part-time", "part time",
             ]
 
-            for exp in exps:
+            for idx, exp in enumerate(exps):
                 raw_role = (exp.get("role") or "").strip()
                 role = raw_role
 
@@ -2151,11 +2159,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
                 
-                # ✅ spacer "réel" (pas vide) => spacing enfin visible
-                r = anchor.add_run("\u200b")
-                r.font.size = Pt(1)
-                anchor.paragraph_format.space_after = Pt(4)
-                anchor.paragraph_format.space_before = Pt(0)
+                # ✅ spacer uniquement ENTRE les expériences (pas après la dernière)
+                if idx < len(exps) - 1:
+                    r = anchor.add_run("\u200b")
+                    r.font.size = Pt(1)
+                    anchor.paragraph_format.space_after = Pt(2)
+                    anchor.paragraph_format.space_before = Pt(0)
 
             _remove_paragraph(p)
             continue
