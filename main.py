@@ -78,7 +78,10 @@ def pdf_fill_ratio_first_page(pdf_path: str) -> float:
     if len(reader.pages) == 0:
         return 0.0
     page = reader.pages[0]
-    text = page.extract_text() or ""
+    try:
+        text = page.extract_text() or ""
+    except Exception:
+        text = ""
     if not text.strip():
         return 0.0
     lines = [l.strip() for l in text.splitlines() if l.strip()]
@@ -274,7 +277,7 @@ EXIGENCES:
 - Tu extraits 10-15 mots-clés ATS de l'offre et tu les intègres naturellement.
 - Tu intègres 3-5 soft skills/valeurs visibles dans l'offre, sans surcharger.
 - Tu reformules en style pro. Pas de mensonge: si une info manque, reste générique/raisonnable.
-- Chaque expérience doit contenir 3-4 bullet points orientés résultats, au moins 1-2 avec chiffres si possible (si pas de chiffres, propose une métrique plausible mais prudente).
+- Chaque expérience doit contenir 3-4 bullet points orientés résultats. N’invente jamais de chiffres : si aucun chiffre n’est fourni, reste qualitatif.
 - Pas de “profil dynamique/motivé” sans preuve.
 - Format final en TEXTE STRUCTURÉ avec sections:
   EN-TÊTE, TITRE, ACCROCHE, COMPETENCES, EXPERIENCES, FORMATION, LANGUES, CENTRES D'INTERET.
@@ -1436,7 +1439,7 @@ def _split_education_block_on_degree_titles(block: list[str]) -> list[list[str]]
         "Classe préparatoire", "Classe préparatoire ECG",
         "Classe preparatoire", "Classe preparatoire ECG",
         "CPGE", "Prépa", "Prepa",
-        "Échange académique", "Echange académique", "Exchange programme", "Exchange program"
+        "Échange académique", "Echange académique", "Exchange programme", "Exchange program",
         "BBA", "Bachelor"
     )
 
@@ -2212,6 +2215,8 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
         convert_docx_to_pdf(docx_path, pdf_path)
 
         pages = pdf_page_count(pdf_path)
+        fill = pdf_fill_ratio_first_page(pdf_path) if pages == 1 else 0.0
+        print("attempt", attempt, "pages", pages, "fill", round(fill, 2))
         
         fill = pdf_fill_ratio_first_page(pdf_path) if pages == 1 else 0.0
         print("attempt", attempt, "pages", pages, "fill", round(fill, 2))
@@ -2222,8 +2227,6 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
             continue
 
         # 1 page mais trop vide => reformulation + dense
-        fill = pdf_fill_ratio_first_page(pdf_path)
-
         if fill < 0.78:
             cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
             continue
