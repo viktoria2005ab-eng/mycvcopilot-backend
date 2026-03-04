@@ -682,13 +682,13 @@ def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
     # Insérer le tableau juste après le paragraphe ancre
     paragraph._p.addnext(table._tbl)
 
-        # ✅ Empêche les lignes de tableau de se couper entre 2 pages
-        try:
-            for row in table.rows:
-                _row_cant_split(row)
-        except Exception:
-            pass
-
+    # ✅ Empêche les lignes de tableau de se couper entre 2 pages
+    try:
+        for row in table.rows:
+            _row_cant_split(row)
+    except Exception:
+        pass
+    
     return table
 
 def parse_finance_experiences(lines: list[str]) -> list[dict]:
@@ -2176,7 +2176,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     except Exception:
                         bp.text = f"• {b}"
                     bp.paragraph_format.space_after = Pt(0)
-                    _keep_lines(lp, keep_lines=True, keep_next=True)
+                    _keep_lines(bp, keep_lines=True, keep_next=False)
 
                 # ----- Colonne droite : dates, lieu, type -----
                 rp = right.paragraphs[0]
@@ -2403,8 +2403,8 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
     # 1) baseline
     cv_text = generate_cv_text(payload)
 
-    # 2) boucle max 3 essais (baseline + 2 corrections)
-    for attempt in range(3):
+    # 2) boucle max 5 essais (baseline + 2 corrections)
+    for attempt in range(5):
         write_docx_from_template(tpl, cv_text, docx_path, payload=payload)
         convert_docx_to_pdf(docx_path, pdf_path)
 
