@@ -1644,26 +1644,37 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         label_text = None
                         after_text = None
                         lower = text.lower()
+
+                        # Fix orthographe/accord
+                        text = text.replace("Analyse financières", "Analyse financière")
+                        lower = text.lower()
                         
-                        # ✅ 1) Projets (sans ":") => label souligné
+                        # ✅ 1) Projets (avec ou sans ":") => label souligné
                         if lower.startswith("projets"):
                             label_text = "Projets"
                             after_text = re.sub(r"(?i)^projets(\s+de\s+groupe)?\s*", "", text).strip()
+                            # enlève les ponctuations type ": :"
+                            after_text = re.sub(r"^[\s:–-]+", "", after_text).strip()
                         
-                        # ✅ 2) Matières fondamentales / cours pertinents
+                        # ✅ 2) "Cours en ..." => Matières fondamentales
+                        elif re.match(r"(?i)^cours\s+en\s+", text):
+                            label_text = "Matières fondamentales"
+                            after_text = re.sub(r"(?i)^cours\s+en\s+", "", text).strip().rstrip(".")
+                        
+                        # ✅ 3) Matières fondamentales / cours pertinents / key coursework
                         elif "matières fondamentales" in lower or "cours pertinents" in lower or "key coursework" in lower:
                             label_text = "Matières fondamentales"
                             if ":" in text:
                                 _, _, after = text.partition(":")
-                                after_text = after
+                                after_text = after.strip()
                         
-                        # ✅ 3) Autres labels courts "X: Y"
+                        # ✅ 4) Autres labels courts "X: Y"
                         elif ":" in text:
                             before, sep, after = text.partition(":")
                             before_clean = before.strip()
                             if len(before_clean.split()) <= 4:
                                 label_text = before_clean
-                                after_text = after
+                                after_text = after.strip()
 
                         if label_text:
                             r1 = para.add_run(label_text + " :")
@@ -1702,12 +1713,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
 
-                # On supprime le dernier paragraphe vide utilisé comme ancre
-                try:
-                    if anchor is not None:
-                        _remove_paragraph(anchor)
-                except Exception:
-                    pass
+                sp = _insert_paragraph_after(anchor, "")
+                sp.paragraph_format.space_after = Pt(2)
+                anchor = sp
 
                 _remove_paragraph(p)
                 continue
@@ -2060,12 +2068,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
 
-            # On supprime le dernier paragraphe vide utilisé comme ancre
-            try:
-                if anchor is not None:
-                    _remove_paragraph(anchor)
-            except Exception:
-                pass
+               # Spacer après chaque expérience (1 ligne)
+                sp = _insert_paragraph_after(anchor, "")
+                sp.paragraph_format.space_after = Pt(4)
+                anchor = sp 
 
             _remove_paragraph(p)
             continue
