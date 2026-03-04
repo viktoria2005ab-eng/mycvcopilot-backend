@@ -1035,9 +1035,11 @@ def trim_activities(
     if not cv_is_long:
         return cleaned
 
-    # CV long : on garde max 2 activités
-    if len(cleaned) > ideal_max:
-        cleaned = cleaned[:ideal_max]
+    # CV long : on raccourcit les activités, mais on ne supprime pas
+    return shorten_activities_with_llm(
+        cleaned,
+        max_no_space_per_activity=max_no_space_per_activity,
+    )
 
     # Reformulation plus courte (sans fusion ni suppression)
     return shorten_activities_with_llm(
@@ -1623,6 +1625,18 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     lp.paragraph_format.left_indent = Pt(0)
                     lp.paragraph_format.first_line_indent = Pt(0)
 
+                    mention_value = ""
+                    deg_low = (degree or "").lower()
+                    if "mention" in deg_low:
+                        parts = [p.strip() for p in degree.split("–")]
+                        kept = []
+                        for part in parts:
+                            if part.lower().startswith("mention"):
+                                mention_value = part.replace("Mention", "").strip()
+                            else:
+                                kept.append(part)
+                        degree = " – ".join(kept).strip()
+
                     title_parts = [x for x in [degree, school] if x]
                     title_line = " – ".join(title_parts) if title_parts else (degree or school)
 
@@ -1630,6 +1644,18 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         r_title = lp.add_run(title_line)
                         r_title.bold = True
                         r_title.font.size = Pt(11)
+
+                    if mention_value:
+                        para_m = left.add_paragraph()
+                        try:
+                            para_m.style = doc.styles["Normal"]
+                        except Exception:
+                            pass
+                        r1 = para_m.add_run("Mention :")
+                        r1.underline = True
+                        r1.font.size = Pt(10)
+                        r2 = para_m.add_run(" " + mention_value)
+                        r2.font.size = Pt(10)
 
                     # Détails sous le titre
                     for d in details:
@@ -1670,6 +1696,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         elif re.match(r"(?i)^cours\s+en\s+", text):
                             label_text = "Matières fondamentales"
                             after_text = re.sub(r"(?i)^cours\s+en\s+", "", text).strip().rstrip(".")
+                        elif lower.startswith("cours") and ":" in text:
+                            label_text = "Matières fondamentales"
+                            _, _, after = text.partition(":")
+                            after_text = after.strip().rstrip(".")
                         
                         # ✅ 3) Matières fondamentales / cours pertinents / key coursework
                         elif "matières fondamentales" in lower or "cours pertinents" in lower or "key coursework" in lower:
@@ -1724,8 +1754,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     anchor = Paragraph(new_p_elt, p._parent)
                     
                     # ✅ spacer "réel" (pas vide) => espacement visible entre formations
-                    anchor.add_run("\u200b")
-                    anchor.paragraph_format.space_after = Pt(10)
+                    r = anchor.add_run("\u200b")
+                    r.font.size = Pt(1)
+                    anchor.paragraph_format.space_after = Pt(4)
                     anchor.paragraph_format.space_before = Pt(0)
 
                 # ✅ pas de paragraphe vide supplémentaire, on garde juste l'ancre
@@ -1965,8 +1996,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 anchor = Paragraph(new_p_elt, p._parent)
                 
                 # ✅ spacer "réel" (pas vide) => espacement visible entre formations
-                anchor.add_run("\u200b")
-                anchor.paragraph_format.space_after = Pt(10)
+                r = anchor.add_run("\u200b")
+                r.font.size = Pt(1)
+                anchor.paragraph_format.space_after = Pt(4)
                 anchor.paragraph_format.space_before = Pt(0)
 
             try:
@@ -2120,8 +2152,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 anchor = Paragraph(new_p_elt, p._parent)
                 
                 # ✅ spacer "réel" (pas vide) => spacing enfin visible
-                anchor.add_run("\u200b")
-                anchor.paragraph_format.space_after = Pt(10)  # augmente l'air entre expériences
+                r = anchor.add_run("\u200b")
+                r.font.size = Pt(1)
+                anchor.paragraph_format.space_after = Pt(4)
                 anchor.paragraph_format.space_before = Pt(0)
 
             _remove_paragraph(p)
