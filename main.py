@@ -2083,7 +2083,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 title_line = " - ".join(title_parts)
 
                 # ✅ spacer AVANT la 1ère expérience (sépare le titre section du contenu)
-               if first_table:
+                if first_table:
                     spacer = _insert_paragraph_after(anchor, "")
                     spacer.paragraph_format.space_after = Pt(2)
                     spacer.paragraph_format.space_before = Pt(0)
