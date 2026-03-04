@@ -2118,9 +2118,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 new_p_elt = OxmlElement("w:p")
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
-                first_table = True
-                
-                # ✅ Espacement contrôlé (sans ajouter un 2e paragraphe vide)
                 anchor.paragraph_format.space_after = Pt(6)
 
             _remove_paragraph(p)
