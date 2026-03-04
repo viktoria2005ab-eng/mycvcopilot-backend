@@ -1536,7 +1536,8 @@ def collapse_blank_paragraphs(doc: Document, max_consecutive: int = 1):
         else:
             blanks = 0
             
-def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None, compact_mode: bool = False) -> None:    doc = Document(template_path)
+def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None, compact_mode: bool = False) -> None:
+    doc = Document(template_path)
 
     # On mesure la longueur du texte pour savoir si on doit "tailler" ou pas.
     raw_text = cv_text or ""
