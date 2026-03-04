@@ -1258,6 +1258,7 @@ def _render_skills(anchor: Paragraph, lines: list[str]):
     - Les éléments sont séparés par des virgules
     """
     last = anchor
+    is_first = True  # ✅ pour ajouter un petit espace avant la 1ère ligne
 
     for raw in (lines or []):
         text = (raw or "").strip()
@@ -1269,6 +1270,12 @@ def _render_skills(anchor: Paragraph, lines: list[str]):
         text = text.replace(" | ", ", ")
 
         new_p = _insert_paragraph_after(last, "")
+
+        # ✅ petit espace juste au début de la section
+        if is_first:
+            new_p.paragraph_format.space_before = Pt(6)
+            is_first = False
+        
         head = text
         tail = ""
 
@@ -1632,6 +1639,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         text = (d or "").strip()
                         if not text:
                             continue
+                    
+                        # ✅ On supprime BDE/Association dans EDUCATION (car ça va dans EXPERIENCES)
+                        low = text.lower()
+                        if "bde" in low or low.startswith("association"):
+                            continue
 
                         para = left.add_paragraph()
                         try:
@@ -1819,9 +1831,34 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 lp.paragraph_format.left_indent = Pt(0)
                 lp.paragraph_format.first_line_indent = Pt(0)
 
+                # ✅ Si "Mention ..." est dans le titre, on la sort pour la mettre en dessous
+                mention_value = ""
+                if "mention" in title_part.lower():
+                    parts = [p.strip() for p in title_part.split("–")]
+                    kept = []
+                    for part in parts:
+                        if part.lower().startswith("mention"):
+                            mention_value = part.replace("Mention", "").strip()
+                        else:
+                            kept.append(part)
+                    title_part = " – ".join(kept).strip()
+                
                 title_run = lp.add_run(title_part)
                 title_run.bold = True
                 title_run.font.size = Pt(11)
+                
+                # ✅ Ligne en dessous : Mention : (souligné)
+                if mention_value:
+                    para = left.add_paragraph()
+                    try:
+                        para.style = doc.styles["Normal"]
+                    except Exception:
+                        pass
+                    r1 = para.add_run("Mention :")
+                    r1.underline = True
+                    r1.font.size = Pt(10)
+                    r2 = para.add_run(" " + mention_value)
+                    r2.font.size = Pt(10)
 
                 location = ""
                 location_index = -1
@@ -1924,6 +1961,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 new_p_elt = OxmlElement("w:p")
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
+                
+                # ✅ ESPACE entre deux formations
+                anchor.paragraph_format.space_after = Pt(6)
 
             try:
                 if anchor is not None:
