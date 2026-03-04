@@ -2212,6 +2212,9 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
         convert_docx_to_pdf(docx_path, pdf_path)
 
         pages = pdf_page_count(pdf_path)
+        
+        fill = pdf_fill_ratio_first_page(pdf_path) if pages == 1 else 0.0
+        print("attempt", attempt, "pages", pages, "fill", round(fill, 2))
 
         # Trop long => reformulation + courte
         if pages > 1:
