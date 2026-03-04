@@ -192,7 +192,7 @@ def has_free_left(email: str) -> bool:
         cur.close()
         conn.close()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"DB error: {e}")
+        raise HTTPException(status_code=503, detail="DB unavailable")
 
     if not row:
         return True
