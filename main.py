@@ -696,6 +696,9 @@ def parse_finance_experiences(lines: list[str]) -> list[dict]:
             stripped = line.lstrip()
             bullet_text = stripped[1:].strip()
             if bullet_text:
+                bullet_text = re.sub(r"(?i)^participé\s+à\s+", "Contribué à ", bullet_text)
+                bullet_text = re.sub(r"(?i)^aidé\s+à\s+", "Soutenu ", bullet_text)
+                
                 cur["bullets"].append(bullet_text)
 
     push()
@@ -805,6 +808,7 @@ POUR CHAQUE BULLET :
 - tu réécris la phrase en français,
 - tu gardes exactement le même sens (aucune nouvelle mission, aucun nouveau chiffre, aucun nouvel outil),
 - tu gardes la structure : verbe d'action + moyen + résultat,
+- INTERDIT de commencer par : "Participé", "Aidé", "Effectué", "Travaillé",
 - la phrase est complète et se termine par un point,
 - maximum {max_no_space_per_bullet} caractères SANS espaces,
 - JAMAIS de points de suspension ("...").
@@ -957,6 +961,8 @@ On te donne une liste d'activités / centres d'intérêt.
 POUR CHAQUE ACTIVITÉ :
 - tu gardes UNE activité par ligne (pas de fusion),
 - tu réécris en français en gardant le sens,
+- style CV (PAS de "je", PAS de "nous", PAS de phrase à la première personne),
+- formulation orientée finance : pratique + discipline / exigence / rigueur,
 - tu fais une phrase complète qui se termine par un point,
 - tu ne mets JAMAIS de points de suspension ("..."),
 - la phrase doit faire au maximum {max_no_space_per_activity} caractères SANS espaces.
@@ -1466,6 +1472,16 @@ def _split_education_block_on_degree_titles(block: list[str]) -> list[list[str]]
         new_blocks.append(current)
 
     return new_blocks
+
+def collapse_blank_paragraphs(doc: Document, max_consecutive: int = 1):
+    blanks = 0
+    for p in list(doc.paragraphs):
+        if (p.text or "").strip() == "":
+            blanks += 1
+            if blanks > max_consecutive:
+                _remove_paragraph(p)
+        else:
+            blanks = 0
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
 
@@ -1616,6 +1632,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         label_text = None
                         after_text = None
                         lower = text.lower()
+
+                        # ✅ Si l'IA écrit "Projets de groupe ..." sans ":", on force un label souligné
+                        if lower.startswith("projets"):
+                            label_text = "Projets"
+                            after_text = re.sub(r"(?i)^projets(\s+de\s+groupe)?\s*", "", text).strip()
 
                         # Normalisation "Matières fondamentales"
                         if "matières fondamentales" in lower or "cours pertinents" in lower or "key coursework" in lower:
@@ -2051,7 +2072,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             _remove_paragraph(p)
     except Exception:
         pass
-    
+    collapse_blank_paragraphs(doc, max_consecutive=1)
     doc.save(out_path)
 
 def write_pdf_simple(cv_text: str, out_path: str) -> None:
