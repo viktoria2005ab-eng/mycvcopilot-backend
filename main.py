@@ -184,21 +184,20 @@ def has_free_left(email: str) -> bool:
     import os
     import psycopg2
 
-    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-    cur = conn.cursor()
-
-    cur.execute(
-        "SELECT month FROM quota WHERE email = %s",
-        (email,)
-    )
-    row = cur.fetchone()
-
-    cur.close()
-    conn.close()
+    try:
+        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        cur = conn.cursor()
+        cur.execute("SELECT month FROM quota WHERE email = %s", (email,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        # Option A (souple) : on laisse passer en gratuit si DB down
+        return True
+        # Option B (stricte) : raise HTTPException(500, detail="DB error")
 
     if not row:
-        return True  # jamais utilisé
-
+        return True
     return row[0] != month_key()
 
 def consume_free(email: str) -> None:
@@ -2215,9 +2214,6 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
         convert_docx_to_pdf(docx_path, pdf_path)
 
         pages = pdf_page_count(pdf_path)
-        fill = pdf_fill_ratio_first_page(pdf_path) if pages == 1 else 0.0
-        print("attempt", attempt, "pages", pages, "fill", round(fill, 2))
-        
         fill = pdf_fill_ratio_first_page(pdf_path) if pages == 1 else 0.0
         print("attempt", attempt, "pages", pages, "fill", round(fill, 2))
 
