@@ -1055,15 +1055,6 @@ def trim_activities(
     ideal_max: int = 2,
     max_no_space_per_activity: int = 90,
 ) -> list[str]:
-    """
-    ACTIVITÉS / CENTRES D'INTÉRÊT :
-
-    - On nettoie les lignes vides.
-    - Si le CV n'est pas long -> on garde tout.
-    - Si le CV est long -> on garde au maximum `ideal_max` activités
-      (les premières, normalement les plus pertinentes),
-      puis on les fait reformuler plus court par l'IA.
-    """
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
         return []
@@ -1071,10 +1062,10 @@ def trim_activities(
     if not cv_is_long:
         return cleaned
 
-    # CV long : on raccourcit les activités, mais on ne supprime pas
+    # CV long : on force plus court
     return shorten_activities_with_llm(
         cleaned,
-        max_no_space_per_activity=max_no_space_per_activity,
+        max_no_space_per_activity=70,
     )
 
 def _find_paragraph_containing(doc: Document, needle: str):
