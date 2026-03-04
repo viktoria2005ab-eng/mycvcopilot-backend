@@ -603,7 +603,15 @@ def translate_months_fr(text: str) -> str:
 
     return text
 def _remove_paragraph(p: Paragraph):
-    p._element.getparent().remove(p._element)
+    if p is None:
+        return
+    el = getattr(p, "_element", None)
+    if el is None:
+        return
+    parent = el.getparent()
+    if parent is None:
+        return
+    parent.remove(el)
     p._p = p._element = None
 
 def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
