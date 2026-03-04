@@ -538,6 +538,34 @@ from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
+from docx.oxml.ns import qn
+
+def _keep_lines(paragraph: Paragraph, keep_lines=True, keep_next=False):
+    """
+    Empêche Word/LibreOffice de couper ce paragraphe sur 2 pages,
+    et optionnellement le colle au paragraphe suivant.
+    """
+    p = paragraph._p
+    pPr = p.get_or_add_pPr()
+
+    if keep_lines:
+        el = OxmlElement("w:keepLines")
+        pPr.append(el)
+
+    if keep_next:
+        el = OxmlElement("w:keepNext")
+        pPr.append(el)
+
+def _row_cant_split(row):
+    """
+    Empêche une ligne de tableau d’être coupée entre 2 pages.
+    C’est LE truc qui évite le rendu “moche/coupé”.
+    """
+    tr = row._tr
+    trPr = tr.get_or_add_trPr()
+    cant = OxmlElement("w:cantSplit")
+    trPr.append(cant)
+
 def translate_months_fr(text: str) -> str:
     """
     Normalise les mois :
@@ -653,6 +681,14 @@ def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
 
     # Insérer le tableau juste après le paragraphe ancre
     paragraph._p.addnext(table._tbl)
+
+        # ✅ Empêche les lignes de tableau de se couper entre 2 pages
+        try:
+            for row in table.rows:
+                _row_cant_split(row)
+        except Exception:
+            pass
+
     return table
 
 def parse_finance_experiences(lines: list[str]) -> list[dict]:
@@ -1634,6 +1670,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                     # ---- Colonne gauche : diplôme + école + détails ----
                     lp = left.paragraphs[0]
+                    _keep_lines(lp, keep_lines=True, keep_next=True)
                     try:
                         lp.style = doc.styles["Normal"]
                     except Exception:
@@ -2110,6 +2147,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                 # ----- Colonne gauche : rôle + bullets -----
                 lp = left.paragraphs[0]
+                _keep_lines(lp, keep_lines=True, keep_next=True)
                 try:
                     lp.style = doc.styles["Normal"]
                 except Exception:
@@ -2138,6 +2176,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     except Exception:
                         bp.text = f"• {b}"
                     bp.paragraph_format.space_after = Pt(0)
+                    _keep_lines(lp, keep_lines=True, keep_next=True)
 
                 # ----- Colonne droite : dates, lieu, type -----
                 rp = right.paragraphs[0]
