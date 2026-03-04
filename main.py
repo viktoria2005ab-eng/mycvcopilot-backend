@@ -1645,8 +1645,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         para = left.add_paragraph()
                         try:
                             para.style = doc.styles["Normal"]
-                        
+                        except Exception:
                             pass
+                        
                         para.paragraph_format.left_indent = Pt(0)
                         para.paragraph_format.first_line_indent = Pt(0)
 
