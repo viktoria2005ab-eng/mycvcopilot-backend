@@ -49,6 +49,22 @@ def clean_cv_output(cv_text: str) -> str:
         out.append(ln)
     return "\n".join(out).strip()
 
+REQUIRED_SECTIONS = ["EDUCATION:", "EXPERIENCES:", "SKILLS:", "LANGUAGES:", "ACTIVITIES:"]
+
+def has_all_sections(cv_text: str) -> bool:
+    t = (cv_text or "")
+    return all(sec in t for sec in REQUIRED_SECTIONS)
+
+def safe_apply_llm_edit(old_text: str, new_text: str) -> str:
+    """
+    Si l'IA renvoie un CV cassé (sections manquantes, etc.),
+    on garde l'ancien pour éviter de tout péter.
+    """
+    new_clean = clean_cv_output(new_text)
+    if not has_all_sections(new_clean):
+        return old_text  # on refuse la sortie cassée
+    return new_clean
+
 def pdf_page_count(pdf_path: str) -> int:
     reader = PdfReader(pdf_path)
     return len(reader.pages)
@@ -2199,16 +2215,14 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
 
         # Trop long => reformulation + courte
         if pages > 1:
-            cv_text = llm_shrink_cv(cv_text)
-            cv_text = clean_cv_output(cv_text)
+            cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text))
             continue
 
         # 1 page mais trop vide => reformulation + dense
         fill = pdf_fill_ratio_first_page(pdf_path)
 
         if fill < 0.78:
-            cv_text = llm_expand_cv(cv_text)
-            cv_text = clean_cv_output(cv_text)
+            cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
             continue
 
         # ✅ 1 page et suffisamment rempli
