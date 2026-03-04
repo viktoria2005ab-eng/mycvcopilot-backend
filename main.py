@@ -1597,6 +1597,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             if any((line or "").strip().startswith("DEGREE:") for line in value):
                 programs = parse_education_structured(value)
                 anchor = p
+                first_edu = True
 
                 for edu in programs:
                     degree = (edu.get("degree") or "").strip()
@@ -1606,11 +1607,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     details = edu.get("details") or []
 
                     # Création du tableau 2 colonnes
-                    table = _add_table_after(anchor, rows=1, cols=2)
-                    try:
-                        _remove_paragraph(anchor)
-                    except Exception:
-                        pass
+                    
                     left = table.cell(0, 0)
                     right = table.cell(0, 1)
                     left.text = ""
