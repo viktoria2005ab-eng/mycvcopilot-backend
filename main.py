@@ -2068,10 +2068,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
 
-               # Spacer après chaque expérience (1 ligne)
+                # Spacer après chaque expérience (petit espace)
                 sp = _insert_paragraph_after(anchor, "")
                 sp.paragraph_format.space_after = Pt(4)
-                anchor = sp 
+                anchor = sp
 
             _remove_paragraph(p)
             continue
