@@ -1041,12 +1041,6 @@ def trim_activities(
         max_no_space_per_activity=max_no_space_per_activity,
     )
 
-    # Reformulation plus courte (sans fusion ni suppression)
-    return shorten_activities_with_llm(
-        cleaned,
-        max_no_space_per_activity=max_no_space_per_activity,
-    )
-
 def _find_paragraph_containing(doc: Document, needle: str):
     for p in doc.paragraphs:
         if needle in (p.text or ""):
@@ -1491,15 +1485,22 @@ def _split_education_block_on_degree_titles(block: list[str]) -> list[list[str]]
 
 def collapse_blank_paragraphs(doc: Document, max_consecutive: int = 1):
     """
-    Supprime les paragraphes VRAIMENT vides.
-    ⚠️ IMPORTANT : on NE SUPPRIME PAS les spacers "\u200b" car ils portent le spacing.
+    Supprime les paragraphes vraiment vides,
+    MAIS conserve ceux qui servent d'espacement (space_before/space_after > 0).
     """
     blanks = 0
+
     for p in list(doc.paragraphs):
         txt = (p.text or "")
+        fmt = p.paragraph_format
 
-        # ✅ vide = vraiment vide (ou espaces), mais PAS un spacer \u200b
-        is_blank = (txt.strip() == "")
+        has_spacing = bool(
+            (fmt.space_before and fmt.space_before.pt > 0) or
+            (fmt.space_after and fmt.space_after.pt > 0)
+        )
+
+        is_blank_text = (txt.strip() == "")
+        is_blank = is_blank_text and not has_spacing
 
         if is_blank:
             blanks += 1
@@ -1507,6 +1508,7 @@ def collapse_blank_paragraphs(doc: Document, max_consecutive: int = 1):
                 _remove_paragraph(p)
         else:
             blanks = 0
+            
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
     doc = Document(template_path)
 
@@ -1591,14 +1593,14 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
         # ------- COMPÉTENCES & OUTILS -------
         if ph == "%%SKILLS%%" and isinstance(value, list):
-        # ✅ spacer entre le titre "COMPÉTENCES & OUTILS" et le corps
-        spacer = _insert_paragraph_after(p, "\u200b")
-        spacer.paragraph_format.space_after = Pt(2)
-        spacer.paragraph_format.space_before = Pt(0)
-    
-        _render_skills(spacer, value or [])
-        _remove_paragraph(p)
-        continue
+            # paragraphe vide "réel" pour espacer le titre de section et le contenu
+            spacer = _insert_paragraph_after(p, "")
+            spacer.paragraph_format.space_after = Pt(2)
+            spacer.paragraph_format.space_before = Pt(0)
+            
+            _render_skills(spacer, value or [])
+            _remove_paragraph(p)
+            continue
 
         # ------- ACTIVITÉS / CENTRES D'INTÉRÊT -------
         if ph == "%%INTERESTS%%" and isinstance(value, list):
@@ -1769,8 +1771,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     
                     # ✅ spacer uniquement ENTRE les formations (pas après la dernière)
                     if idx < len(programs) - 1:
-                        r = anchor.add_run("\u200b")
-                        r.font.size = Pt(1)
                         anchor.paragraph_format.space_after = Pt(2)
                         anchor.paragraph_format.space_before = Pt(0)
 
@@ -2011,9 +2011,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 anchor = Paragraph(new_p_elt, p._parent)
                 
                 # ✅ spacer "réel" (pas vide) => espacement visible entre formations
-                r = anchor.add_run("\u200b")
-                r.font.size = Pt(1)
-                anchor.paragraph_format.space_after = Pt(4)
+                anchor.paragraph_format.space_after = Pt(2)
                 anchor.paragraph_format.space_before = Pt(0)
 
             try:
@@ -2085,8 +2083,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 title_line = " - ".join(title_parts)
 
                 # ✅ spacer AVANT la 1ère expérience (sépare le titre section du contenu)
-                if first_table:
-                    spacer = _insert_paragraph_after(anchor, "\u200b")
+               if first_table:
+                    spacer = _insert_paragraph_after(anchor, "")
                     spacer.paragraph_format.space_after = Pt(2)
                     spacer.paragraph_format.space_before = Pt(0)
                     anchor_for_table = spacer
@@ -2179,8 +2177,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 
                 # ✅ spacer uniquement ENTRE les expériences (pas après la dernière)
                 if idx < len(exps) - 1:
-                    r = anchor.add_run("\u200b")
-                    r.font.size = Pt(1)
                     anchor.paragraph_format.space_after = Pt(2)
                     anchor.paragraph_format.space_before = Pt(0)
 
