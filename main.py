@@ -1273,7 +1273,6 @@ def _render_skills(anchor: Paragraph, lines: list[str]):
 
         # ✅ petit espace juste au début de la section
         if is_first:
-            new_p.paragraph_format.space_before = Pt(6)
             is_first = False
         
         head = text
@@ -2034,10 +2033,20 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                 # Tableau 2 colonnes (mêmes tailles qu'avant via _add_table_after)
                 table = _add_table_after(anchor, rows=1, cols=2)
-                try:
-                    _remove_paragraph(anchor)
-                except Exception:
-                    pass
+
+                # ✅ On supprime UNIQUEMENT le placeholder la première fois
+                if first_table:
+                    try:
+                        _remove_paragraph(anchor)
+                    except Exception:
+                        pass
+                    first_table = False
+                else:
+                    # ✅ On garde l'ancre (elle sert de séparateur entre expériences)
+                    try:
+                        anchor.text = ""
+                    except Exception:
+                        pass
                 left = table.cell(0, 0)
                 right = table.cell(0, 1)
                 left.text = ""
@@ -2109,6 +2118,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 new_p_elt = OxmlElement("w:p")
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
+                first_table = True
                 
                 # ✅ Espacement contrôlé (sans ajouter un 2e paragraphe vide)
                 anchor.paragraph_format.space_after = Pt(6)
