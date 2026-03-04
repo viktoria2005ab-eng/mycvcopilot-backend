@@ -1491,15 +1491,17 @@ def _split_education_block_on_degree_titles(block: list[str]) -> list[list[str]]
 
 def collapse_blank_paragraphs(doc: Document, max_consecutive: int = 1):
     """
-    Supprime les paragraphes vides, MAIS aussi ceux qui ne contiennent
-    que des 'spacers' invisibles (ex: \\u200b).
+    Supprime les paragraphes VRAIMENT vides.
+    ⚠️ IMPORTANT : on NE SUPPRIME PAS les spacers "\u200b" car ils portent le spacing.
     """
     blanks = 0
     for p in list(doc.paragraphs):
         txt = (p.text or "")
-        # Considère "vide" si c'est vide OU seulement des zero-width spaces
-        blankish = (txt.replace("\u200b", "").strip() == "")
-        if blankish:
+
+        # ✅ vide = vraiment vide (ou espaces), mais PAS un spacer \u200b
+        is_blank = (txt.strip() == "")
+
+        if is_blank:
             blanks += 1
             if blanks > max_consecutive:
                 _remove_paragraph(p)
@@ -1589,9 +1591,14 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
         # ------- COMPÉTENCES & OUTILS -------
         if ph == "%%SKILLS%%" and isinstance(value, list):
-            _render_skills(p, value or [])
-            _remove_paragraph(p)
-            continue
+        # ✅ spacer entre le titre "COMPÉTENCES & OUTILS" et le corps
+        spacer = _insert_paragraph_after(p, "\u200b")
+        spacer.paragraph_format.space_after = Pt(2)
+        spacer.paragraph_format.space_before = Pt(0)
+    
+        _render_skills(spacer, value or [])
+        _remove_paragraph(p)
+        continue
 
         # ------- ACTIVITÉS / CENTRES D'INTÉRÊT -------
         if ph == "%%INTERESTS%%" and isinstance(value, list):
@@ -2077,9 +2084,18 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 title_parts = [x for x in [role, company] if x]
                 title_line = " - ".join(title_parts)
 
+                # ✅ spacer AVANT la 1ère expérience (sépare le titre section du contenu)
+                if first_table:
+                    spacer = _insert_paragraph_after(anchor, "\u200b")
+                    spacer.paragraph_format.space_after = Pt(2)
+                    spacer.paragraph_format.space_before = Pt(0)
+                    anchor_for_table = spacer
+                else:
+                    anchor_for_table = anchor
+                
                 # Tableau 2 colonnes (mêmes tailles qu'avant via _add_table_after)
-                table = _add_table_after(anchor, rows=1, cols=2)
-
+                table = _add_table_after(anchor_for_table, rows=1, cols=2)
+                
                 # ✅ On supprime UNIQUEMENT le placeholder la première fois
                 if first_table:
                     try:
@@ -2087,6 +2103,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     except Exception:
                         pass
                     first_table = False
+                    
+                    
                 left = table.cell(0, 0)
                 right = table.cell(0, 1)
                 left.text = ""
