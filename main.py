@@ -1593,6 +1593,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                     # Création du tableau 2 colonnes
                     table = _add_table_after(anchor, rows=1, cols=2)
+                    try:
+                        _remove_paragraph(anchor)
+                    except Exception:
+                        pass
                     left = table.cell(0, 0)
                     right = table.cell(0, 1)
                     left.text = ""
@@ -1780,6 +1784,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         title_part = title_part[:m.start()].rstrip(" ,–-")
 
                 table = _add_table_after(anchor, rows=1, cols=2)
+                try:
+                    _remove_paragraph(anchor)
+                except Exception:
+                    pass
                 left = table.cell(0, 0)
                 right = table.cell(0, 1)
                 left.text = ""
@@ -1968,6 +1976,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                 # Tableau 2 colonnes (mêmes tailles qu'avant via _add_table_after)
                 table = _add_table_after(anchor, rows=1, cols=2)
+                try:
+                    _remove_paragraph(anchor)
+                except Exception:
+                    pass
                 left = table.cell(0, 0)
                 right = table.cell(0, 1)
                 left.text = ""
