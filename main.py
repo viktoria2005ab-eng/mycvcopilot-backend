@@ -102,7 +102,7 @@ def llm_shrink_cv(cv_text: str) -> str:
 Tu dois rendre ce CV PLUS COURT pour tenir sur 1 page Word, SANS le casser.
 
 Règles ABSOLUES :
-- Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, LANGUAGES:, ACTIVITIES:
+- Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, ACTIVITIES:
 - Tu ne rajoutes AUCUN commentaire ni phrase méta.
 - Tu ne coupes JAMAIS une phrase.
 - Tu n'utilises JAMAIS "..." ni de guillemets triples.
@@ -132,7 +132,7 @@ def llm_expand_cv(cv_text: str) -> str:
 Tu dois rendre ce CV PLUS DENSE pour remplir correctement 1 page Word (éviter un grand vide en bas).
 
 Règles ABSOLUES :
-- Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, LANGUAGES:, ACTIVITIES:
+- Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, ACTIVITIES:
 - Tu ne rajoutes AUCUN commentaire ni phrase méta.
 - Tu ne coupes JAMAIS une phrase.
 - Tu n'utilises JAMAIS "..." ni de guillemets triples.
@@ -2434,18 +2434,9 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
             last_action = "shrink"
         
             # 2) Si on a déjà tenté shrink et que ça dépasse encore, on active le mode compact
-            if attempt >= 1:
+            if attempt >= 2:
                 compact_mode = True
         
-            continue
-
-        # 1 page mais trop vide => reformulation + dense
-        if fill < 0.78:
-            # évite l'oscillation : si on vient de shrink, on n'expand pas direct
-            if last_action == "shrink":
-                break
-            cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
-            last_action = "expand"
             continue
 
         # ✅ 1 page et suffisamment rempli
