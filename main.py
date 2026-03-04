@@ -29,6 +29,112 @@ PUBLIC_BASE_DOWNLOAD = os.getenv("PUBLIC_BASE_DOWNLOAD", "")  # ex: https://mycv
 
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
+from pypdf import PdfReader
+
+def clean_cv_output(cv_text: str) -> str:
+    if not cv_text:
+        return ""
+    lines = cv_text.replace("\r\n", "\n").split("\n")
+    out = []
+    for ln in lines:
+        s = ln.strip()
+        if not s:
+            out.append(ln)
+            continue
+        if s in {".", "..", "...", "\"", "''", "\"\"", "\"\"\""}:
+            continue
+        low = s.lower()
+        if low.startswith("cette version") or low.startswith("ce cv") or low.startswith("note :"):
+            continue
+        out.append(ln)
+    return "\n".join(out).strip()
+
+def pdf_page_count(pdf_path: str) -> int:
+    reader = PdfReader(pdf_path)
+    return len(reader.pages)
+
+def pdf_fill_ratio_first_page(pdf_path: str) -> float:
+    """
+    Heuristique simple : nombre de lignes non vides extraites de la page 1.
+    Sert à détecter "trop vide" (beaucoup d'espace en bas).
+    """
+    reader = PdfReader(pdf_path)
+    if len(reader.pages) == 0:
+        return 0.0
+    page = reader.pages[0]
+    text = page.extract_text() or ""
+    if not text.strip():
+        return 0.0
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    n = len(lines)
+
+    # calibrage simple
+    if n <= 22:
+        return 0.60
+    if n >= 55:
+        return 0.95
+    return 0.60 + (n - 22) * (0.35 / (55 - 22))
+
+def llm_shrink_cv(cv_text: str) -> str:
+    if not client:
+        return cv_text
+
+    prompt = f"""
+Tu dois rendre ce CV PLUS COURT pour tenir sur 1 page Word, SANS le casser.
+
+Règles ABSOLUES :
+- Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, LANGUAGES:, ACTIVITIES:
+- Tu ne rajoutes AUCUN commentaire ni phrase méta.
+- Tu ne coupes JAMAIS une phrase.
+- Tu n'utilises JAMAIS "..." ni de guillemets triples.
+- Tu n'inventes rien : pas de nouvelles missions, chiffres, outils.
+- Tu peux uniquement :
+  1) raccourcir les bullets (phrases plus directes),
+  2) réduire DETAILS dans EDUCATION (1-2 lignes max par diplôme),
+  3) réduire ACTIVITIES (max 2 activités, une ligne chacune),
+  4) limiter à 2 bullets les expériences secondaires (garder 3 bullets pour l'expérience la plus pertinente).
+
+Sortie : UNIQUEMENT le CV complet.
+
+CV :
+\"\"\"{cv_text}\"\"\"
+"""
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.choices[0].message.content.strip()
+
+def llm_expand_cv(cv_text: str) -> str:
+    if not client:
+        return cv_text
+
+    prompt = f"""
+Tu dois rendre ce CV PLUS DENSE pour remplir correctement 1 page Word (éviter un grand vide en bas).
+
+Règles ABSOLUES :
+- Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, LANGUAGES:, ACTIVITIES:
+- Tu ne rajoutes AUCUN commentaire ni phrase méta.
+- Tu ne coupes JAMAIS une phrase.
+- Tu n'utilises JAMAIS "..." ni de guillemets triples.
+- Tu n'inventes rien : pas de nouvelles missions, chiffres, outils.
+- Tu peux uniquement :
+  1) ajouter 1 bullet à l'expérience la plus pertinente (si elle n'en a que 2),
+  2) préciser légèrement 1-2 bullets (sans inventer),
+  3) ajouter 1 ligne utile dans EDUCATION (si déjà suggérée dans les infos),
+  4) enrichir 1 activité forte (toujours une ligne).
+
+Sortie : UNIQUEMENT le CV complet.
+
+CV :
+\"\"\"{cv_text}\"\"\"
+"""
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.choices[0].message.content.strip()
+
 # --- MVP "DB" en mémoire (à remplacer par Postgres plus tard)
 # quota[email] = "YYYY-MM" (mois où le gratuit a été consommé)
 quota: Dict[str, str] = {}
@@ -403,118 +509,12 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 
     cv_text = resp.choices[0].message.content.strip()
 
-    # --- Contrôle de longueur : si c'est TROP court, on demande une version un peu développée ---
-    raw = cv_text.replace("\r\n", "\n")
-    chars_no_space = len(re.sub(r"\s+", "", raw))
-    
-    # --- Contrôle de longueur : si c'est TROP LONG, on demande une version raccourcie ---
-    # Objectif : viser ~2225 caractères sans espaces, sans casser les phrases.
-    TARGET_NO_SPACE = 2050
-    MAX_NO_SPACE = 2130      # seuil au-delà duquel on raccourcit
-    MIN_NO_SPACE = 1950      # on évite de trop vider le CV
-
-    if chars_no_space > MAX_NO_SPACE:
-        shrink_prompt = f"""
-Le CV suivant est trop long (environ {chars_no_space} caractères sans espaces).
-
-Objectif :
-- le ramener autour de {TARGET_NO_SPACE} caractères sans espaces
-  (entre {MIN_NO_SPACE} et {MAX_NO_SPACE}).
-
-Contraintes OBLIGATOIRES :
-- Tu gardes EXACTEMENT les mêmes sections et balises :
-  EDUCATION:, EXPERIENCES:, SKILLS:, LANGUAGES:, ACTIVITIES: (ou INTERESTS:).
-- Tu NE CRÉES PAS de nouvelles sections.
-- Tu NE SUPPRIMES PAS complètement une expérience en finance / audit / banque / BDE.
-- Tu peux raccourcir :
-  - les formulations trop longues des bullet points les moins importantes,
-  - les détails secondaires dans EDUCATION,
-  - les descriptions dans ACTIVITIES / INTERESTS,
-  - les phrases redondantes.
-- Chaque bullet reste une phrase complète (verbe d’action + moyen + résultat),
-  et se termine par un point.
-- Tu NE COUPES JAMAIS une phrase au milieu.
-- Tu n'utilises JAMAIS de points de suspension ("...").
-- Tu n’inventes PAS de nouvelles missions, outils, logiciels ni chiffres.
-- Tu ne fusionnes pas plusieurs activités en une seule ligne.
-
-Format de sortie :
-- Tu renvoies UNIQUEMENT le CV complet,
-- avec les mêmes balises de section et le même ordre qu’à l’origine.
-
-Voici le CV à raccourcir (garde le même format exact) :
-
-\"\"\"{cv_text}\"\"\"
-"""
-
-        resp_shrink = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": shrink_prompt}],
-        )
-        shrunk = resp_shrink.choices[0].message.content.strip()
-
-        # On vérifie vite fait que ce n'est ni trop vide ni encore plus long
-        shrunk_raw = shrunk.replace("\r\n", "\n")
-        shrunk_chars = len(re.sub(r"\s+", "", shrunk_raw))
-
-        if MIN_NO_SPACE <= shrunk_chars <= MAX_NO_SPACE:
-            cv_text = shrunk
-            raw = shrunk_raw
-            chars_no_space = shrunk_chars
-        # sinon : on garde la version initiale (un peu longue) pour éviter les dégats
-
-    # En-dessous d'environ 2050 caractères (sans espaces) → la page n'est pas assez remplie
-    if chars_no_space < 2050:
-        expand_prompt = f"""
-Le CV suivant est trop court (environ {chars_no_space} caractères sans espaces) et ne remplit pas une page Word.
-
-Sans inventer de nouvelles expériences, missions, outils ni chiffres, améliore ce CV en :
-- développant légèrement les bullet points des 1 ou 2 expériences les plus pertinentes ;
-- développant un peu la description des ACTIVITIES les plus fortes.
-
-Contraintes OBLIGATOIRES :
-- Tu gardes EXACTEMENT la même structure et les mêmes sections :
-  EDUCATION:, EXPERIENCES:, SKILLS:, LANGUAGES:, ACTIVITIES: (ou INTERESTS:).
-- Tu ne crées PAS de nouvelles expériences ni de nouvelles sections.
-- Tu n'ajoutes PAS de nouveaux outils, ni de nouveaux chiffres inventés.
-- Tu ne dépasses pas environ 2150 caractères sans espaces.
-- Le format des sections doit rester identique (mêmes balises, même ordre).
-
-Voici le CV de départ à améliorer (garde le même format) :
-
-\"\"\"{cv_text}\"\"\"
-"""
-        resp2 = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": expand_prompt}],
-        )
-        cv_text = resp2.choices[0].message.content.strip()
+    # Nettoyage final robuste (enlève les phrases meta, les """ etc.)
+    cv_text = clean_cv_output(cv_text)
 
     print("=== RAW CV TEXT ===")
     print(cv_text)
     print("=== END RAW CV TEXT ===")
-
-    # --- Nettoyage final : on vire les "..." et les phrases de commentaire ---
-    lines = cv_text.replace("\r\n", "\n").split("\n")
-    cleaned_lines = []
-    for ln in lines:
-        s = ln.strip()
-        if not s:
-            cleaned_lines.append(ln)
-            continue
-
-        # lignes qui ne sont que ponctuation / guillemets
-        if s in {".", "..", "...", "\"", "''", "\"\"", "\"\"\""}:
-            continue
-
-        # phrases méta qu'on ne veut jamais dans le CV
-        lower = s.lower()
-        if lower.startswith("cette version") or lower.startswith("ce cv") or lower.startswith("note :"):
-            continue
-
-        cleaned_lines.append(ln)
-
-    cv_text = "\n".join(cleaned_lines)
 
     return cv_text
 
@@ -2181,18 +2181,42 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
     job_id = job_id or str(uuid.uuid4())
     os.makedirs("out", exist_ok=True)
 
-    cv_text = generate_cv_text(payload)
-
     safe = sanitize_filename(payload["full_name"])
     docx_path = os.path.join("out", f"{safe}_{job_id}.docx")
     pdf_path = os.path.join("out", f"{safe}_{job_id}.pdf")
 
     tpl = sector_to_template(payload["sector"])
-    write_docx_from_template(tpl, cv_text, docx_path, payload=payload)
-    convert_docx_to_pdf(docx_path, pdf_path)
+
+    # 1) baseline
+    cv_text = generate_cv_text(payload)
+
+    # 2) boucle max 3 essais (baseline + 2 corrections)
+    for attempt in range(3):
+        write_docx_from_template(tpl, cv_text, docx_path, payload=payload)
+        convert_docx_to_pdf(docx_path, pdf_path)
+
+        pages = pdf_page_count(pdf_path)
+
+        # Trop long => reformulation + courte
+        if pages > 1:
+            cv_text = llm_shrink_cv(cv_text)
+            cv_text = clean_cv_output(cv_text)
+            continue
+
+        # 1 page mais trop vide => reformulation + dense
+        fill = pdf_fill_ratio_first_page(pdf_path)
+
+        if fill < 0.78:
+            cv_text = llm_expand_cv(cv_text)
+            cv_text = clean_cv_output(cv_text)
+            continue
+
+        # ✅ 1 page et suffisamment rempli
+        break
 
     jobs[job_id] = {"docx_path": docx_path, "pdf_path": pdf_path, "payload": payload}
     return job_id
+    
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import psycopg2
