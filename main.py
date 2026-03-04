@@ -1979,6 +1979,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             exps = parse_finance_experiences(value or [])
             exps = trim_finance_experiences(exps, is_cv_long=cv_is_long)
             anchor = p
+            first_table = True
 
             # Si jamais le modèle n'a pas respecté le format structuré,
             # on retombe sur un simple rendu en liste pour ne pas tout casser.
