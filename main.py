@@ -1607,6 +1607,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     details = edu.get("details") or []
 
                     # Création du tableau 2 colonnes
+                    table = _add_table_after(anchor, rows=1, cols=2)
                     
                     left = table.cell(0, 0)
                     right = table.cell(0, 1)
@@ -1644,7 +1645,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         para = left.add_paragraph()
                         try:
                             para.style = doc.styles["Normal"]
-                        except Exception:
+                        
                             pass
                         para.paragraph_format.left_indent = Pt(0)
                         para.paragraph_format.first_line_indent = Pt(0)
@@ -1722,7 +1723,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     anchor = Paragraph(new_p_elt, p._parent)
                     
                     # ✅ spacer "réel" (pas vide) => espacement visible entre formations
-                    anchor.add_run(" ")
+                    anchor.add_run("\u200b")
                     anchor.paragraph_format.space_after = Pt(10)
                     anchor.paragraph_format.space_before = Pt(0)
 
@@ -1963,7 +1964,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 anchor = Paragraph(new_p_elt, p._parent)
                 
                 # ✅ spacer "réel" (pas vide) => espacement visible entre formations
-                anchor.add_run(" ")
+                anchor.add_run("\u200b")
                 anchor.paragraph_format.space_after = Pt(10)
                 anchor.paragraph_format.space_before = Pt(0)
 
@@ -2045,12 +2046,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     except Exception:
                         pass
                     first_table = False
-                else:
-                    # ✅ On garde l'ancre (elle sert de séparateur entre expériences)
-                    try:
-                        anchor.text = ""
-                    except Exception:
-                        pass
                 left = table.cell(0, 0)
                 right = table.cell(0, 1)
                 left.text = ""
@@ -2124,7 +2119,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 anchor = Paragraph(new_p_elt, p._parent)
                 
                 # ✅ spacer "réel" (pas vide) => spacing enfin visible
-                anchor.add_run(" ")  # important: paragraphe non vide
+                anchor.add_run("\u200b")
                 anchor.paragraph_format.space_after = Pt(10)  # augmente l'air entre expériences
                 anchor.paragraph_format.space_before = Pt(0)
 
