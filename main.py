@@ -192,9 +192,7 @@ def has_free_left(email: str) -> bool:
         cur.close()
         conn.close()
     except Exception as e:
-        # Option A (souple) : on laisse passer en gratuit si DB down
-        return True
-        # Option B (stricte) : raise HTTPException(500, detail="DB error")
+        raise HTTPException(status_code=500, detail=f"DB error: {e}")
 
     if not row:
         return True
@@ -1201,6 +1199,8 @@ def _render_interests(anchor: Paragraph, lines: list[str]):
 
     for raw in (lines or []):
         text = (raw or "").strip()
+        text = re.sub(r"(?i)^je\s+", "", text).strip()
+        text = re.sub(r"(?i)^j['’]\s*", "", text).strip()
         if not text:
             last = _insert_paragraph_after(last, "")
             continue
@@ -1636,18 +1636,20 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         label_text = None
                         after_text = None
                         lower = text.lower()
-
-                        # ✅ Si l'IA écrit "Projets de groupe ..." sans ":", on force un label souligné
+                        
+                        # ✅ 1) Projets (sans ":") => label souligné
                         if lower.startswith("projets"):
                             label_text = "Projets"
                             after_text = re.sub(r"(?i)^projets(\s+de\s+groupe)?\s*", "", text).strip()
-
-                        # Normalisation "Matières fondamentales"
-                        if "matières fondamentales" in lower or "cours pertinents" in lower or "key coursework" in lower:
+                        
+                        # ✅ 2) Matières fondamentales / cours pertinents
+                        elif "matières fondamentales" in lower or "cours pertinents" in lower or "key coursework" in lower:
                             label_text = "Matières fondamentales"
                             if ":" in text:
                                 _, _, after = text.partition(":")
                                 after_text = after
+                        
+                        # ✅ 3) Autres labels courts "X: Y"
                         elif ":" in text:
                             before, sep, after = text.partition(":")
                             before_clean = before.strip()
