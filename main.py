@@ -49,7 +49,7 @@ def clean_cv_output(cv_text: str) -> str:
         out.append(ln)
     return "\n".join(out).strip()
 
-REQUIRED_SECTIONS = ["EDUCATION:", "EXPERIENCES:", "SKILLS:", "LANGUAGES:", "ACTIVITIES:"]
+REQUIRED_SECTIONS = ["EDUCATION:", "EXPERIENCES:", "SKILLS:", "ACTIVITIES:"]
 
 def has_all_sections(cv_text: str) -> bool:
     t = (cv_text or "")
@@ -1536,8 +1536,7 @@ def collapse_blank_paragraphs(doc: Document, max_consecutive: int = 1):
         else:
             blanks = 0
             
-def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None) -> None:
-    doc = Document(template_path)
+def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None, compact_mode: bool = False) -> None:    doc = Document(template_path)
 
     # On mesure la longueur du texte pour savoir si on doit "tailler" ou pas.
     raw_text = cv_text or ""
@@ -1555,6 +1554,29 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         section.right_margin = Cm(1.0)
         section.top_margin = Cm(1.0)      
         section.bottom_margin = Cm(1.0)   
+
+    # ✅ Mode compact : on compresse légèrement la mise en page si ça dépasse 1 page
+    if compact_mode:
+        for p in doc.paragraphs:
+            try:
+                # réduire les espaces verticaux
+                p.paragraph_format.space_before = Pt(0)
+                p.paragraph_format.space_after = Pt(0)
+    
+                # réduire l'interligne (très léger)
+                p.paragraph_format.line_spacing = 1.0
+    
+                # réduire la taille de police (un peu)
+                for run in p.runs:
+                    if run.font.size is None:
+                        run.font.size = Pt(9.5)
+                    else:
+                        # ne pas toucher au nom géant (20pt), on limite juste
+                        if run.font.size.pt > 11:
+                            continue
+                        run.font.size = Pt(min(run.font.size.pt, 9.5))
+            except Exception:
+                pass
 
     # ------- Données générales -------
     payload = payload or {}
@@ -2393,10 +2415,12 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
 
     # 1) baseline
     cv_text = generate_cv_text(payload)
+    last_action = None
+    compact_mode = False
 
     # 2) boucle max 5 essais (baseline + 2 corrections)
     for attempt in range(5):
-        write_docx_from_template(tpl, cv_text, docx_path, payload=payload)
+        write_docx_from_template(tpl, cv_text, docx_path, payload=payload, compact_mode=compact_mode)
         convert_docx_to_pdf(docx_path, pdf_path)
 
         pages = pdf_page_count(pdf_path)
@@ -2405,12 +2429,23 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
 
         # Trop long => reformulation + courte
         if pages > 1:
+            # 1) On tente shrink via IA
             cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text))
+            last_action = "shrink"
+        
+            # 2) Si on a déjà tenté shrink et que ça dépasse encore, on active le mode compact
+            if attempt >= 1:
+                compact_mode = True
+        
             continue
 
         # 1 page mais trop vide => reformulation + dense
         if fill < 0.78:
+            # évite l'oscillation : si on vient de shrink, on n'expand pas direct
+            if last_action == "shrink":
+                break
             cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
+            last_action = "expand"
             continue
 
         # ✅ 1 page et suffisamment rempli
