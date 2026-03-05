@@ -542,8 +542,8 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
-ITEM_SPACING = Pt(4)   # espace entre 2 formations / 2 expériences
-SECTION_SPACING = Pt(4) # espace entre sections (Formation -> Exp, Exp -> Skills)
+ITEM_SPACING = Pt(2)   # espace entre 2 formations / 2 expériences
+SECTION_SPACING = Pt(3) # espace entre sections (Formation -> Exp, Exp -> Skills)
 
 from docx.oxml.ns import qn
 
@@ -1549,9 +1549,24 @@ def collapse_blank_paragraphs(doc: Document, max_consecutive: int = 1):
                 _remove_paragraph(p)
         else:
             blanks = 0
+
+def normalize_section_titles_spacing(doc: Document):
+    TITLES = {
+        "FORMATION",
+        "EXPÉRIENCES PROFESSIONNELLES",
+        "COMPÉTENCES & OUTILS",
+        "ACTIVITÉS & CENTRES D’INTÉRÊT",
+        "ACTIVITÉS & CENTRES D'INTÉRÊT",
+    }
+    for p in doc.paragraphs:
+        t = (p.text or "").strip()
+        if t.upper() in TITLES:
+            p.paragraph_format.space_before = Pt(0)       # 🔥 évite le “2 lignes”
+            p.paragraph_format.space_after = ITEM_SPACING # petit air juste après le titre
             
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None, compact_mode: bool = False) -> None:
     doc = Document(template_path)
+    normalize_section_titles_spacing(doc)
 
     # On mesure la longueur du texte pour savoir si on doit "tailler" ou pas.
     raw_text = cv_text or ""
@@ -1833,14 +1848,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
                     
-                    # ✅ spacer uniquement ENTRE les formations (pas après la dernière)
+                    # ✅ spacer entre formations, et après la DERNIÈRE formation -> espace de section
                     if idx < len(programs) - 1:
                         anchor.paragraph_format.space_after = ITEM_SPACING
-                        anchor.paragraph_format.space_before = Pt(0)
-
-                # ✅ pas de paragraphe vide supplémentaire, on garde juste l'ancre
-                anchor.paragraph_format.space_after = ITEM_SPACING
-                anchor.paragraph_format.space_before = Pt(0)
+                    else:
+                        anchor.paragraph_format.space_after = SECTION_SPACING
+                    anchor.paragraph_format.space_before = Pt(0)
                 
                 _remove_paragraph(p)
                 continue
