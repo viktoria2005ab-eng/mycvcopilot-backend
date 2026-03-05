@@ -542,6 +542,8 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
+ITEM_SPACING = Pt(4)   # espace entre 2 formations / 2 expériences
+SECTION_SPACING = Pt(4) # espace entre sections (Formation -> Exp, Exp -> Skills)
 
 from docx.oxml.ns import qn
 
@@ -1833,11 +1835,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     
                     # ✅ spacer uniquement ENTRE les formations (pas après la dernière)
                     if idx < len(programs) - 1:
-                        anchor.paragraph_format.space_after = Pt(2)
+                        anchor.paragraph_format.space_after = ITEM_SPACING
                         anchor.paragraph_format.space_before = Pt(0)
 
                 # ✅ pas de paragraphe vide supplémentaire, on garde juste l'ancre
-                anchor.paragraph_format.space_after = Pt(4)
+                anchor.paragraph_format.space_after = ITEM_SPACING
+                anchor.paragraph_format.space_before = Pt(0)
                 
                 _remove_paragraph(p)
                 continue
@@ -2073,7 +2076,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 anchor = Paragraph(new_p_elt, p._parent)
                 
                 # ✅ spacer "réel" (pas vide) => espacement visible entre formations
-                anchor.paragraph_format.space_after = Pt(6)
+                anchor.paragraph_format.space_after = SECTION_SPACING
                 anchor.paragraph_format.space_before = Pt(0)
 
             try:
@@ -2147,7 +2150,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 # ✅ petit espace entre le TITRE de section et la 1ère expérience (sans ligne vide)
                 if first_table:
                     try:
-                        anchor.paragraph_format.space_after = Pt(4)
+                        anchor.paragraph_format.space_after = ITEM_SPACING
                         anchor.paragraph_format.space_before = Pt(0)
                     except Exception:
                         pass
@@ -2242,9 +2245,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 # ✅ espace ENTRE les expériences vs après la dernière
                 try:
                     if idx < len(exps) - 1:
-                        anchor.paragraph_format.space_after = Pt(4)  # entre expériences (4 = bon compromis)
+                        anchor.paragraph_format.space_after = ITEM_SPACING
                     else:
-                        anchor.paragraph_format.space_after = Pt(4)  # fin de section expériences -> avant skills
+                        anchor.paragraph_format.space_after = SECTION_SPACING
                     anchor.paragraph_format.space_before = Pt(0)
                 except Exception:
                     pass
