@@ -2123,18 +2123,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 anchor = Paragraph(new_p_elt, p._parent)
                 
                 # ✅ espace entre formations vs après la dernière formation
-                if block != filtered_blocks[-1]:
+                if i < len(filtered_blocks) - 1:
                     anchor.paragraph_format.space_after = ITEM_SPACING
                 else:
                     anchor.paragraph_format.space_after = SECTION_SPACING
                 anchor.paragraph_format.space_before = Pt(0)
 
-            try:
-                if anchor is not None:
-                    _remove_paragraph(anchor)
-            except Exception:
-                pass
-
+            # ⚠️ NE PAS supprimer anchor : c’est lui qui porte le space_after !
             _remove_paragraph(p)
             continue
 
