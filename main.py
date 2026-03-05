@@ -1069,7 +1069,8 @@ def trim_activities(
     if not cv_is_long:
         return cleaned
 
-    # CV long : on force plus court
+    # CV long : on réduit le NOMBRE + on réécrit plus court
+    cleaned = cleaned[:ideal_max]  # ✅ garde max 3 activités (ou ideal_max)
     return shorten_activities_with_llm(
         cleaned,
         max_no_space_per_activity=70,
@@ -1301,7 +1302,7 @@ def _render_skills(anchor: Paragraph, lines: list[str]):
     
         cleaned.append(txt)
 
-    for raw in (lines or []):
+    for raw in (cleaned or []):
         text = (raw or "").strip()
         if not text:
             last = _insert_paragraph_after(last, "")
