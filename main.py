@@ -1291,7 +1291,7 @@ def _render_skills(anchor: Paragraph, lines: list[str]):
     is_first = True  # ✅ pour ajouter un petit espace avant la 1ère ligne
     cleaned = []
 
-    for line in value:
+    for line in lines:
         txt = line.strip()
         
         if txt.lower().startswith("certifications"):
