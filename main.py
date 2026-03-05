@@ -1561,8 +1561,10 @@ def normalize_section_titles_spacing(doc: Document):
     for p in doc.paragraphs:
         t = (p.text or "").strip()
         if t.upper() in TITLES:
-            p.paragraph_format.space_before = Pt(0)       # 🔥 évite le “2 lignes”
-            p.paragraph_format.space_after = ITEM_SPACING # petit air juste après le titre
+            # ✅ l'espace AVANT le titre = espace entre sections
+            p.paragraph_format.space_before = SECTION_SPACING   # ex: 3pt
+            # ✅ petit espace après le titre (pas 2 lignes)
+            p.paragraph_format.space_after = ITEM_SPACING       # ex: 2pt
 
 def _strip_blank_neighbors(doc: Document, p: Paragraph, before: int = 1, after: int = 1):
     """
@@ -1776,6 +1778,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                     if mention_value:
                         para_m = left.add_paragraph()
+                        para.paragraph_format.space_before = Pt(0)
+                        para.paragraph_format.space_after = Pt(0)
                         try:
                             para_m.style = doc.styles["Normal"]
                         except Exception:
@@ -1798,6 +1802,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                             continue
 
                         para = left.add_paragraph()
+                        para.paragraph_format.space_before = Pt(0)
+                        para.paragraph_format.space_after = Pt(0)
                         try:
                             para.style = doc.styles["Normal"]
                         except Exception:
@@ -1877,17 +1883,17 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         r_loc.italic = True
                         r_loc.font.size = Pt(9)
 
-                    # Paragraphe vide pour ancrer la prochaine formation
-                    new_p_elt = OxmlElement("w:p")
-                    table._tbl.addnext(new_p_elt)
-                    anchor = Paragraph(new_p_elt, p._parent)
-                    
-                    # ✅ spacer entre formations, et après la DERNIÈRE formation -> espace de section
+                    # ✅ spacer UNIQUEMENT entre deux formations
                     if idx < len(programs) - 1:
-                        anchor.paragraph_format.space_after = ITEM_SPACING
+                        spacer_elt = OxmlElement("w:p")
+                        table._tbl.addnext(spacer_elt)
+                        spacer = Paragraph(spacer_elt, p._parent)
+                        spacer.paragraph_format.space_before = Pt(0)
+                        spacer.paragraph_format.space_after = ITEM_SPACING
+                        anchor = spacer  # on ancre le prochain tableau après ce spacer
                     else:
-                        anchor.paragraph_format.space_after = SECTION_SPACING
-                    anchor.paragraph_format.space_before = Pt(0)
+                        # ❌ pas d'anchor vide après la dernière formation
+                        anchor = p  # valeur inutile ensuite, mais on évite de créer une ligne vide
                 
                 _remove_paragraph(p)
                 continue
@@ -2279,18 +2285,17 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     r_type.italic = True
                     r_type.font.size = Pt(9)
 
-                # Paragraphe vide pour ancrer l'expérience suivante
-                new_p_elt = OxmlElement("w:p")
-                table._tbl.addnext(new_p_elt)
-                anchor = Paragraph(new_p_elt, p._parent)
-                
-                # ✅ espace ENTRE les expériences vs après la dernière
-                try:
-                    if idx < len(exps) - 1:
-                        anchor.paragraph_format.space_after = ITEM_SPACING
-                    else:
-                        anchor.paragraph_format.space_after = SECTION_SPACING
-                    anchor.paragraph_format.space_before = Pt(0)
+                # ✅ spacer UNIQUEMENT entre deux expériences
+                if idx < len(exps) - 1:
+                    spacer_elt = OxmlElement("w:p")
+                    table._tbl.addnext(spacer_elt)
+                    spacer = Paragraph(spacer_elt, p._parent)
+                    spacer.paragraph_format.space_before = Pt(0)
+                    spacer.paragraph_format.space_after = ITEM_SPACING
+                    anchor = spacer
+                else:
+                    # ❌ pas d'anchor vide après la dernière expérience
+                    anchor = p
                 except Exception:
                     pass
 
