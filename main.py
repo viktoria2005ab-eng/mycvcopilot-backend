@@ -1778,8 +1778,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                     if mention_value:
                         para_m = left.add_paragraph()
-                        para.paragraph_format.space_before = Pt(0)
-                        para.paragraph_format.space_after = Pt(0)
+                        para_m.paragraph_format.space_before = Pt(0)
+                        para_m.paragraph_format.space_after = Pt(0)
                         try:
                             para_m.style = doc.styles["Normal"]
                         except Exception:
@@ -2129,7 +2129,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 if i < len(filtered_blocks) - 1:
                     anchor.paragraph_format.space_after = ITEM_SPACING
                 else:
-                    anchor.paragraph_format.space_after = SECTION_SPACING
+                    anchor.paragraph_format.space_after = Pt(0)
                 anchor.paragraph_format.space_before = Pt(0)
 
             # ⚠️ NE PAS supprimer anchor : c’est lui qui porte le space_after !
@@ -2296,8 +2296,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 else:
                     # ❌ pas d'anchor vide après la dernière expérience
                     anchor = p
-                except Exception:
-                    pass
+    
 
             _remove_paragraph(p)
             continue
