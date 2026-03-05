@@ -38,6 +38,9 @@ def clean_cv_output(cv_text: str) -> str:
     out = []
     for ln in lines:
         s = ln.strip()
+        # ✅ supprime les blocs de code et marqueurs type ``` provenant du LLM
+        if s.startswith("```") or s == "```":
+            continue
         if not s:
             out.append(ln)
             continue
@@ -339,6 +342,7 @@ SECTION SKILLS (COMPÉTENCES & OUTILS) :
   1) "Certifications : ..."
   2) "Maîtrise des logiciels : ..."
   3) "Capacités professionnelles : ..." (facultatif si peu d'infos)
+- Si aucune certification n’est fournie, tu n’écris JAMAIS "Certifications : ...".
 - Dans chaque ligne, les éléments sont séparés par des virgules (PAS de "|").
 - "Certifications" : tests ou validations concrètes (Excel, PIX, etc.).
 - "Maîtrise des logiciels" : Excel, PowerPoint, VBA, outils spécifiques.
@@ -482,6 +486,8 @@ RÈGLE D’AJUSTEMENT AUTOMATIQUE :
 RÈGLES D’ÉCRITURE :
 - Phrases courtes, une seule idée par bullet.
 - Tu évites les répétitions entre les bullets et entre les expériences.
+- Dans EDUCATION, chaque bloc DOIT contenir DETAILS: avec au moins 1 ligne "- ...".
+- Tu dois reprendre les lignes "Cours : ..." fournies dans le profil et les convertir en DETAILS.
 
 PROFIL :
 Nom : {payload["full_name"]}
@@ -1300,6 +1306,13 @@ def _render_skills(anchor: Paragraph, lines: list[str]):
         head = text
         tail = ""
 
+        # ✅ normalisation des libellés (le LLM varie souvent)
+        hlow = head.lower()
+        if hlow in {"capacités", "capacites"}:
+            head = "Capacités professionnelles"
+        if hlow in {"logiciels"}:
+            head = "Maîtrise des logiciels"
+
         if ":" in text:
             head, tail = text.split(":", 1)
         elif " - " in text:
@@ -1673,6 +1686,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     dates = (edu.get("dates") or "").strip()
                     details = edu.get("details") or []
 
+                    # ✅ fallback : si l'IA a oublié DETAILS, on met une ligne minimale
+                    if not details:
+                        details = ["Matières fondamentales : Corporate Finance, Valuation, Accounting."]
+
                     # Création du tableau 2 colonnes
                     table = _add_table_after(anchor, rows=1, cols=2)
                     
@@ -1825,7 +1842,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         anchor.paragraph_format.space_before = Pt(0)
 
                 # ✅ pas de paragraphe vide supplémentaire, on garde juste l'ancre
-                anchor.paragraph_format.space_after = Pt(2)
+                anchor.paragraph_format.space_after = Pt(6)
                 
                 _remove_paragraph(p)
                 continue
@@ -2061,7 +2078,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 anchor = Paragraph(new_p_elt, p._parent)
                 
                 # ✅ spacer "réel" (pas vide) => espacement visible entre formations
-                anchor.paragraph_format.space_after = Pt(2)
+                anchor.paragraph_format.space_after = Pt(6)
                 anchor.paragraph_format.space_before = Pt(0)
 
             try:
@@ -2229,8 +2246,15 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 
                 # ✅ spacer uniquement ENTRE les expériences (pas après la dernière)
                 if idx < len(exps) - 1:
-                    anchor.paragraph_format.space_after = Pt(2)
+                    anchor.paragraph_format.space_after = Pt(5)
                     anchor.paragraph_format.space_before = Pt(0)
+
+                # ✅ IMPORTANT : espace après la DERNIÈRE expérience
+                try:
+                    anchor.paragraph_format.space_after = Pt(6)
+                    anchor.paragraph_format.space_before = Pt(0)
+                except Exception:
+                    pass
 
             _remove_paragraph(p)
             continue
