@@ -542,7 +542,7 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
-ITEM_SPACING = Pt(2)   # espace entre 2 formations / 2 expériences
+ITEM_SPACING = Pt(1)   # espace entre 2 formations / 2 expériences
 SECTION_SPACING = Pt(3) # espace entre sections (Formation -> Exp, Exp -> Skills)
 
 from docx.oxml.ns import qn
