@@ -1563,6 +1563,39 @@ def normalize_section_titles_spacing(doc: Document):
         if t.upper() in TITLES:
             p.paragraph_format.space_before = Pt(0)       # 🔥 évite le “2 lignes”
             p.paragraph_format.space_after = ITEM_SPACING # petit air juste après le titre
+
+def _strip_blank_neighbors(doc: Document, p: Paragraph, before: int = 1, after: int = 1):
+    """
+    Supprime les paragraphes vides juste avant/après un paragraphe (souvent présents dans le template).
+    Permet d'éviter le "double espace" (template + code).
+    """
+    paras = list(doc.paragraphs)
+
+    idx = None
+    for i, pp in enumerate(paras):
+        if pp is p:
+            idx = i
+            break
+    if idx is None:
+        return
+
+    # Remove blanks BEFORE
+    for _ in range(before):
+        j = idx - 1
+        if j >= 0 and (paras[j].text or "").strip() == "":
+            _remove_paragraph(paras[j])
+            paras = list(doc.paragraphs)
+            idx -= 1  # index shift
+
+    # Remove blanks AFTER (remove up to `after` blank paras)
+    removed = 0
+    while removed < after:
+        paras = list(doc.paragraphs)
+        if idx + 1 < len(paras) and (paras[idx + 1].text or "").strip() == "":
+            _remove_paragraph(paras[idx + 1])
+            removed += 1
+        else:
+            break
             
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None, compact_mode: bool = False) -> None:
     doc = Document(template_path)
@@ -1668,6 +1701,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         if not p:
             continue
 
+        _strip_blank_neighbors(doc, p, before=1, after=1)
         _clear_paragraph(p)
 
         # ------- COMPÉTENCES & OUTILS -------
@@ -1895,7 +1929,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     filtered_blocks.append(b)
 
             # 5) Pour chaque formation -> tableau 1 ligne / 2 colonnes
-            for block in filtered_blocks:
+            for i, block in enumerate(filtered_blocks):
                 if not block:
                     continue
 
@@ -2088,8 +2122,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
                 
-                # ✅ spacer "réel" (pas vide) => espacement visible entre formations
-                anchor.paragraph_format.space_after = SECTION_SPACING
+                # ✅ espace entre formations vs après la dernière formation
+                if block != filtered_blocks[-1]:
+                    anchor.paragraph_format.space_after = ITEM_SPACING
+                else:
+                    anchor.paragraph_format.space_after = SECTION_SPACING
                 anchor.paragraph_format.space_before = Pt(0)
 
             try:
