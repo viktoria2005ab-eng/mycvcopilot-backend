@@ -332,6 +332,15 @@ Ces règles priment sur toutes les autres instructions.
 - Privilégie des verbes orientés impact et responsabilité.
 - Chaque bullet doit refléter une contribution concrète.
 
+INTERDICTION ABSOLUE d’ajouter :
+- Classement
+- GPA
+- Moyenne
+- Distinction académique
+- Prix
+- Bourse
+SI ces informations ne sont pas explicitement présentes dans le profil utilisateur.
+
 BDE / ASSOCIATIONS / PROJETS ÉTUDIANTS :
 - Tu DOIS les mettre dans "EXPERIENCES" (même si ce n’est pas une entreprise).
 - Tu les écris comme une expérience (titre + dates si disponibles + 2-3 bullets).
@@ -867,6 +876,8 @@ INTERDIT :
 - changer le nombre de bullets,
 - réordonner les bullets,
 - inventer des éléments.
+- toute affirmation d'impact mesurable si elle n'est pas explicitement fournie
+- toute amélioration inventée (ex : améliorant la performance, augmentant l'efficacité)
 
 Tu dois renvoyer UNIQUEMENT un JSON de la forme :
 
@@ -1745,6 +1756,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     location = (edu.get("location") or "").strip()
                     dates = (edu.get("dates") or "").strip()
                     details = edu.get("details") or []
+
+                    # 🚫 supprime les classements inventés
+                    details = [
+                        d for d in details
+                        if not re.search(r"(?i)classement|rank|top\s*\d+", d)
+                    ]
 
                     # ✅ fallback : si l'IA a oublié DETAILS, on met une ligne minimale
                     if not details:
