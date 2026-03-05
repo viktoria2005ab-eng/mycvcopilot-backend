@@ -1655,12 +1655,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
         # ------- COMPÉTENCES & OUTILS -------
         if ph == "%%SKILLS%%" and isinstance(value, list):
-            # paragraphe vide "réel" pour espacer le titre de section et le contenu
-            spacer = _insert_paragraph_after(p, "")
-            spacer.paragraph_format.space_after = Pt(2)
-            spacer.paragraph_format.space_before = Pt(0)
-            
-            _render_skills(spacer, value or [])
+            _render_skills(p, value or [])
             _remove_paragraph(p)
             continue
 
@@ -1842,7 +1837,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         anchor.paragraph_format.space_before = Pt(0)
 
                 # ✅ pas de paragraphe vide supplémentaire, on garde juste l'ancre
-                anchor.paragraph_format.space_after = Pt(6)
+                anchor.paragraph_format.space_after = Pt(4)
                 
                 _remove_paragraph(p)
                 continue
@@ -2149,14 +2144,14 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 title_parts = [x for x in [role, company] if x]
                 title_line = " - ".join(title_parts)
 
-                # ✅ spacer AVANT la 1ère expérience (sépare le titre section du contenu)
+                # ✅ petit espace entre le TITRE de section et la 1ère expérience (sans ligne vide)
                 if first_table:
-                    spacer = _insert_paragraph_after(anchor, "")
-                    spacer.paragraph_format.space_after = Pt(2)
-                    spacer.paragraph_format.space_before = Pt(0)
-                    anchor_for_table = spacer
-                else:
-                    anchor_for_table = anchor
+                    try:
+                        anchor.paragraph_format.space_after = Pt(4)
+                        anchor.paragraph_format.space_before = Pt(0)
+                    except Exception:
+                        pass
+                anchor_for_table = anchor
                 
                 # Tableau 2 colonnes (mêmes tailles qu'avant via _add_table_after)
                 table = _add_table_after(anchor_for_table, rows=1, cols=2)
@@ -2244,14 +2239,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 table._tbl.addnext(new_p_elt)
                 anchor = Paragraph(new_p_elt, p._parent)
                 
-                # ✅ spacer uniquement ENTRE les expériences (pas après la dernière)
-                if idx < len(exps) - 1:
-                    anchor.paragraph_format.space_after = Pt(5)
-                    anchor.paragraph_format.space_before = Pt(0)
-
-                # ✅ IMPORTANT : espace après la DERNIÈRE expérience
+                # ✅ espace ENTRE les expériences vs après la dernière
                 try:
-                    anchor.paragraph_format.space_after = Pt(6)
+                    if idx < len(exps) - 1:
+                        anchor.paragraph_format.space_after = Pt(4)  # entre expériences (4 = bon compromis)
+                    else:
+                        anchor.paragraph_format.space_after = Pt(4)  # fin de section expériences -> avant skills
                     anchor.paragraph_format.space_before = Pt(0)
                 except Exception:
                     pass
