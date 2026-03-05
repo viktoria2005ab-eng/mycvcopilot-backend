@@ -2448,21 +2448,24 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
         convert_docx_to_pdf(docx_path, pdf_path)
 
         pages = pdf_page_count(pdf_path)
-        print("attempt", attempt, "pages", pages)
-
-        # Trop long => reformulation + courte
-        if pages > 1:
-            # 1) On tente shrink via IA
-            cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text))
-            last_action = "shrink"
+        fill = pdf_fill_ratio_first_page(pdf_path) if pages == 1 else 0.0
+        print("attempt", attempt, "pages", pages, "fill", round(fill, 2))
         
-            # 2) Si on a déjà tenté shrink et que ça dépasse encore, on active le mode compact
+        # 1) Trop long => shrink
+        if pages > 1:
+            cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text))
             if attempt >= 2:
                 compact_mode = True
-        
             continue
-
-        # ✅ 1 page et suffisamment rempli
+        
+        # 2) 1 page mais trop vide => expand
+        if pages == 1 and fill < 0.78:
+            cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
+            # (optionnel) si tu veux éviter les oscillations :
+            # compact_mode = False
+            continue
+        
+        # 3) OK
         break
 
     jobs[job_id] = {"docx_path": docx_path, "pdf_path": pdf_path, "payload": payload}
