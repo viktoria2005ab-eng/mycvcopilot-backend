@@ -1289,6 +1289,17 @@ def _render_skills(anchor: Paragraph, lines: list[str]):
     """
     last = anchor
     is_first = True  # ✅ pour ajouter un petit espace avant la 1ère ligne
+    cleaned = []
+
+    for line in value:
+        txt = line.strip()
+        
+        if txt.lower().startswith("certifications"):
+            # on vérifie s'il y a une vraie certification
+            if not any(k in txt.lower() for k in ["cfa", "toefl", "toefic", "ielts", "pix"]):
+                continue
+    
+        cleaned.append(txt)
 
     for raw in (lines or []):
         text = (raw or "").strip()
@@ -1786,9 +1797,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                             pass
                         r1 = para_m.add_run("Mention :")
                         r1.underline = True
-                        r1.font.size = Pt(10)
+                        r1.font.size = Pt(11)
                         r2 = para_m.add_run(" " + mention_value)
-                        r2.font.size = Pt(10)
+                        r2.font.size = Pt(11)
 
                     # Détails sous le titre
                     for d in details:
@@ -1854,13 +1865,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         if label_text:
                             r1 = para.add_run(label_text + " :")
                             r1.underline = True
-                            r1.font.size = Pt(10)
+                            r1.font.size = Pt(11)
                             if after_text and after_text.strip():
                                 r2 = para.add_run(" " + after_text.strip())
-                                r2.font.size = Pt(10)
+                                r2.font.size = Pt(11)
                         else:
                             r = para.add_run(text)
-                            r.font.size = Pt(10)
+                            r.font.size = Pt(11)
 
                     # ---- Colonne droite : dates + lieu ----
                     rp = right.paragraphs[0]
@@ -2019,9 +2030,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         pass
                     r1 = para.add_run("Mention :")
                     r1.underline = True
-                    r1.font.size = Pt(10)
+                    r1.font.size = Pt(11)
                     r2 = para.add_run(" " + mention_value)
-                    r2.font.size = Pt(10)
+                    r2.font.size = Pt(11)
 
                 location = ""
                 location_index = -1
@@ -2092,13 +2103,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     if label_text:
                         r1 = para.add_run(label_text + " :")
                         r1.underline = True
-                        r1.font.size = Pt(10)
+                        r1.font.size = Pt(11)
                         if after_text and after_text.strip():
                             r2 = para.add_run(" " + after_text.strip())
-                            r2.font.size = Pt(10)
+                            r2.font.size = Pt(11)
                     else:
                         run = para.add_run(text)
-                        run.font.size = Pt(10)
+                        run.font.size = Pt(11)
 
                 rp = right.paragraphs[0]
                 rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
