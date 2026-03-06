@@ -501,9 +501,10 @@ RÈGLE D’AJUSTEMENT AUTOMATIQUE :
 
 2️⃣ Si le CV semble trop court (moins d’une page) :
 - Tu passes à 3 bullet points pour les expériences les plus pertinentes.
-- Tu détailles davantage l’impact concret (toujours sans inventer de chiffres).
-- Tu enrichis un peu la section EDUCATION (matières clés, spécialisation, classement si fourni).
-- Tu développes un peu les ACTIVITIES les plus fortes (sport intensif, voyages marquants, engagement régulier).
+- Tu reformules les éléments existants de manière plus précise et plus professionnelle.
+- Tu peux expliciter une compétence déjà implicite dans une expérience ou une activité.
+- Tu ne dois JAMAIS ajouter de nouvelle matière, de nouveau logiciel, de nouvelle langue, de nouvelle activité, de nouveau projet ou de nouvel événement.
+- Si une section manque d’informations, tu la laisses sobre au lieu d’inventer.
 
 RÈGLES D’ÉCRITURE :
 - Phrases courtes, une seule idée par bullet.
@@ -1136,19 +1137,21 @@ Voici les activités :
 def trim_activities(
     lines: list[str],
     cv_is_long: bool,
-    ideal_max: int = 3,   # ✅ 3 max (étudiant)
+    ideal_max: int = 3,
     max_no_space_per_activity: int = 90,
 ) -> list[str]:
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
         return []
 
+    # ✅ toujours max 3
+    cleaned = cleaned[:ideal_max]
+
+    # si CV pas long, on garde ces 3 lignes telles quelles
     if not cv_is_long:
         return cleaned
 
-    # CV long : on réduit le NOMBRE + on réécrit plus court
-    cleaned = cleaned[:ideal_max]  # ✅ garde max 3 activités (ou ideal_max)
-    cleaned = cleaned[:ideal_max]  # ✅ limite TOUJOURS à 3
+    # si CV long, on les raccourcit aussi
     return shorten_activities_with_llm(
         cleaned,
         max_no_space_per_activity=70,
@@ -1702,7 +1705,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
     # Au-delà d’environ 2225 caractères sans espaces → CV considéré comme "long"
     cv_is_long = (chars_no_space > 2225) or (nb_lines > 85)
-    cv_is_short = (chars_no_space < 1450) or (nb_lines < 55)
+    cv_is_short = (chars_no_space < 1150) or (nb_lines < 42)
 
     # Marges plus petites pour mieux utiliser la largeur
     for section in doc.sections:
@@ -1753,9 +1756,32 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
     sections = _split_sections(cv_text)
 
-    # SKILLS : on garde plusieurs lignes, on nettoie juste les tirets éventuels
+    # SKILLS : on garde plusieurs lignes, mais on filtre ce qui n'est pas dans l'input user
     if isinstance(sections.get("SKILLS"), list):
-        cleaned = [x.strip().lstrip("-").strip() for x in sections["SKILLS"] if x.strip()]
+        raw_skills_input = (
+            (payload.get("skills") or "") + " " +
+            (payload.get("languages") or "")
+        ).lower()
+    
+        cleaned = []
+        for x in sections["SKILLS"]:
+            txt = x.strip().lstrip("-").strip()
+            low = txt.lower()
+    
+            # garde toujours les libellés
+            if low.startswith("maîtrise des logiciels") or low.startswith("capacités professionnelles") or low.startswith("certifications") or low.startswith("langues"):
+                # filtre les ajouts trop "magiques"
+                banned = [
+                    "logiciels de gestion financière",
+                    "data visualisation",
+                    "expertise avancée",
+                    "connaissance approfondie",
+                    "présentation claire et convaincante",
+                ]
+                if any(b in low for b in banned):
+                    continue
+                cleaned.append(txt)
+    
         sections["SKILLS"] = cleaned
     
     # ⬇️ Langues intégrées dans Compétences & Outils
@@ -1808,6 +1834,25 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
         # ------- ACTIVITÉS / CENTRES D'INTÉRÊT -------
         if ph == "%%INTERESTS%%" and isinstance(value, list):
+            if not (value or []):
+                # supprime le placeholder
+                _remove_paragraph(p)
+        
+                # supprime aussi le titre de section juste avant s'il existe
+                paras = list(doc.paragraphs)
+                idx = None
+                for i, pp in enumerate(paras):
+                    if pp is p:
+                        idx = i
+                        break
+        
+                if idx is not None and idx - 1 >= 0:
+                    prev_p = paras[idx - 1]
+                    prev_text = (prev_p.text or "").strip().upper()
+                    if "ACTIVITÉS" in prev_text:
+                        _remove_paragraph(prev_p)
+                continue
+        
             _render_interests(p, value or [])
             _remove_paragraph(p)
             continue
