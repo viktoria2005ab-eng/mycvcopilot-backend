@@ -115,6 +115,7 @@ Règles ABSOLUES :
   2) réduire DETAILS dans EDUCATION (1-2 lignes max par diplôme),
   3) réduire ACTIVITIES (max 2 activités, une ligne chacune),
   4) limiter à 2 bullets les expériences secondaires (garder 3 bullets pour l'expérience la plus pertinente).
+- Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
 
 Sortie : UNIQUEMENT le CV complet.
 
@@ -143,8 +144,9 @@ Règles ABSOLUES :
 - Tu peux uniquement :
   1) ajouter 1 bullet à l'expérience la plus pertinente (si elle n'en a que 2),
   2) préciser légèrement 1-2 bullets (sans inventer),
-  3) ajouter 1 ligne utile dans EDUCATION (si déjà suggérée dans les infos),
+  3) 3) préciser légèrement une ligne existante dans EDUCATION mais ne jamais ajouter de projet, séminaire ou activité académique.
   4) enrichir 1 activité forte (toujours une ligne).
+- Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
 
 Sortie : UNIQUEMENT le CV complet.
 
@@ -317,6 +319,8 @@ RÈGLES :
 - Si le contenu commence à être trop long pour tenir sur une page, tu SUPPRIMES d’abord les expériences les moins pertinentes (jobs étudiants génériques) et tu raccourcis les bullets les moins importantes.
 - Le CV doit être rédigé intégralement en français (même si l’offre ou les intitulés sont en anglais).
 - Tous les bullet points doivent être écrits en français.
+- prioriser ces verbes : analyser, évaluer, structurer, modéliser, préparer, synthétiser, présenter, suivre
+- éviter ces verbes: aider, assister, participer, contribuer
 
 RÈGLES STRICTES :
 Ces règles priment sur toutes les autres instructions.
@@ -331,7 +335,16 @@ Ces règles priment sur toutes les autres instructions.
 - Évite les verbes faibles (participé, aidé, effectué, travaillé sur).
 - Privilégie des verbes orientés impact et responsabilité.
 - Chaque bullet doit refléter une contribution concrète.
+- Tu peux enrichir et professionnaliser une expérience existante en développant les responsabilités ou compétences implicites,mais tu ne dois jamais inventer une activité, un projet,un événement ou un impact qui n'existe pas dans l'information fournie.
 
+HALLUCINATIONS (INTERDICTION ABSOLUE) :
+- Dans EDUCATION : interdiction d’ajouter des séminaires, conférences, ateliers, études de cas, projets, classements, GPA/moyenne, prix, bourses
+  SI ce n’est pas explicitement écrit dans le champ FORMATION utilisateur.
+- Dans EXPERIENCES : interdiction d’ajouter des impacts inventés ("augmentant", "optimisant", "améliorant", "permettant", "renforçant", "contribuant à")
+  SI l’impact n’est pas explicitement présent dans l’expérience brute.
+- Dans ACTIVITIES : interdiction d’ajouter un niveau ("compétition", "national", "régional", "club", "championnat", "hebdomadaire", "quotidien")
+  SI ce n’est pas explicitement écrit dans CENTRES D’INTÉRÊT utilisateur.
+  
 INTERDICTION ABSOLUE d’ajouter :
 - Classement
 - GPA
@@ -646,6 +659,56 @@ def translate_months_fr(text: str) -> str:
         text = re.sub(pattern, repl, text)
 
     return text
+
+def strip_hallucinated_impact(text: str) -> str:
+    """
+    Supprime les queues de phrase qui sonnent comme des impacts inventés.
+    Ex: "..., permettant X" => on coupe à la virgule.
+    """
+    if not text:
+        return text
+
+    # coupe ", permettant ...", ", améliorant ...", etc.
+    return re.sub(
+        r"\s*,\s*(permettant|améliorant|augmentant|optimisant|renforçant|contribuant\s+à)\b.*$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip().rstrip(".") + "."
+
+def filter_education_details(details: list[str], raw_education_input: str) -> list[str]:
+    """
+    Garde les détails "safe" en formation.
+    On autorise uniquement ce qui est explicitement dans raw_education_input,
+    + les matières fondamentales issues de "Cours :".
+    """
+    raw = (raw_education_input or "").lower()
+
+    banned_keywords = [
+        "séminaire", "seminar", "conférence", "conference", "atelier", "workshop",
+        "étude de cas", "case study", "participation à", "projets :", "projet :",
+        "classement", "rank", "gpa", "moyenne", "bourse", "award", "prix"
+    ]
+
+    out = []
+    for d in (details or []):
+        t = (d or "").strip()
+        low = t.lower()
+
+        # toujours autoriser matières fondamentales
+        if low.startswith("matières fondamentales"):
+            out.append(t)
+            continue
+
+        # si ça contient un mot “banni” et que ce n’est pas explicitement dans l’input => on supprime
+        if any(k in low for k in banned_keywords) and not any(k in raw for k in banned_keywords):
+            continue
+
+        # sinon on garde
+        out.append(t)
+
+    return out
+
 def _remove_paragraph(p: Paragraph):
     if p is None:
         return
@@ -1026,6 +1089,9 @@ POUR CHAQUE ACTIVITÉ :
 - tu fais une phrase complète qui se termine par un point,
 - tu ne mets JAMAIS de points de suspension ("..."),
 - la phrase doit faire au maximum {max_no_space_per_activity} caractères SANS espaces.
+- INTERDIT d’ajouter un niveau ou une fréquence si ce n’est pas dans l’activité d’origine (ex : "compétition", "national", "régional", "club", "championnat", "hebdomadaire", "quotidien").
+- INTERDIT d’ajouter des événements caritatifs, clubs, tournois, compétitions si non mentionnés.
+- Structure obligatoire : "<Activité> : <pratique factuelle (sans inventer)> ; <qualités utiles en finance (rigueur, discipline, stress, priorités)>."
 
 INTERDIT :
 - changer le nombre d'activités,
@@ -1070,7 +1136,7 @@ Voici les activités :
 def trim_activities(
     lines: list[str],
     cv_is_long: bool,
-    ideal_max: int = 2,
+    ideal_max: int = 3,   # ✅ 3 max (étudiant)
     max_no_space_per_activity: int = 90,
 ) -> list[str]:
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
@@ -1082,6 +1148,7 @@ def trim_activities(
 
     # CV long : on réduit le NOMBRE + on réécrit plus court
     cleaned = cleaned[:ideal_max]  # ✅ garde max 3 activités (ou ideal_max)
+    cleaned = cleaned[:ideal_max]  # ✅ limite TOUJOURS à 3
     return shorten_activities_with_llm(
         cleaned,
         max_no_space_per_activity=70,
@@ -1635,6 +1702,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
     # Au-delà d’environ 2225 caractères sans espaces → CV considéré comme "long"
     cv_is_long = (chars_no_space > 2225) or (nb_lines > 85)
+    cv_is_short = (chars_no_space < 1450) or (nb_lines < 55)
 
     # Marges plus petites pour mieux utiliser la largeur
     for section in doc.sections:
@@ -1705,6 +1773,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     sections["LANGUAGES"] = []
     
     interests_raw = sections.get("INTERESTS", []) or sections.get("ACTIVITIES", [])
+    # ✅ si l'utilisateur n'a rien mis, on n'affiche rien (et on n'invente pas)
+    if not (payload.get("interests") or "").strip():
+        interests_raw = []
 
     if isinstance(interests_raw, list):
         interests_value = trim_activities(interests_raw, cv_is_long=cv_is_long)
@@ -1756,6 +1827,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     location = (edu.get("location") or "").strip()
                     dates = (edu.get("dates") or "").strip()
                     details = edu.get("details") or []
+                    details = filter_education_details(details, payload.get("education", ""))
 
                     # 🚫 supprime les classements inventés
                     details = [
@@ -1954,9 +2026,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
             # 4) Gestion du bac (on peut le masquer)
             non_bac_blocks = [b for b in blocks_sorted if not _is_bac_block(b)]
-            if len(non_bac_blocks) <= 1:
+
+            # ✅ Si CV trop court : on garde le bac même si normal (mieux que d'inventer)
+            if cv_is_short or len(non_bac_blocks) <= 1:
                 filtered_blocks = blocks_sorted[:]
             else:
+                # ✅ Sinon : on garde le bac uniquement s'il est "élite"
                 filtered_blocks = []
                 for b in blocks_sorted:
                     if _is_bac_block(b) and not _keep_bac_block(b):
@@ -2271,7 +2346,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 for b in bullets:
                     if not b:
                         continue
-                    b_clean = b.strip().lower()
+                    b = strip_hallucinated_impact(b.strip())
                     if b_clean in {"n/a", "na", "not applicable", "non applicable", "non-applicable"}:
                         continue
                     bp = left.add_paragraph()
