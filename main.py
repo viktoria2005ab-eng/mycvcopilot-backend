@@ -1862,12 +1862,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 _remove_paragraph(p)
                 continue
         
-                if idx is not None and idx - 1 >= 0:
-                    prev_p = paras[idx - 1]
-                    prev_text = (prev_p.text or "").strip().upper()
-                    if "ACTIVITÉS" in prev_text:
-                        _remove_paragraph(prev_p)
-                continue
         
             _render_interests(p, value or [])
             _remove_paragraph(p)
