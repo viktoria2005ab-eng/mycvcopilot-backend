@@ -144,7 +144,7 @@ Règles ABSOLUES :
 - Tu peux uniquement :
   1) ajouter 1 bullet à l'expérience la plus pertinente (si elle n'en a que 2),
   2) préciser légèrement 1-2 bullets (sans inventer),
-  3) 3) préciser légèrement une ligne existante dans EDUCATION mais ne jamais ajouter de projet, séminaire ou activité académique.
+  3) préciser légèrement une ligne existante dans EDUCATION mais ne jamais ajouter de projet, séminaire ou activité académique.
   4) enrichir 1 activité forte (toujours une ligne).
 - Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
 
@@ -1777,6 +1777,14 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     "expertise avancée",
                     "connaissance approfondie",
                     "présentation claire et convaincante",
+                    "outils analytiques avancés",
+                    "logiciels de reporting",
+                    "maîtrise approfondie",
+                    "expertise en",
+                    "solide maîtrise des outils",
+                    "compétences avancées en",
+                    "visualisation de données",
+                    "gestion financière avancée",
                 ]
                 if any(b in low for b in banned):
                     continue
@@ -1835,16 +1843,24 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         # ------- ACTIVITÉS / CENTRES D'INTÉRÊT -------
         if ph == "%%INTERESTS%%" and isinstance(value, list):
             if not (value or []):
-                # supprime le placeholder
-                _remove_paragraph(p)
-        
-                # supprime aussi le titre de section juste avant s'il existe
+                # on récupère d'abord les paragraphes et la position du placeholder
                 paras = list(doc.paragraphs)
                 idx = None
                 for i, pp in enumerate(paras):
                     if pp is p:
                         idx = i
                         break
+            
+                # supprime le titre juste avant s'il existe
+                if idx is not None and idx - 1 >= 0:
+                    prev_p = paras[idx - 1]
+                    prev_text = (prev_p.text or "").strip().upper()
+                    if "ACTIVITÉS" in prev_text:
+                        _remove_paragraph(prev_p)
+            
+                # supprime ensuite le placeholder
+                _remove_paragraph(p)
+                continue
         
                 if idx is not None and idx - 1 >= 0:
                     prev_p = paras[idx - 1]
@@ -2649,16 +2665,25 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
         
         # 1) Trop long => shrink
         if pages > 1:
-            cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text))
+            # évite shrink en boucle infinie
+            if last_action == "shrink" and attempt >= 2:
+                compact_mode = True
+            else:
+                cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text))
+                last_action = "shrink"
+    
             if attempt >= 2:
                 compact_mode = True
             continue
-        
+    
         # 2) 1 page mais trop vide => expand
         if pages == 1 and fill < 0.78:
+            # évite expand 4 fois de suite pour rien
+            if last_action == "expand":
+                break
+    
             cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
-            # (optionnel) si tu veux éviter les oscillations :
-            # compact_mode = False
+            last_action = "expand"
             continue
         
         # 3) OK
