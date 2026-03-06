@@ -2346,15 +2346,20 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 for b in bullets:
                     if not b:
                         continue
+                
                     b = strip_hallucinated_impact(b.strip())
+                    b_clean = b.strip().lower()
+                
                     if b_clean in {"n/a", "na", "not applicable", "non applicable", "non-applicable"}:
                         continue
+                
                     bp = left.add_paragraph()
                     try:
                         bp.style = "List Bullet"
                         bp.add_run(b)
                     except Exception:
                         bp.text = f"• {b}"
+                
                     bp.paragraph_format.space_after = Pt(0)
                     _keep_lines(bp, keep_lines=True, keep_next=False)
 
