@@ -50,6 +50,11 @@ def clean_cv_output(cv_text: str) -> str:
         if low.startswith("cette version") or low.startswith("ce cv") or low.startswith("note :"):
             continue
         out.append(ln)
+        # supprime ou nettoie les placeholders moches type [Nom de la banque]
+        s = re.sub(r"\[[^\]]+\]", "", s).strip()
+        if not s:
+            continue
+        ln = s
     return "\n".join(out).strip()
 
 REQUIRED_SECTIONS = ["EDUCATION:", "EXPERIENCES:", "SKILLS:", "ACTIVITIES:"]
@@ -142,10 +147,11 @@ Règles ABSOLUES :
 - Tu n'utilises JAMAIS "..." ni de guillemets triples.
 - Tu n'inventes rien : pas de nouvelles missions, chiffres, outils.
 - Tu peux uniquement :
-  1) ajouter 1 bullet à l'expérience la plus pertinente (si elle n'en a que 2),
-  2) préciser légèrement 1-2 bullets (sans inventer),
-  3) préciser légèrement une ligne existante dans EDUCATION mais ne jamais ajouter de projet, séminaire ou activité académique.
-  4) enrichir 1 activité forte (toujours une ligne).
+  1) ajouter 1 bullet à chacune des 1 ou 2 expériences les plus pertinentes si elles n'ont que 2 bullets,
+  2) préciser légèrement 1 à 2 bullets existantes sans inventer,
+  3) préciser légèrement UNE ligne existante dans EDUCATION sans ajouter de nouvelle matière,
+  4) enrichir UNE activité forte sur une seule ligne.
+- Priorité absolue : densifier d'abord EXPERIENCES avant EDUCATION et ACTIVITIES.
 - Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
 
 Sortie : UNIQUEMENT le CV complet.
@@ -662,50 +668,47 @@ def translate_months_fr(text: str) -> str:
     return text
 
 def strip_hallucinated_impact(text: str) -> str:
-    """
-    Supprime les queues de phrase qui sonnent comme des impacts inventés.
-    Ex: "..., permettant X" => on coupe à la virgule.
-    """
     if not text:
         return text
 
-    # coupe ", permettant ...", ", améliorant ...", etc.
     return re.sub(
-        r"\s*,\s*(permettant|améliorant|augmentant|optimisant|renforçant|contribuant\s+à)\b.*$",
+        r"\s*,\s*(permettant|améliorant|augmentant|optimisant|renforçant|contribuant\s+à|favorisant|facilitant|entraînant)\b.*$",
         "",
         text,
         flags=re.IGNORECASE,
     ).strip().rstrip(".") + "."
 
 def filter_education_details(details: list[str], raw_education_input: str) -> list[str]:
-    """
-    Garde les détails "safe" en formation.
-    On autorise uniquement ce qui est explicitement dans raw_education_input,
-    + les matières fondamentales issues de "Cours :".
-    """
     raw = (raw_education_input or "").lower()
-
-    banned_keywords = [
-        "séminaire", "seminar", "conférence", "conference", "atelier", "workshop",
-        "étude de cas", "case study", "participation à", "projets :", "projet :",
-        "classement", "rank", "gpa", "moyenne", "bourse", "award", "prix"
-    ]
 
     out = []
     for d in (details or []):
         t = (d or "").strip()
         low = t.lower()
 
-        # toujours autoriser matières fondamentales
+        # si c'est une ligne matières fondamentales, on ne garde QUE ce qui vient du "Cours :" utilisateur
         if low.startswith("matières fondamentales"):
+            # récupérer les matières source depuis l'input
+            source_courses = []
+            for line in raw_education_input.splitlines():
+                if line.lower().startswith("cours"):
+                    _, _, after = line.partition(":")
+                    source_courses.extend([x.strip() for x in after.split(",") if x.strip()])
+
+            if source_courses:
+                t = "Matières fondamentales : " + ", ".join(source_courses) + "."
             out.append(t)
             continue
 
-        # si ça contient un mot “banni” et que ce n’est pas explicitement dans l’input => on supprime
-        if any(k in low for k in banned_keywords) and not any(k in raw for k in banned_keywords):
+        banned_keywords = [
+            "séminaire", "seminar", "conférence", "conference", "atelier", "workshop",
+            "étude de cas", "case study", "participation à", "projets", "classement",
+            "rank", "gpa", "moyenne", "bourse", "award", "prix"
+        ]
+
+        if any(k in low for k in banned_keywords):
             continue
 
-        # sinon on garde
         out.append(t)
 
     return out
@@ -1097,7 +1100,9 @@ POUR CHAQUE ACTIVITÉ :
 INTERDIT :
 - changer le nombre d'activités,
 - fusionner plusieurs activités en une seule.
-
+- INTERDIT d'ajouter "membre", "équipe", "amateur", "hebdomadaire", "régulière", "occasionnelle"
+  si ce n'est pas explicitement dans l'entrée.
+  
 Réponds UNIQUEMENT avec un JSON de la forme :
 {{"activities": ["Activité 1 : ...", "Activité 2 : ...", ...]}}
 
@@ -1383,6 +1388,21 @@ def _render_skills(anchor: Paragraph, lines: list[str]):
     
         cleaned.append(txt)
 
+    normalized = []
+    for txt in cleaned:
+        if "Capacités professionnelles :" in txt and "Maîtrise des logiciels :" in txt:
+            parts = txt.split("Capacités professionnelles :")
+            left = parts[0].strip()
+            right = "Capacités professionnelles :" + parts[1].strip()
+            if left:
+                normalized.append(left)
+            if right:
+                normalized.append(right)
+        else:
+            normalized.append(txt)
+    
+    cleaned = normalized
+
     for raw in (cleaned or []):
         text = (raw or "").strip()
         if not text:
@@ -1655,9 +1675,9 @@ def normalize_section_titles_spacing(doc: Document):
         t = (p.text or "").strip()
         if t.upper() in TITLES:
             # ✅ l'espace AVANT le titre = espace entre sections
-            p.paragraph_format.space_before = SECTION_SPACING   # ex: 3pt
+            p.paragraph_format.space_before = SECTION_SPACING   
             # ✅ petit espace après le titre (pas 2 lignes)
-            p.paragraph_format.space_after = ITEM_SPACING       # ex: 2pt
+            p.paragraph_format.space_after = ITEM_SPACING       
 
 def _strip_blank_neighbors(doc: Document, p: Paragraph, before: int = 1, after: int = 1):
     """
@@ -1880,6 +1900,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     degree = (edu.get("degree") or "").strip()
                     school = (edu.get("school") or "").strip()
                     location = (edu.get("location") or "").strip()
+                    raw_education = payload.get("education", "")
+                    if location and location.lower() not in raw_education.lower():
+                        location = ""
                     dates = (edu.get("dates") or "").strip()
                     details = edu.get("details") or []
                     details = filter_education_details(details, payload.get("education", ""))
@@ -2435,6 +2458,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     r_date.font.size = Pt(9)
 
                 location = (exp.get("location") or "").strip()
+                raw_experiences = payload.get("experiences", "")
+                if location and location.lower() not in raw_experiences.lower():
+                    location = ""
                 if location:
                     rp.add_run("\n")
                     r_loc = rp.add_run(location)
