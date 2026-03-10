@@ -38,23 +38,25 @@ def clean_cv_output(cv_text: str) -> str:
     out = []
     for ln in lines:
         s = ln.strip()
-        # ✅ supprime les blocs de code et marqueurs type ``` provenant du LLM
+
         if s.startswith("```") or s == "```":
             continue
-        if not s:
-            out.append(ln)
-            continue
+
         if s in {".", "..", "...", "\"", "''", "\"\"", "\"\"\""}:
             continue
+
         low = s.lower()
         if low.startswith("cette version") or low.startswith("ce cv") or low.startswith("note :"):
             continue
-        out.append(ln)
-        # supprime ou nettoie les placeholders moches type [Nom de la banque]
+
         s = re.sub(r"\[[^\]]+\]", "", s).strip()
+
         if not s:
+            out.append("")
             continue
-        ln = s
+
+        out.append(s)
+        
     return "\n".join(out).strip()
 
 REQUIRED_SECTIONS = ["EDUCATION:", "EXPERIENCES:", "SKILLS:", "ACTIVITIES:"]
@@ -2698,15 +2700,12 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
     
         # 2) 1 page mais trop vide => expand
         if pages == 1 and fill < 0.78:
-        if last_action == "expand":
-            # après un premier expand, on essaie une densification légère côté rendu
-            if not compact_mode:
-                pass
-            break
-    
-        cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
-        last_action = "expand"
-        continue
+            if last_action == "expand":
+                break
+
+            cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
+            last_action = "expand"
+            continue
         
         # 3) OK
         break
