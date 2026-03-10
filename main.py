@@ -2698,13 +2698,15 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
     
         # 2) 1 page mais trop vide => expand
         if pages == 1 and fill < 0.78:
-            # évite expand 4 fois de suite pour rien
-            if last_action == "expand":
-                break
+        if last_action == "expand":
+            # après un premier expand, on essaie une densification légère côté rendu
+            if not compact_mode:
+                pass
+            break
     
-            cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
-            last_action = "expand"
-            continue
+        cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
+        last_action = "expand"
+        continue
         
         # 3) OK
         break
