@@ -152,10 +152,14 @@ Règles ABSOLUES :
   1) ajouter 1 bullet à chacune des 1 ou 2 expériences les plus pertinentes si elles n'ont que 2 bullets,
   2) préciser légèrement 1 à 2 bullets existantes sans inventer,
   3) préciser légèrement UNE ligne existante dans EDUCATION sans ajouter de nouvelle matière,
-  4) enrichir UNE activité forte sur une seule ligne.
-- Priorité absolue : densifier d'abord EXPERIENCES avant EDUCATION et ACTIVITIES.
+  4) enrichir 1 à 3 activités existantes sur une seule ligne chacune, de façon plus précise et plus professionnelle, sans inventer de niveau, fréquence, compétition, club ou événement.
+- Priorité absolue : densifier d'abord EXPERIENCES, puis ACTIVITIES, puis SKILLS, avant EDUCATION.
 - Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
-
+- Si une activité est trop vague, tu la reformules ainsi :
+  activité + pratique factuelle issue du texte + qualité utile au travail.
+- Exemple de style attendu :
+  "Course à pied : pratique régulière favorisant discipline et endurance."
+- Tu n’inventes jamais de compétition, de club, de fréquence ou de performance.
 Sortie : UNIQUEMENT le CV complet.
 
 CV :
@@ -249,49 +253,78 @@ def sanitize_filename(name: str) -> str:
     return name[:50] or "cv"
 
 def build_prompt(payload: Dict[str, Any]) -> str:
-    # Prompt “dur” pour produire un CV 1 page ATS + structure
     return f"""
-Tu es un expert en recrutement. Tu dois générer un CV FRANÇAIS d'1 page maximum, ultra sobre, ATS-friendly (une seule colonne, pas d'icônes, pas de tableau complexe).
-Le CV doit être adapté:
-1) au secteur: {payload["sector"]}
-2) au poste: {payload["role"]}
-3) à l'entreprise: {payload["company"]}
-4) à l'offre d'emploi ci-dessous (OBLIGATOIRE)
+Tu es un expert en recrutement.
+Tu dois générer un CV FRANÇAIS d'1 page maximum, ultra sobre, ATS-friendly, clair et crédible.
 
-OFFRE D'EMPLOI (texte brut):
+Le CV doit être adapté :
+- au secteur : {payload["sector"]}
+- au poste : {payload["role"]}
+- à l’entreprise : {payload["company"]}
+- à l’offre d’emploi ci-dessous
+
+OFFRE D'EMPLOI :
 \"\"\"{payload["job_posting"]}\"\"\"
 
-PROFIL UTILISATEUR:
-- Nom: {payload["full_name"]}
-- Ville: {payload["city"]}
-- Email: {payload["email"]}
-- Téléphone: {payload["phone"]}
-- LinkedIn: {payload.get("linkedin","")}
+PROFIL UTILISATEUR :
+Nom : {payload["full_name"]}
+Ville : {payload["city"]}
+Email : {payload["email"]}
+Téléphone : {payload["phone"]}
+LinkedIn : {payload.get("linkedin","")}
 
-FORMATION:
+FORMATION :
 {payload["education"]}
 
-EXPERIENCES (brut):
+EXPÉRIENCES :
 {payload["experiences"]}
 
-COMPETENCES (brut):
+COMPÉTENCES :
 {payload["skills"]}
 
-LANGUES:
+LANGUES :
 {payload["languages"]}
 
-CENTRES D’INTERET:
+CENTRES D’INTÉRÊT :
 {payload.get("interests","")}
 
-EXIGENCES:
-- Tu extraits 10-15 mots-clés ATS de l'offre et tu les intègres naturellement.
-- Tu intègres 3-5 soft skills/valeurs visibles dans l'offre, sans surcharger.
-- Tu reformules en style pro. Pas de mensonge: si une info manque, reste générique/raisonnable.
-- Chaque expérience doit contenir 3-4 bullet points orientés résultats. N’invente jamais de chiffres : si aucun chiffre n’est fourni, reste qualitatif.
-- Pas de “profil dynamique/motivé” sans preuve.
-- Format final en TEXTE STRUCTURÉ avec sections:
-  EN-TÊTE, TITRE, ACCROCHE, COMPETENCES, EXPERIENCES, FORMATION, LANGUES, CENTRES D'INTERET.
-- Ne donne PAS d'explications, uniquement le CV.
+RÈGLES ABSOLUES :
+- Tu n’inventes rien.
+- Tu n’ajoutes ni chiffres, ni missions, ni outils, ni distinctions non fournis.
+- Tu restes crédible, professionnel et sobre.
+- Tu reformules intelligemment pour valoriser le profil sans mentir.
+- Chaque expérience contient 2 à 3 bullet points maximum.
+- Chaque bullet doit être concret, court et orienté action.
+- Si une expérience est peu détaillée, tu la rends professionnelle sans extrapoler.
+- Les langues ne doivent JAMAIS être une section séparée.
+- Les langues doivent être intégrées dans SKILLS, sur une ligne commençant par "Langues :".
+- La section SKILLS doit contenir 2 à 4 lignes maximum parmi :
+  "Certifications : ..."
+  "Maîtrise des logiciels : ..."
+  "Capacités professionnelles : ..."
+  "Langues : ..."
+- La section ACTIVITIES doit contenir uniquement des centres d’intérêt personnels.
+- Chaque activité doit tenir sur une ligne sous la forme :
+  "Activité : pratique factuelle ; qualité développée"
+- Tu n’écris aucun commentaire, aucune introduction, aucune phrase méta.
+
+FORMAT DE SORTIE OBLIGATOIRE :
+EDUCATION:
+<contenu>
+
+EXPERIENCES:
+<contenu>
+
+SKILLS:
+<contenu incluant les langues>
+
+ACTIVITIES:
+<contenu>
+
+IMPORTANT :
+- Tu ne dois rien écrire avant EDUCATION:
+- Tu ne dois rien écrire après ACTIVITIES:
+- Tu ne génères surtout PAS de section LANGUAGES:
 """
     
 def build_prompt_finance(payload: Dict[str, Any]) -> str:
@@ -372,16 +405,15 @@ SECTION SKILLS (COMPÉTENCES & OUTILS) :
   1) "Certifications : ..."
   2) "Maîtrise des logiciels : ..."
   3) "Capacités professionnelles : ..." (facultatif si peu d'infos)
+  4) "Langues : ..."
 - Si aucune certification n’est fournie, tu n’écris JAMAIS "Certifications : ...".
 - Dans chaque ligne, les éléments sont séparés par des virgules (PAS de "|").
 - "Certifications" : tests ou validations concrètes (Excel, PIX, etc.).
 - "Maîtrise des logiciels" : Excel, PowerPoint, VBA, outils spécifiques.
 - "Capacités professionnelles" : 3–4 compétences en lien direct avec l’offre (ex : analyse financière, reporting, communication client, gestion des priorités).
-- Ne pas mettre ici les langues ni les tests de langues (IELTS, TOEIC, etc.).
+- Les langues doivent être intégrées ici sur une ligne "Langues : ...".
+- Les tests de langues officiels peuvent apparaître dans cette ligne s’ils sont explicitement fournis.
 
-SECTION LANGUAGES :
-- Tu indiques toutes les langues + les tests officiels (IELTS, TOEIC, etc.).
-- Exemple : Français (natif), Anglais (C1 – IELTS 8.0).
 
 SECTION ACTIVITIES (CENTRES D’INTÉRÊT) :
 - Tu n’y mets QUE des centres d’intérêt / activités personnelles (sport, voyages, engagements associatifs non listés en expérience, hobbies).
@@ -394,7 +426,7 @@ SECTION ACTIVITIES (CENTRES D’INTÉRÊT) :
   - ce que ça développe comme qualités utiles en finance / environnement exigeant.
 
 IMPORTANT :
-- Toute la sortie (EDUCATION, EXPERIENCES, SKILLS, LANGUAGES, ACTIVITIES)
+- Toute la sortie (EDUCATION, EXPERIENCES, SKILLS, ACTIVITIES)
   doit être rédigée EN FRANÇAIS.
 - Si tu écris une phrase en anglais, tu la traduis immédiatement en français.
 - Seuls les noms propres (noms d’écoles, diplômes officiels, logiciels, intitulés exacts de postes)
@@ -413,7 +445,7 @@ RÈGLES DE SORTIE (TRÈS IMPORTANT) :
 
 FORMAT EXACT À RESPECTER :
 
-1️⃣ TU DOIS ABSOLUMENT PRODUIRE CES 5 BLOCS DANS CET ORDRE EXACT,
+1️⃣ TU DOIS ABSOLUMENT PRODUIRE CES 4 BLOCS DANS CET ORDRE EXACT,
    CHAQUE EN-TÊTE SUR SA PROPRE LIGNE :
 
 EDUCATION:
@@ -423,10 +455,7 @@ EXPERIENCES:
 <contenu expériences>
 
 SKILLS:
-<contenu compétences>
-
-LANGUAGES:
-<contenu langues>
+<contenu compétences incluant les langues>
 
 ACTIVITIES:
 <contenu activités>
