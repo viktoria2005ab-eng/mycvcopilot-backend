@@ -150,9 +150,11 @@ Règles ABSOLUES :
 - Tu n'inventes rien : pas de nouvelles missions, chiffres, outils.
 - Tu peux uniquement :
   1) ajouter 1 bullet à chacune des 1 ou 2 expériences les plus pertinentes si elles n'ont que 2 bullets,
+  1bis) rendre plus précises les bullets trop génériques déjà présentes,
   2) préciser légèrement 1 à 2 bullets existantes sans inventer,
-  3) préciser légèrement UNE ligne existante dans EDUCATION sans ajouter de nouvelle matière,
-  4) enrichir 1 à 3 activités existantes sur une seule ligne chacune, de façon plus précise et plus professionnelle, sans inventer de niveau, fréquence, compétition, club ou événement.
+  3) enrichir légèrement une ligne de SKILLS si elle est trop pauvre, sans ajouter de nouvel outil, de nouvelle certification ou de nouvelle langue,
+  4) préciser légèrement UNE ligne existante dans EDUCATION sans ajouter de nouvelle matière,
+  5) enrichir 1 à 3 activités existantes sur une seule ligne chacune, de façon plus précise et plus professionnelle, sans inventer de niveau, fréquence, compétition, club ou événement.
 - Priorité absolue : densifier d'abord EXPERIENCES, puis ACTIVITIES, puis SKILLS, avant EDUCATION.
 - Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
 - Si une activité est trop vague, tu la reformules ainsi :
@@ -238,14 +240,19 @@ def consume_free(email: str) -> None:
 
 def sector_to_template(sector: str) -> str:
     s = sector.lower()
+
     if "finance" in s:
         return "templates/finance.docx"
-    if "marketing" in s:
-        return "templates/marketing.docx"
-    if "ressources" in s or "rh" in s:
-        return "templates/rh.docx"
+
+    if "audit" in s:
+        return "templates/audit.docx"
+
+    if "management stratégique" in s or "management strategique" in s or "stratégie" in s or "strategie" in s:
+        return "templates/management_strategique.docx"
+
     if "droit" in s:
         return "templates/droit.docx"
+
     return "templates/finance.docx"
 
 def sanitize_filename(name: str) -> str:
@@ -1077,8 +1084,16 @@ def trim_finance_experiences(
     if not cleaned:
         return []
 
-    # 2) Si le CV n'est pas long -> on NE TOUCHE À RIEN
+    # 2) Si le CV n'est pas long -> on densifie légèrement les premières expériences
     if not is_cv_long:
+        for i, e in enumerate(cleaned):
+            bullets = [b for b in (e.get("bullets") or []) if (b or "").strip()]
+            if i < 2 and len(bullets) >= 3:
+                e["bullets"] = bullets[:3]
+            elif i < 2 and len(bullets) == 2:
+                e["bullets"] = bullets
+            else:
+                e["bullets"] = bullets[:2]
         return cleaned
 
     # 3) Si le CV est long -> on raccourcit PAR RÉÉCRITURE (pas par suppression)
@@ -1180,18 +1195,56 @@ def trim_activities(
     if not cleaned:
         return []
 
-    # ✅ toujours max 3
-    cleaned = cleaned[:ideal_max]
+    weak_exact = {
+        "sport",
+        "sports",
+        "lecture",
+        "voyage",
+        "voyages",
+        "cinéma",
+        "cinema",
+        "musique",
+        "running",
+    }
 
-    # si CV pas long, on garde ces 3 lignes telles quelles
-    if not cv_is_long:
-        return cleaned
-
-    # si CV long, on les raccourcit aussi
-    return shorten_activities_with_llm(
-        cleaned,
-        max_no_space_per_activity=70,
+    weak_prefixes = (
+        "sport :",
+        "sports :",
+        "lecture :",
+        "voyages :",
+        "voyage :",
+        "musique :",
+        "cinéma :",
+        "cinema :",
     )
+
+    filtered = []
+    for line in cleaned:
+        low = line.lower().strip()
+        if low in weak_exact:
+            continue
+        if low.startswith(weak_prefixes) and len(low) < 25:
+            continue
+        filtered.append(line)
+
+    cleaned = filtered[:ideal_max]
+
+    if not cleaned:
+        return []
+
+    # même si le CV n'est pas long, on réécrit si les activités sont trop faibles
+    needs_rewrite = any(
+        len(line.split()) <= 3 or ":" not in line
+        for line in cleaned
+    )
+
+    if cv_is_long or needs_rewrite:
+        return shorten_activities_with_llm(
+            cleaned,
+            max_no_space_per_activity=70,
+        )
+
+    return cleaned
 
 def _find_paragraph_containing(doc: Document, needle: str):
     for p in doc.paragraphs:
@@ -2728,7 +2781,7 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
             continue
     
         # 2) 1 page mais trop vide => expand
-        if pages == 1 and fill < 0.78:
+        if pages == 1 and fill < 0.84:
             if last_action == "expand":
                 break
 
