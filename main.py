@@ -258,6 +258,24 @@ def sector_to_template(sector: str) -> str:
 def sanitize_filename(name: str) -> str:
     name = re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip())
     return name[:50] or "cv"
+
+def build_cv_filename(payload: Dict[str, Any]) -> str:
+    full_name = (payload.get("full_name") or "").strip()
+    company = (payload.get("company") or "").strip()
+
+    parts = full_name.split()
+    if not parts:
+        family_name = "CANDIDAT"
+    else:
+        family_name = parts[-1]  # seulement le nom de famille
+
+    family_name = sanitize_filename(family_name).upper()
+    company_clean = sanitize_filename(company).upper()
+
+    if company_clean:
+        return f"CV-{family_name}-{company_clean}"
+    return f"CV-{family_name}"
+    
 def build_cv_filename(payload: Dict[str, Any]) -> str:
     full_name = (payload.get("full_name") or "").strip()
     company = (payload.get("company") or "").strip()
@@ -3075,6 +3093,9 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
     base_filename = build_cv_filename(payload)
     internal_filename = f"{base_filename}_{job_id}"
 
+    base_filename = build_cv_filename(payload)
+    internal_filename = f"{base_filename}_{job_id}"
+    
     docx_path = os.path.join("out", f"{internal_filename}.docx")
     pdf_path = os.path.join("out", f"{internal_filename}.pdf")
 
