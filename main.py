@@ -577,6 +577,133 @@ CENTRES D’INTÉRÊT :
 
 Génère uniquement le CV structuré.
 """
+
+def build_prompt_audit(payload: Dict[str, Any]) -> str:
+    return f"""
+Tu es un ancien recruteur en audit financier et en Big 4.
+Tu sélectionnes uniquement les profils étudiants crédibles, rigoureux et structurés.
+
+OBJECTIF :
+Générer un CV AUDIT français d’1 page maximum, ultra structuré, sobre et professionnel.
+
+Le CV doit être adapté :
+- au poste : {payload["role"]}
+- à l’entreprise : {payload["company"]}
+- à l’offre d’emploi
+
+OFFRE D’EMPLOI :
+\"\"\"{payload["job_posting"]}\"\"\"
+
+RÈGLES :
+- 1 page maximum.
+- Format de dates homogène, toujours sous la forme "MMM YYYY – MMM YYYY".
+- Chaque bullet = Verbe fort + Action concrète + finalité professionnelle, sans inventer de chiffres.
+- 2 à 3 bullets maximum par expérience.
+- Ton professionnel, précis, rigoureux, sobre.
+- Classe les expériences de la plus pertinente à la moins pertinente par rapport au poste visé.
+- Les expériences en audit, comptabilité, contrôle de gestion, finance, conformité ou trésorerie doivent être tout en haut.
+- Les expériences associatives avec gestion de budget ou organisation peuvent être valorisées.
+- Les jobs étudiants génériques restent en bas.
+
+PRIORITÉS MÉTIER AUDIT :
+- prioriser les verbes : analyser, contrôler, réviser, vérifier, préparer, documenter, suivre, fiabiliser
+- éviter les verbes : aider, assister, participer, contribuer
+- valoriser :
+  - revue de cycles
+  - contrôle interne
+  - vérification documentaire
+  - analyse comptable et financière
+  - préparation de feuilles de travail
+  - suivi de procédures
+  - rigueur, fiabilité, précision
+
+RÈGLES STRICTES :
+- Tu n’inventes AUCUN chiffre.
+- Tu n’inventes AUCUNE mission.
+- Tu n’inventes AUCUN outil.
+- Tu n’utilises que les informations fournies.
+- Si une expérience contient peu d’informations, tu la reformules proprement sans extrapoler.
+- Tu peux professionnaliser une expérience existante, mais sans inventer de projet, événement, impact ou mission.
+
+HALLUCINATIONS (INTERDICTION ABSOLUE) :
+- Dans EDUCATION : interdiction d’ajouter séminaires, classements, GPA, prix, bourses, projets non fournis.
+- Dans EXPERIENCES : interdiction d’ajouter des impacts inventés ("améliorant", "optimisant", "renforçant", etc.) si l’impact n’est pas explicitement fourni.
+- Dans ACTIVITIES : interdiction d’ajouter compétition, club, fréquence ou niveau non fourni.
+
+SECTION SKILLS (COMPÉTENCES & OUTILS) :
+- Tu produis EXACTEMENT 2 à 4 lignes sous "SKILLS:" :
+  1) "Certifications : ..."
+  2) "Maîtrise des logiciels : ..."
+  3) "Capacités professionnelles : ..."
+  4) "Langues : ..."
+- Si aucune certification n’est fournie, tu n’écris jamais "Certifications : ...".
+- Les éléments sont séparés par des virgules.
+- Les langues sont toujours intégrées dans "Langues : ...".
+
+SECTION ACTIVITIES :
+- Tu n’y mets que des centres d’intérêt personnels.
+- Format : "Activité : pratique factuelle ; qualité utile au travail".
+
+RÈGLES DE SORTIE :
+- Tu génères UNIQUEMENT :
+  EDUCATION:
+  EXPERIENCES:
+  SKILLS:
+  ACTIVITIES:
+- Pas de nom, pas de coordonnées, pas d’accroche.
+- Pas de section LANGUAGES séparée.
+
+FORMAT EXACT :
+
+EDUCATION:
+DEGREE: <intitulé>
+SCHOOL: <école>
+LOCATION: <Ville, Pays>
+DATES: <MMM YYYY – MMM YYYY>
+DETAILS:
+- <ligne 1>
+- <ligne 2>
+
+EXPERIENCES:
+ROLE: <poste>
+COMPANY: <entreprise>
+DATES: <MMM YYYY – MMM YYYY>
+LOCATION: <Ville, Pays>
+TYPE: <type>
+BULLETS:
+- <bullet 1>
+- <bullet 2>
+- <bullet 3>
+
+SKILLS:
+<2 à 4 lignes>
+
+ACTIVITIES:
+<une activité par ligne>
+
+PROFIL :
+Nom : {payload["full_name"]}
+Ville : {payload["city"]}
+
+FORMATION :
+{payload["education"]}
+
+EXPÉRIENCES :
+{payload["experiences"]}
+
+COMPÉTENCES :
+{payload["skills"]}
+
+LANGUES :
+{payload["languages"]}
+
+CENTRES D’INTÉRÊT :
+{payload.get("interests","")}
+
+Génère uniquement le CV structuré.
+"""
+
+
     
 def generate_cv_text(payload: Dict[str, Any]) -> str:
     if not client:
