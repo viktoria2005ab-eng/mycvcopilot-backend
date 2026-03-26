@@ -320,6 +320,7 @@ RÈGLES ABSOLUES :
 - Chaque bullet doit être concret, court et orienté action.
 - Si le CV semble trop vide, tu densifies d’abord les expériences, puis les activités, sans inventer.
 - Si une expérience est peu détaillée, tu la rends professionnelle sans extrapoler.
+- Tu n’ajoutes jamais de finalité business, de bénéfice, de recommandation ou d’amélioration non explicitement fournis.
 - Les langues ne doivent JAMAIS être une section séparée.
 - Les langues doivent être intégrées dans SKILLS, sur une ligne commençant par "Langues :".
 - La section SKILLS doit contenir 2 à 4 lignes maximum parmi :
@@ -400,13 +401,16 @@ Ces règles priment sur toutes les autres instructions.
 - Évite les verbes faibles (participé, aidé, effectué, travaillé sur).
 - Privilégie des verbes orientés impact et responsabilité.
 - Chaque bullet doit refléter une contribution concrète.
-- Tu peux enrichir et professionnaliser une expérience existante en développant les responsabilités ou compétences implicites,mais tu ne dois jamais inventer une activité, un projet,un événement ou un impact qui n'existe pas dans l'information fournie.
+- Tu peux reformuler une expérience existante pour la rendre plus claire et plus professionnelle.
+- Tu ne dois jamais déduire un impact, une recommandation, une amélioration, une optimisation, une opportunité identifiée, une qualité de rapport, une relation stratégique ou une finalité business si ce n’est pas explicitement fourni.
+- Tu ne dois jamais inventer une activité, un projet, un événement, un impact, une recommandation ou un bénéfice business.
 
 HALLUCINATIONS (INTERDICTION ABSOLUE) :
-- Dans EDUCATION : interdiction d’ajouter des séminaires, conférences, ateliers, études de cas, projets, classements, GPA/moyenne, prix, bourses
+- Dans EDUCATION : interdiction d’ajouter des séminaires, conférences, ateliers, études de cas, projets, classements, GPA/moyenne, prix, bourses, matières, cours, spécialisations, options ou modules
   SI ce n’est pas explicitement écrit dans le champ FORMATION utilisateur.
-- Dans EXPERIENCES : interdiction d’ajouter des impacts inventés ("augmentant", "optimisant", "améliorant", "permettant", "renforçant", "contribuant à")
-  SI l’impact n’est pas explicitement présent dans l’expérience brute.
+- Interdiction absolue d’ajouter une matière "logique" ou "proche du secteur" si elle n’est pas fournie mot pour mot ou clairement présente dans le champ FORMATION.
+- Dans EXPERIENCES : interdiction d’ajouter des impacts inventés ("augmentant", "optimisant", "améliorant", "permettant", "renforçant", "contribuant à", "garantissant", "assurant", "identifiant", "mettant en évidence", "présentant des recommandations", "proposant des recommandations")
+  SI l’impact, la finalité ou la recommandation n’est pas explicitement présente dans l’expérience brute.
 - Dans ACTIVITIES : interdiction d’ajouter un niveau ("compétition", "national", "régional", "club", "championnat", "hebdomadaire", "quotidien")
   SI ce n’est pas explicitement écrit dans CENTRES D’INTÉRÊT utilisateur.
   
@@ -434,7 +438,8 @@ SECTION SKILLS (COMPÉTENCES & OUTILS) :
 - Dans chaque ligne, les éléments sont séparés par des virgules (PAS de "|").
 - "Certifications" : tests ou validations concrètes (Excel, PIX, etc.).
 - "Maîtrise des logiciels" : Excel, PowerPoint, VBA, outils spécifiques.
-- "Capacités professionnelles" : 3–4 compétences en lien direct avec l’offre (ex : analyse financière, reporting, communication client, gestion des priorités).
+- "Capacités professionnelles" : 3–4 compétences maximum, simples, sobres et directement liées à l’offre (ex : analyse financière, reporting, gestion des priorités, communication professionnelle).
+- Interdiction d’utiliser des formulations trop valorisantes comme "avancé", "approfondi", "complexe", "percutant", "stratégique", "excellente maîtrise", sauf si explicitement fourni.
 - Les langues doivent être intégrées ici sur une ligne "Langues : ...".
 - Les tests de langues officiels peuvent apparaître dans cette ligne s’ils sont explicitement fournis.
 
@@ -445,9 +450,18 @@ SECTION ACTIVITIES (CENTRES D’INTÉRÊT) :
 - Pas de doublons : si c’est dans EXPÉRIENCES, tu ne le répètes pas ailleurs.
 - Tu n’utilises JAMAIS de Markdown (**texte**, *texte*). Tu écris simplement le texte brut.
 - Format de chaque activité sur UNE LIGNE :
-  Nom de l’activité en gras (nous ferons le gras côté Word), suivi de ":" puis une phrase :
-  - ce que la personne a fait concrètement (niveau / fréquence / contexte),
-  - ce que ça développe comme qualités utiles en finance / environnement exigeant.
+  Nom de l’activité en gras (nous ferons le gras côté Word), suivi de ":" puis une phrase courte et factuelle.
+
+- La phrase doit décrire concrètement la pratique :
+  - niveau (loisir, régulier, intensif, compétition, etc.) si disponible,
+  - fréquence ou cadence si disponible (ex : 2 à 3 fois par semaine),
+  - contexte si pertinent (club, voyages, événements, etc.).
+
+- Si ces informations ne sont pas fournies, tu restes factuel sans inventer.
+
+- Tu peux mentionner au maximum UNE qualité simple et crédible (ex : rigueur, discipline, persévérance), mais uniquement si elle est directement cohérente avec l’activité.
+
+- Interdiction d’utiliser un ton RH générique ou trop valorisant.
 
 IMPORTANT :
 - Toute la sortie (EDUCATION, EXPERIENCES, SKILLS, ACTIVITIES)
@@ -642,8 +656,9 @@ RÈGLES STRICTES :
 - Tu peux professionnaliser une expérience existante, mais sans inventer de projet, événement, impact ou mission.
 
 HALLUCINATIONS (INTERDICTION ABSOLUE) :
-- Dans EDUCATION : interdiction d’ajouter séminaires, classements, GPA, prix, bourses, projets non fournis.
-- Dans EXPERIENCES : interdiction d’ajouter des impacts inventés ("améliorant", "optimisant", "renforçant", etc.) si l’impact n’est pas explicitement fourni.
+- Dans EDUCATION : interdiction d’ajouter séminaires, classements, GPA, prix, bourses, projets, matières, cours, spécialisations, options ou modules non fournis.
+- Interdiction absolue d’ajouter une matière ou un cours simplement parce qu’il paraît cohérent avec l’audit.
+- Dans EXPERIENCES : interdiction d’ajouter des impacts, finalités ou bénéfices inventés ("améliorant", "optimisant", "renforçant", "garantissant", "assurant", "fiabilisant", "mettant en évidence", etc.) si ce n’est pas explicitement fourni.
 - Dans ACTIVITIES : interdiction d’ajouter compétition, club, fréquence ou niveau non fourni.
 
 SECTION SKILLS (COMPÉTENCES & OUTILS) :
@@ -658,7 +673,9 @@ SECTION SKILLS (COMPÉTENCES & OUTILS) :
 
 SECTION ACTIVITIES :
 - Tu n’y mets que des centres d’intérêt personnels.
-- Format : "Activité : pratique factuelle ; qualité utile au travail".
+- Format : "Activité : description courte et factuelle".
+- Tu peux mentionner une seule qualité simple et crédible, jamais plusieurs.
+- Interdiction d’utiliser un ton RH générique ou trop valorisant.
 
 RÈGLES DE SORTIE :
 - Tu génères UNIQUEMENT :
@@ -773,8 +790,9 @@ RÈGLES STRICTES :
 - Tu peux reformuler une expérience existante mais jamais inventer un projet, un événement ou un impact.
 
 HALLUCINATIONS (INTERDICTION ABSOLUE) :
-- Dans EDUCATION : interdiction d’ajouter classements, GPA, distinctions, projets ou cours non fournis.
-- Dans EXPERIENCES : interdiction d’ajouter des impacts inventés.
+- Dans EDUCATION : interdiction d’ajouter classements, GPA, distinctions, projets, matières, cours, spécialisations, options ou modules non fournis.
+- Interdiction absolue d’ajouter une matière ou un cours simplement parce qu’il paraît cohérent avec la stratégie ou le management.
+- Dans EXPERIENCES : interdiction d’ajouter des impacts, recommandations, diagnostics, optimisations, opportunités identifiées ou bénéfices inventés.
 - Dans ACTIVITIES : interdiction d’ajouter un niveau, une fréquence ou un engagement non fourni.
 
 SECTION SKILLS (COMPÉTENCES & OUTILS) :
@@ -788,7 +806,9 @@ SECTION SKILLS (COMPÉTENCES & OUTILS) :
 
 SECTION ACTIVITIES :
 - Tu n’y mets que des centres d’intérêt personnels.
-- Format : "Activité : pratique factuelle ; qualité utile au travail".
+- Format : "Activité : description courte et factuelle".
+- Tu peux mentionner une seule qualité simple et crédible, jamais plusieurs.
+- Interdiction d’utiliser un ton RH générique ou trop valorisant.
 
 RÈGLES DE SORTIE :
 - Tu génères UNIQUEMENT :
