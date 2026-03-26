@@ -258,6 +258,22 @@ def sector_to_template(sector: str) -> str:
 def sanitize_filename(name: str) -> str:
     name = re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip())
     return name[:50] or "cv"
+def build_cv_filename(payload: Dict[str, Any]) -> str:
+    full_name = (payload.get("full_name") or "").strip()
+    company = (payload.get("company") or "").strip()
+
+    parts = full_name.split()
+    if not parts:
+        family_name = "CANDIDAT"
+    else:
+        family_name = "_".join(parts[-2:]) if len(parts) >= 2 else parts[-1]
+
+    family_name = sanitize_filename(family_name).upper()
+    company_clean = sanitize_filename(company).upper()
+
+    if company_clean:
+        return f"CV-{family_name}-{company_clean}"
+    return f"CV-{family_name}"
 
 def build_prompt(payload: Dict[str, Any]) -> str:
     return f"""
@@ -3011,25 +3027,36 @@ async def confirm_paid(payload: Dict[str, Any]):
 @app.get("/download/{job_id}/{filename}")
 def download(job_id: str, filename: str):
     from fastapi.responses import FileResponse
+
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Inconnu.")
+
+    payload = jobs[job_id].get("payload") or {}
+    download_base = build_cv_filename(payload)
+
     if filename == "cv.pdf":
         path = jobs[job_id].get("pdf_path")
+        download_name = f"{download_base}.pdf"
     elif filename == "cv.docx":
         path = jobs[job_id].get("docx_path")
+        download_name = f"{download_base}.docx"
     else:
         raise HTTPException(status_code=404, detail="Fichier inconnu.")
+
     if not path or not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Fichier non prêt.")
-    return FileResponse(path, filename=filename)
+
+    return FileResponse(path, filename=download_name)
 
 async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = None) -> str:
     job_id = job_id or str(uuid.uuid4())
     os.makedirs("out", exist_ok=True)
 
-    safe = sanitize_filename(payload["full_name"])
-    docx_path = os.path.join("out", f"{safe}_{job_id}.docx")
-    pdf_path = os.path.join("out", f"{safe}_{job_id}.pdf")
+    base_filename = build_cv_filename(payload)
+    internal_filename = f"{base_filename}_{job_id}"
+
+    docx_path = os.path.join("out", f"{internal_filename}.docx")
+    pdf_path = os.path.join("out", f"{internal_filename}.pdf")
 
     tpl = sector_to_template(payload["sector"])
 
