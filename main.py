@@ -61,6 +61,20 @@ def clean_cv_output(cv_text: str) -> str:
 
 REQUIRED_SECTIONS = ["EDUCATION:", "EXPERIENCES:", "SKILLS:", "ACTIVITIES:"]
 
+def clean_punctuation_text(text: str) -> str:
+    if not text:
+        return text
+
+    text = re.sub(r"\s+,", ",", text)
+    text = re.sub(r",\.", ".", text)
+    text = re.sub(r"\.\.", ".", text)
+    text = re.sub(r"\s+\.", ".", text)
+    text = re.sub(r"\s+;", ";", text)
+    text = re.sub(r";\.", ".", text)
+    text = re.sub(r":\.", ".", text)
+
+    return text.strip()
+
 def has_all_sections(cv_text: str) -> bool:
     t = (cv_text or "")
     return all(sec in t for sec in REQUIRED_SECTIONS)
@@ -1564,6 +1578,42 @@ def trim_activities(
         )
 
     return cleaned
+def clean_skills_lines(lines: list[str]) -> list[str]:
+    if not lines:
+        return []
+
+    banned_fragments = [
+        "présentations percutantes",
+        "compréhension avancée",
+        "outils analytiques avancés",
+        "résolution de problèmes complexes",
+        "expertise avancée",
+        "connaissance approfondie",
+        "maîtrise approfondie",
+        "excellente maîtrise",
+    ]
+
+    cleaned = []
+    seen = set()
+
+    for raw in lines:
+        txt = clean_punctuation_text((raw or "").strip())
+        low = txt.lower()
+
+        if not txt:
+            continue
+
+        if any(b in low for b in banned_fragments):
+            continue
+
+        key = low.strip()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        cleaned.append(txt)
+
+    return cleaned
 
 def _find_paragraph_containing(doc: Document, needle: str):
     for p in doc.paragraphs:
@@ -1726,7 +1776,7 @@ def _render_interests(anchor: Paragraph, lines: list[str]):
     last = anchor
 
     for raw in (lines or []):
-        text = (raw or "").strip()
+        text = clean_punctuation_text((raw or "").strip())
         text = re.sub(r"(?i)^je\s+", "", text).strip()
         text = re.sub(r"(?i)^j['’]\s*", "", text).strip()
         if not text:
@@ -1822,7 +1872,7 @@ def _render_skills(anchor: Paragraph, lines: list[str]):
     cleaned = normalized
 
     for raw in (cleaned or []):
-        text = (raw or "").strip()
+        text = clean_punctuation_text((raw or "").strip())
         if not text:
             last = _insert_paragraph_after(last, "")
             continue
@@ -2229,6 +2279,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 cleaned.append(txt)
     
         sections["SKILLS"] = cleaned
+        sections["SKILLS"] = clean_skills_lines(sections["SKILLS"])
     
     # ⬇️ Langues intégrées dans Compétences & Outils
     languages_raw = sections.get("LANGUAGES") or []
@@ -2365,8 +2416,14 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                                 kept.append(part)
                         degree = " – ".join(kept).strip()
 
-                    title_parts = [x for x in [degree, school] if x]
-                    title_line = " – ".join(title_parts) if title_parts else (degree or school)
+                    degree_clean = degree.strip()
+                    school_clean = school.strip()
+
+                    if degree_clean and school_clean and school_clean.lower() in degree_clean.lower():
+                        title_line = degree_clean
+                    else:
+                        title_parts = [x for x in [degree_clean, school_clean] if x]
+                        title_line = " – ".join(title_parts) if title_parts else (degree_clean or school_clean)
 
                     if title_line:
                         r_title = lp.add_run(title_line)
@@ -2844,6 +2901,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         continue
                 
                     b = strip_hallucinated_impact(b.strip())
+                    b = clean_punctuation_text(b)
                     b_clean = b.strip().lower()
                 
                     if b_clean in {"n/a", "na", "not applicable", "non applicable", "non-applicable"}:
