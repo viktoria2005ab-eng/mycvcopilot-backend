@@ -272,23 +272,6 @@ def sector_to_template(sector: str) -> str:
 def sanitize_filename(name: str) -> str:
     name = re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip())
     return name[:50] or "cv"
-
-def build_cv_filename(payload: Dict[str, Any]) -> str:
-    full_name = (payload.get("full_name") or "").strip()
-    company = (payload.get("company") or "").strip()
-
-    parts = full_name.split()
-    if not parts:
-        family_name = "CANDIDAT"
-    else:
-        family_name = parts[-1]  # seulement le nom de famille
-
-    family_name = sanitize_filename(family_name).upper()
-    company_clean = sanitize_filename(company).upper()
-
-    if company_clean:
-        return f"CV-{family_name}-{company_clean}"
-    return f"CV-{family_name}"
     
 def build_cv_filename(payload: Dict[str, Any]) -> str:
     full_name = (payload.get("full_name") or "").strip()
@@ -900,6 +883,197 @@ CENTRES D’INTÉRÊT :
 
 Génère uniquement le CV structuré.
 """
+
+def build_prompt_droit(payload: Dict[str, Any]) -> str:
+    return f"""
+Tu es un recruteur juridique exigeant en cabinet d’avocats, direction juridique et stages juridiques.
+Tu sélectionnes des profils étudiants sobres, rigoureux, crédibles et précis.
+
+OBJECTIF :
+Générer un CV DROIT français d’1 page maximum, très structuré, sobre, lisible et crédible.
+
+Le CV doit être adapté :
+- au poste : {payload["role"]}
+- à l’entreprise : {payload["company"]}
+- à l’offre d’emploi
+
+OFFRE D’EMPLOI :
+\"\"\"{payload["job_posting"]}\"\"\"
+
+RÈGLES GÉNÉRALES :
+- 1 page maximum.
+- Format de dates homogène, toujours sous la forme "MMM YYYY – MMM YYYY".
+- Le CV doit être rédigé intégralement en français.
+- Ton sobre, académique, précis, sans marketing personnel.
+- Aucune phrase d’introduction, aucun commentaire, aucune phrase méta.
+- Le CV doit être immédiatement lisible par un recruteur juridique.
+
+RÈGLES ABSOLUES :
+- Tu n’inventes rien.
+- Tu n’ajoutes aucune mission, aucun chiffre, aucune matière, aucun outil, aucune distinction, aucun mémoire, aucune audience, aucun contrat, aucune veille, aucun acte, aucune note si ce n’est pas explicitement fourni.
+- Tu n’ajoutes jamais de bénéfice, d’impact, de recommandation, d’optimisation ou d’amélioration si cela n’est pas explicitement indiqué.
+- Tu utilises uniquement les informations présentes dans le profil utilisateur.
+
+ADN ATTENDU D’UN CV JURIDIQUE :
+- rigueur
+- précision
+- sens de l’analyse
+- qualité rédactionnelle
+- structure
+- discrétion
+- professionnalisme
+
+SECTION EDUCATION :
+- En droit, la formation est centrale.
+- Chaque formation doit être présentée de manière propre, structurée et crédible.
+- Tu valorises seulement :
+  - intitulé exact du diplôme
+  - université / école
+  - lieu
+  - dates
+  - matières clés UNIQUEMENT si elles sont explicitement fournies
+  - mémoire / projet / concours / moot court UNIQUEMENT si explicitement fournis
+  - mention / classement UNIQUEMENT si explicitement fournis
+- Interdiction absolue d’ajouter des matières juridiques “logiques” si elles ne sont pas données.
+- Interdiction absolue d’ajouter mention, classement, mémoire, note ou projet s’ils ne sont pas fournis.
+
+SECTION EXPERIENCES :
+- Chaque expérience contient 2 bullet points par défaut, 3 maximum seulement pour les expériences les plus pertinentes.
+- Chaque bullet doit être court, factuel et rédigé avec un verbe juridique ou professionnel précis.
+- Verbes à privilégier quand ils correspondent réellement au contenu :
+  rédiger, analyser, rechercher, synthétiser, préparer, constituer, qualifier, assurer la veille, assister, interpréter, mettre en conformité
+- Interdiction d’inventer :
+  - audiences
+  - contrats
+  - notes de synthèse
+  - recherches jurisprudentielles
+  - actes
+  - consultations
+  - nombre de dossiers
+  - délais
+  - clients
+  - domaines juridiques non fournis
+- Si l’expérience est non juridique, tu la reformules de manière sobre et transférable, sans la transformer artificiellement en expérience juridique.
+- Tu peux mettre en avant des compétences transférables comme rigueur, traitement de demandes, rédaction formelle, gestion documentaire, relation client, seulement si elles sont cohérentes avec le contenu fourni.
+- Tu ne transformes jamais un job étudiant en faux stage juridique.
+
+QUANTIFICATION EN DROIT :
+- Tu peux utiliser uniquement les quantifications explicitement fournies :
+  nombre de dossiers, de notes, de contrats, d’audiences, volume de pages, délais, nombre de recherches, types d’affaires.
+- Si aucun chiffre n’est fourni, tu restes factuel sans inventer.
+
+SECTION SKILLS :
+- Tu produis EXACTEMENT 2 à 4 lignes sous "SKILLS:" parmi :
+  1) "Certifications : ..."
+  2) "Maîtrise des logiciels : ..."
+  3) "Capacités professionnelles : ..."
+  4) "Langues : ..."
+- Les éléments sont séparés par des virgules.
+- Les compétences doivent rester sobres.
+- Pour le droit, privilégier seulement si fourni :
+  - Dalloz
+  - LexisNexis
+  - Doctrine
+  - Légifrance
+  - Word
+  - Excel
+  - PowerPoint
+  - recherche juridique
+  - note de synthèse
+  - veille juridique
+  - analyse contractuelle
+  - rédaction juridique
+- Interdiction d’ajouter un outil juridique non fourni.
+- Les langues doivent être intégrées dans "Langues : ..."
+- Si un niveau CECRL est fourni, tu le conserves.
+- Si un score TOEIC / TOEFL / IELTS est fourni, tu peux l’intégrer à la ligne langues.
+
+SECTION ACTIVITIES :
+- Tu n’y mets QUE des centres d’intérêt personnels.
+- Chaque activité doit être précise, crédible et factuelle.
+- Format :
+  "Activité : pratique factuelle ; qualité simple"
+- Si niveau, fréquence ou contexte sont fournis, tu peux les reprendre.
+- Si ce n’est pas fourni, tu ne les inventes pas.
+- Tu évites les centres d’intérêt trop vagues s’ils ne contiennent aucune précision exploitable.
+- Tu peux mentionner au maximum une qualité simple et crédible : rigueur, discipline, persévérance, culture générale, ouverture d’esprit.
+- Interdiction de ton RH artificiel.
+
+RÈGLES DE STYLE :
+- Phrases courtes.
+- Une idée par bullet.
+- Aucun adjectif vide : motivé, dynamique, passionné, polyvalent, excellent.
+- Aucune surcharge.
+- Aucune phrase promotionnelle.
+
+FORMAT DE SORTIE OBLIGATOIRE :
+
+EDUCATION:
+<contenu>
+
+EXPERIENCES:
+<contenu>
+
+SKILLS:
+<contenu incluant les langues>
+
+ACTIVITIES:
+<contenu>
+
+FORMAT STRUCTURÉ OBLIGATOIRE :
+
+EDUCATION:
+DEGREE: <intitulé du diplôme>
+SCHOOL: <école ou université>
+LOCATION: <Ville, Pays>
+DATES: <MMM YYYY – MMM YYYY ou MMM YYYY – Present>
+DETAILS:
+- <détail 1>
+- <détail 2>
+
+EXPERIENCES:
+ROLE: <intitulé du poste>
+COMPANY: <nom de la structure>
+DATES: <MMM YYYY – MMM YYYY ou MMM YYYY – Present>
+LOCATION: <Ville, Pays>
+TYPE: <Stage / Alternance / Job étudiant / Projet associatif / etc. si fourni>
+BULLETS:
+- <bullet 1>
+- <bullet 2>
+- <bullet 3>
+
+SKILLS:
+<2 à 4 lignes>
+
+ACTIVITIES:
+<une activité par ligne>
+
+IMPORTANT :
+- Tu ne dois rien écrire avant EDUCATION:
+- Tu ne dois rien écrire après ACTIVITIES:
+- Tu ne génères jamais de section LANGUAGES: séparée.
+
+PROFIL :
+Nom : {payload["full_name"]}
+Ville : {payload["city"]}
+
+FORMATION :
+{payload["education"]}
+
+EXPÉRIENCES :
+{payload["experiences"]}
+
+COMPÉTENCES :
+{payload["skills"]}
+
+LANGUES :
+{payload["languages"]}
+
+CENTRES D’INTÉRÊT :
+{payload.get("interests","")}
+
+Génère uniquement le CV structuré.
+"""
     
 def generate_cv_text(payload: Dict[str, Any]) -> str:
     if not client:
@@ -913,6 +1087,8 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
         prompt = build_prompt_audit(payload)
     elif "management stratégique" in sector or "management strategique" in sector or "stratégie" in sector or "strategie" in sector:
         prompt = build_prompt_management(payload)
+    elif "droit" in sector or "juridique" in sector or "juriste" in sector or "avocat" in sector:
+        prompt = build_prompt_droit(payload)
     else:
         prompt = build_prompt(payload)
 
@@ -3147,9 +3323,6 @@ def download(job_id: str, filename: str):
 async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = None) -> str:
     job_id = job_id or str(uuid.uuid4())
     os.makedirs("out", exist_ok=True)
-
-    base_filename = build_cv_filename(payload)
-    internal_filename = f"{base_filename}_{job_id}"
 
     base_filename = build_cv_filename(payload)
     internal_filename = f"{base_filename}_{job_id}"
