@@ -703,7 +703,135 @@ CENTRES D’INTÉRÊT :
 Génère uniquement le CV structuré.
 """
 
+def build_prompt_management(payload: Dict[str, Any]) -> str:
+    return f"""
+Tu es un recruteur en conseil, stratégie et management.
+Tu sélectionnes les profils étudiants les plus structurés, analytiques et crédibles.
 
+OBJECTIF :
+Générer un CV MANAGEMENT STRATÉGIQUE français d’1 page maximum, clair, structuré et professionnel.
+
+Le CV doit être adapté :
+- au poste : {payload["role"]}
+- à l’entreprise : {payload["company"]}
+- à l’offre d’emploi
+
+OFFRE D’EMPLOI :
+\"\"\"{payload["job_posting"]}\"\"\"
+
+RÈGLES :
+- 1 page maximum.
+- Format de dates homogène, toujours sous la forme "MMM YYYY – MMM YYYY".
+- Chaque bullet = Verbe fort + Action concrète + finalité professionnelle, sans inventer de chiffres.
+- 2 à 3 bullets maximum par expérience.
+- Ton professionnel, structuré, analytique, orienté résolution de problèmes.
+- Classe les expériences de la plus pertinente à la moins pertinente par rapport au poste visé.
+- Valorise particulièrement :
+  - analyse
+  - benchmark
+  - diagnostic
+  - recommandations
+  - coordination
+  - gestion de projet
+  - communication
+  - vision d’ensemble
+
+PRIORITÉS MÉTIER MANAGEMENT STRATÉGIQUE :
+- prioriser les verbes : analyser, structurer, coordonner, préparer, recommander, piloter, présenter, suivre
+- éviter les verbes : aider, assister, participer, contribuer
+- valoriser :
+  - analyse de marché
+  - synthèse d’informations
+  - coordination de projet
+  - élaboration de recommandations
+  - organisation
+  - résolution de problèmes
+  - communication professionnelle
+
+RÈGLES STRICTES :
+- Tu n’inventes AUCUN chiffre.
+- Tu n’inventes AUCUNE mission.
+- Tu n’inventes AUCUN outil.
+- Tu n’utilises que les informations fournies.
+- Si une expérience est peu détaillée, tu la professionnalises sans extrapoler.
+- Tu peux reformuler une expérience existante mais jamais inventer un projet, un événement ou un impact.
+
+HALLUCINATIONS (INTERDICTION ABSOLUE) :
+- Dans EDUCATION : interdiction d’ajouter classements, GPA, distinctions, projets ou cours non fournis.
+- Dans EXPERIENCES : interdiction d’ajouter des impacts inventés.
+- Dans ACTIVITIES : interdiction d’ajouter un niveau, une fréquence ou un engagement non fourni.
+
+SECTION SKILLS (COMPÉTENCES & OUTILS) :
+- Tu produis EXACTEMENT 2 à 4 lignes sous "SKILLS:" :
+  1) "Certifications : ..."
+  2) "Maîtrise des logiciels : ..."
+  3) "Capacités professionnelles : ..."
+  4) "Langues : ..."
+- Si aucune certification n’est fournie, tu n’écris jamais "Certifications : ...".
+- Les langues sont intégrées dans "Langues : ...".
+
+SECTION ACTIVITIES :
+- Tu n’y mets que des centres d’intérêt personnels.
+- Format : "Activité : pratique factuelle ; qualité utile au travail".
+
+RÈGLES DE SORTIE :
+- Tu génères UNIQUEMENT :
+  EDUCATION:
+  EXPERIENCES:
+  SKILLS:
+  ACTIVITIES:
+- Pas de nom, pas de coordonnées, pas d’accroche.
+- Pas de section LANGUAGES séparée.
+
+FORMAT EXACT :
+
+EDUCATION:
+DEGREE: <intitulé>
+SCHOOL: <école>
+LOCATION: <Ville, Pays>
+DATES: <MMM YYYY – MMM YYYY>
+DETAILS:
+- <ligne 1>
+- <ligne 2>
+
+EXPERIENCES:
+ROLE: <poste>
+COMPANY: <entreprise>
+DATES: <MMM YYYY – MMM YYYY>
+LOCATION: <Ville, Pays>
+TYPE: <type>
+BULLETS:
+- <bullet 1>
+- <bullet 2>
+- <bullet 3>
+
+SKILLS:
+<2 à 4 lignes>
+
+ACTIVITIES:
+<une activité par ligne>
+
+PROFIL :
+Nom : {payload["full_name"]}
+Ville : {payload["city"]}
+
+FORMATION :
+{payload["education"]}
+
+EXPÉRIENCES :
+{payload["experiences"]}
+
+COMPÉTENCES :
+{payload["skills"]}
+
+LANGUES :
+{payload["languages"]}
+
+CENTRES D’INTÉRÊT :
+{payload.get("interests","")}
+
+Génère uniquement le CV structuré.
+"""
     
 def generate_cv_text(payload: Dict[str, Any]) -> str:
     if not client:
@@ -713,6 +841,10 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 
     if "finance" in sector:
         prompt = build_prompt_finance(payload)
+    elif "audit" in sector:
+        prompt = build_prompt_audit(payload)
+    elif "management stratégique" in sector or "management strategique" in sector or "stratégie" in sector or "strategie" in sector:
+        prompt = build_prompt_management(payload)
     else:
         prompt = build_prompt(payload)
 
@@ -836,12 +968,18 @@ def strip_hallucinated_impact(text: str) -> str:
     if not text:
         return text
 
-    return re.sub(
+    t = text.strip()
+
+    patterns = [
         r"\s*,\s*(permettant|améliorant|augmentant|optimisant|renforçant|contribuant\s+à|favorisant|facilitant|entraînant)\b.*$",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    ).strip().rstrip(".") + "."
+        r"\s+pour\s+(identifier|améliorer|optimiser|renforcer|faciliter|augmenter)\b.*$",
+        r"\s+(garantissant|permettant|optimisant|améliorant|renforçant|contribuant\s+à|favorisant)\b.*$",
+    ]
+
+    for pattern in patterns:
+        t = re.sub(pattern, "", t, flags=re.IGNORECASE).strip()
+
+    return t.rstrip(".") + "."
 
 def filter_education_details(details: list[str], raw_education_input: str) -> list[str]:
     raw = (raw_education_input or "").lower()
@@ -1600,17 +1738,32 @@ def _render_skills(anchor: Paragraph, lines: list[str]):
         cleaned.append(txt)
 
     normalized = []
+    labels = [
+        "Certifications :",
+        "Maîtrise des logiciels :",
+        "Capacités professionnelles :",
+        "Langues :",
+    ]
+
     for txt in cleaned:
-        if "Capacités professionnelles :" in txt and "Maîtrise des logiciels :" in txt:
-            parts = txt.split("Capacités professionnelles :")
-            left = parts[0].strip()
-            right = "Capacités professionnelles :" + parts[1].strip()
-            if left:
-                normalized.append(left)
-            if right:
-                normalized.append(right)
-        else:
-            normalized.append(txt)
+        current = txt.strip()
+        split_done = True
+
+        while split_done:
+            split_done = False
+            for label in labels:
+                pos = current.find(label)
+                if pos > 0:
+                    left = current[:pos].strip().rstrip(",")
+                    right = current[pos:].strip()
+                    if left:
+                        normalized.append(left)
+                    current = right
+                    split_done = True
+                    break
+
+        if current:
+            normalized.append(current)
     
     cleaned = normalized
 
@@ -2884,6 +3037,7 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
     cv_text = generate_cv_text(payload)
     last_action = None
     compact_mode = False
+    expand_count = 0
 
     # 2) boucle max 5 essais (baseline + 2 corrections)
     for attempt in range(5):
@@ -2909,11 +3063,12 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
     
         # 2) 1 page mais trop vide => expand
         if pages == 1 and fill < 0.84:
-            if last_action == "expand":
+            if expand_count >= 2:
                 break
 
             cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
             last_action = "expand"
+            expand_count += 1
             continue
         
         # 3) OK
