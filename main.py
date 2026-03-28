@@ -269,6 +269,16 @@ def sector_to_template(sector: str) -> str:
 
     return "templates/finance.docx"
 
+def is_legal_sector(sector: str) -> bool:
+    s = (sector or "").lower()
+    return (
+        "droit" in s
+        or "juridique" in s
+        or "juriste" in s
+        or "avocat" in s
+        or "legal" in s
+    )
+
 def sanitize_filename(name: str) -> str:
     name = re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip())
     return name[:50] or "cv"
@@ -890,7 +900,7 @@ Tu es un recruteur juridique exigeant en cabinet d’avocats, direction juridiqu
 Tu sélectionnes des profils étudiants sobres, rigoureux, crédibles et précis.
 
 OBJECTIF :
-Générer un CV DROIT français d’1 page maximum, très structuré, sobre, lisible et crédible.
+Générer un CV DROIT français d’1 page maximum, structuré, lisible, académique et crédible.
 
 Le CV doit être adapté :
 - au poste : {payload["role"]}
@@ -902,11 +912,11 @@ OFFRE D’EMPLOI :
 
 RÈGLES GÉNÉRALES :
 - 1 page maximum.
-- Format de dates homogène, toujours sous la forme "MMM YYYY – MMM YYYY".
 - Le CV doit être rédigé intégralement en français.
+- Format de dates homogène : "MMM YYYY – MMM YYYY" ou "MMM YYYY – Present".
 - Ton sobre, académique, précis, sans marketing personnel.
-- Aucune phrase d’introduction, aucun commentaire, aucune phrase méta.
-- Le CV doit être immédiatement lisible par un recruteur juridique.
+- Aucune phrase méta, aucune introduction, aucun commentaire.
+- Tu n’écris rien avant EDUCATION: et rien après ACTIVITIES:.
 
 RÈGLES ABSOLUES :
 - Tu n’inventes rien.
@@ -914,94 +924,63 @@ RÈGLES ABSOLUES :
 - Tu n’ajoutes jamais de bénéfice, d’impact, de recommandation, d’optimisation ou d’amélioration si cela n’est pas explicitement indiqué.
 - Tu utilises uniquement les informations présentes dans le profil utilisateur.
 
-ADN ATTENDU D’UN CV JURIDIQUE :
-- rigueur
-- précision
-- sens de l’analyse
-- qualité rédactionnelle
-- structure
-- discrétion
-- professionnalisme
-
 SECTION EDUCATION :
 - En droit, la formation est centrale.
-- Chaque formation doit être présentée de manière propre, structurée et crédible.
-- Tu valorises seulement :
-  - intitulé exact du diplôme
-  - université / école
-  - lieu
-  - dates
-  - matières clés UNIQUEMENT si elles sont explicitement fournies
-  - mémoire / projet / concours / moot court UNIQUEMENT si explicitement fournis
-  - mention / classement UNIQUEMENT si explicitement fournis
+- Tu valorises uniquement :
+  - l’intitulé exact du diplôme
+  - l’université / école
+  - le lieu
+  - les dates
+  - les matières uniquement si elles sont explicitement fournies
+  - mémoire / concours / projet / moot court uniquement si explicitement fournis
+  - mention / classement uniquement si explicitement fournis
 - Interdiction absolue d’ajouter des matières juridiques “logiques” si elles ne sont pas données.
-- Interdiction absolue d’ajouter mention, classement, mémoire, note ou projet s’ils ne sont pas fournis.
+- Chaque bloc EDUCATION doit contenir DETAILS:.
+- Si aucun détail n’est fourni, tu écris une seule ligne minimale, factuelle et non inventée :
+  - Formation juridique.
 
 SECTION EXPERIENCES :
-- Chaque expérience contient 2 bullet points par défaut, 3 maximum seulement pour les expériences les plus pertinentes.
-- Chaque bullet doit être court, factuel et rédigé avec un verbe juridique ou professionnel précis.
-- Verbes à privilégier quand ils correspondent réellement au contenu :
-  rédiger, analyser, rechercher, synthétiser, préparer, constituer, qualifier, assurer la veille, assister, interpréter, mettre en conformité
+- 2 bullet points par défaut par expérience.
+- 3 bullet points maximum uniquement pour les expériences les plus pertinentes.
+- Chaque bullet doit être court, factuel, professionnel.
+- Verbes à privilégier seulement s’ils correspondent réellement au contenu :
+  rédiger, analyser, rechercher, synthétiser, préparer, constituer, qualifier, assister, interpréter, mettre en conformité
 - Interdiction d’inventer :
   - audiences
   - contrats
-  - notes de synthèse
-  - recherches jurisprudentielles
   - actes
   - consultations
-  - nombre de dossiers
-  - délais
+  - notes de synthèse
+  - recherches jurisprudentielles
   - clients
+  - délais
+  - nombre de dossiers
   - domaines juridiques non fournis
 - Si l’expérience est non juridique, tu la reformules de manière sobre et transférable, sans la transformer artificiellement en expérience juridique.
-- Tu peux mettre en avant des compétences transférables comme rigueur, traitement de demandes, rédaction formelle, gestion documentaire, relation client, seulement si elles sont cohérentes avec le contenu fourni.
 - Tu ne transformes jamais un job étudiant en faux stage juridique.
-
-QUANTIFICATION EN DROIT :
-- Tu peux utiliser uniquement les quantifications explicitement fournies :
-  nombre de dossiers, de notes, de contrats, d’audiences, volume de pages, délais, nombre de recherches, types d’affaires.
-- Si aucun chiffre n’est fourni, tu restes factuel sans inventer.
+- Si peu d’informations sont fournies, tu restes simple et crédible.
 
 SECTION SKILLS :
-- Tu produis EXACTEMENT 2 à 4 lignes sous "SKILLS:" parmi :
+- Tu produis entre 2 et 4 lignes maximum sous "SKILLS:" parmi :
   1) "Certifications : ..."
   2) "Maîtrise des logiciels : ..."
   3) "Capacités professionnelles : ..."
   4) "Langues : ..."
 - Les éléments sont séparés par des virgules.
-- Les compétences doivent rester sobres.
-- Pour le droit, privilégier seulement si fourni :
-  - Dalloz
-  - LexisNexis
-  - Doctrine
-  - Légifrance
-  - Word
-  - Excel
-  - PowerPoint
-  - recherche juridique
-  - note de synthèse
-  - veille juridique
-  - analyse contractuelle
-  - rédaction juridique
-- Interdiction d’ajouter un outil juridique non fourni.
-- Les langues doivent être intégrées dans "Langues : ..."
-- Si un niveau CECRL est fourni, tu le conserves.
-- Si un score TOEIC / TOEFL / IELTS est fourni, tu peux l’intégrer à la ligne langues.
-- La section SKILLS ne doit jamais être vide.
-- Tu dois toujours écrire au minimum 2 lignes :
-  "Maîtrise des logiciels : ..."
-  "Langues : ..."
+- Tu n’ajoutes aucun outil juridique non fourni.
+- Les langues doivent être intégrées dans "Langues : ...".
 - Si aucune certification n’est fournie, tu n’écris pas "Certifications : ...".
 - Si aucune capacité professionnelle claire n’est fournie, tu n’écris pas "Capacités professionnelles : ...".
+- Tu dois toujours écrire au minimum :
+  "Maîtrise des logiciels : ..."
+  "Langues : ..."
 
 SECTION ACTIVITIES :
 - Tu n’y mets QUE des centres d’intérêt personnels.
-- Chaque activité doit être précise, crédible et factuelle.
-- Format :
+- Format obligatoire :
   "Activité : pratique factuelle ; qualité simple"
-- Si niveau, fréquence ou contexte sont fournis, tu peux les reprendre.
-- Si ce n’est pas fourni, tu ne les inventes pas.
-- Tu évites les centres d’intérêt trop vagues s’ils ne contiennent aucune précision exploitable.
+- Si le niveau, la fréquence ou le contexte ne sont pas fournis, tu ne les inventes pas.
+- Tu évites les activités trop vagues si elles n’apportent rien.
 - Tu peux mentionner au maximum une qualité simple et crédible : rigueur, discipline, persévérance, culture générale, ouverture d’esprit.
 - Interdiction de ton RH artificiel.
 
@@ -1009,24 +988,10 @@ RÈGLES DE STYLE :
 - Phrases courtes.
 - Une idée par bullet.
 - Aucun adjectif vide : motivé, dynamique, passionné, polyvalent, excellent.
-- Aucune surcharge.
-- Aucune phrase promotionnelle.
+- Aucun ton promotionnel.
+- Aucun markdown.
 
 FORMAT DE SORTIE OBLIGATOIRE :
-
-EDUCATION:
-<contenu>
-
-EXPERIENCES:
-<contenu>
-
-SKILLS:
-<contenu incluant les langues>
-
-ACTIVITIES:
-<contenu>
-
-FORMAT STRUCTURÉ OBLIGATOIRE :
 
 EDUCATION:
 DEGREE: <intitulé du diplôme>
@@ -1042,7 +1007,7 @@ ROLE: <intitulé du poste>
 COMPANY: <nom de la structure>
 DATES: <MMM YYYY – MMM YYYY ou MMM YYYY – Present>
 LOCATION: <Ville, Pays>
-TYPE: <Stage / Alternance / Job étudiant / Projet associatif / etc. si fourni>
+TYPE: <Stage / Alternance / Job étudiant / Projet associatif / etc. si fourni sinon vide>
 BULLETS:
 - <bullet 1>
 - <bullet 2>
@@ -1054,10 +1019,17 @@ SKILLS:
 ACTIVITIES:
 <une activité par ligne>
 
-IMPORTANT :
-- Tu ne dois rien écrire avant EDUCATION:
-- Tu ne dois rien écrire après ACTIVITIES:
-- Tu ne génères jamais de section LANGUAGES: séparée.
+CONTRAINTES DE SORTIE :
+- Tu génères UNIQUEMENT les sections suivantes, dans cet ordre exact :
+  EDUCATION:
+  EXPERIENCES:
+  SKILLS:
+  ACTIVITIES:
+- Tu ne génères PAS de section LANGUAGES: ou LANGUES: séparée.
+- Tu ne génères PAS le nom.
+- Tu ne génères PAS les coordonnées.
+- Tu ne génères PAS d’accroche.
+- Tu ne génères PAS de texte explicatif.
 
 PROFIL :
 Nom : {payload["full_name"]}
@@ -1108,6 +1080,9 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 
     # Nettoyage final robuste (enlève les phrases meta, les """ etc.)
     cv_text = clean_cv_output(cv_text)
+    if is_legal_sector(payload.get("sector", "")):
+        if "DEGREE:" not in cv_text or "ROLE:" not in cv_text:
+            print("=== WARNING DROIT: FORMAT STRUCTURÉ INCOMPLET ===")
 
     print("=== RAW CV TEXT ===")
     print(cv_text)
@@ -1619,6 +1594,41 @@ def trim_finance_experiences(
 
     return cleaned
 
+def trim_experiences_droit(
+    exps: list[dict],
+    is_cv_long: bool = True,
+) -> list[dict]:
+    """
+    Version DROIT :
+    - ne réécrit PAS les bullets avec le prompt finance
+    - ne supprime pas les expériences
+    - garde un style sobre
+    - limite simplement le nombre de bullets selon la longueur du CV
+    """
+    cleaned: list[dict] = []
+
+    for e in exps:
+        role = (e.get("role") or "").strip()
+        company = (e.get("company") or "").strip()
+        dates = (e.get("dates") or "").strip()
+        location = (e.get("location") or "").strip()
+        type_ = (e.get("type") or "").strip()
+        bullets = [b.strip() for b in (e.get("bullets") or []) if (b or "").strip()]
+
+        if not role and not bullets:
+            continue
+
+        cleaned.append({
+            "role": role,
+            "company": company,
+            "dates": dates,
+            "location": location,
+            "type": type_,
+            "bullets": bullets[:2] if is_cv_long else bullets[:3],
+        })
+
+    return cleaned
+
 def shorten_activities_with_llm(
     lines: list[str],
     max_no_space_per_activity: int = 90,
@@ -1761,6 +1771,41 @@ def trim_activities(
         )
 
     return cleaned
+
+def trim_activities_droit(
+    lines: list[str],
+    ideal_max: int = 3,
+) -> list[str]:
+    """
+    Version DROIT :
+    - ne réécrit PAS les activités avec le prompt finance
+    - enlève seulement les lignes vides ou trop faibles
+    - garde un style simple et crédible
+    """
+    cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
+    if not cleaned:
+        return []
+
+    weak_exact = {
+        "sport",
+        "sports",
+        "lecture",
+        "voyage",
+        "voyages",
+        "cinéma",
+        "cinema",
+        "musique",
+        "running",
+    }
+
+    filtered = []
+    for line in cleaned:
+        low = line.lower().strip()
+        if low in weak_exact:
+            continue
+        filtered.append(line)
+
+    return filtered[:ideal_max]
 def clean_skills_lines(lines: list[str]) -> list[str]:
     if not lines:
         return []
@@ -2410,6 +2455,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
     # ------- Données générales -------
     payload = payload or {}
+    is_legal = is_legal_sector(payload.get("sector", ""))
     full_name = payload.get("full_name", "").strip() or "NOM Prénom"
     role = payload.get("role", "").strip()
     finance_type = payload.get("finance_type", "").strip()
@@ -2487,7 +2533,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     
     if lang_text:
         skills_list = sections.get("SKILLS") or []
-        skills_list.append(f"Langues : {lang_text}")
+        has_languages_line = any(
+            (line or "").strip().lower().startswith("langues")
+            for line in skills_list
+        )
+        if not has_languages_line:
+            skills_list.append(f"Langues : {lang_text}")
         sections["SKILLS"] = skills_list
     
     sections["LANGUAGES"] = []
@@ -2498,7 +2549,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         interests_raw = []
 
     if isinstance(interests_raw, list):
-        interests_value = trim_activities(interests_raw, cv_is_long=cv_is_long)
+        if is_legal:
+            interests_value = trim_activities_droit(interests_raw)
+        else:
+            interests_value = trim_activities(interests_raw, cv_is_long=cv_is_long)
     else:
         interests_value = interests_raw
     mapping = {
@@ -2994,7 +3048,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         if ph == "%%EXPERIENCE%%":
             # On parse les expériences au format structuré ROLE/COMPANY/DATES/...
             exps = parse_finance_experiences(value or [])
-            exps = trim_finance_experiences(exps, is_cv_long=cv_is_long)
+            if is_legal:
+                exps = trim_experiences_droit(exps, is_cv_long=cv_is_long)
+            else:
+                exps = trim_finance_experiences(exps, is_cv_long=cv_is_long)
             anchor = p
             first_table = True
 
@@ -3097,7 +3154,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     if not b:
                         continue
                 
-                    b = strip_hallucinated_impact(b.strip())
+                    if not is_legal:
+                        b = strip_hallucinated_impact(b.strip())
+                    else:
+                        b = b.strip()
+
                     b = clean_punctuation_text(b)
                     b_clean = b.strip().lower()
                 
