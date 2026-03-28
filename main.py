@@ -1648,6 +1648,49 @@ Voici le JSON d'entrée :
 
     return result
 
+def enrich_activities_with_llm(lines: list[str], sector: str = "") -> list[str]:
+    try:
+        cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
+        if not cleaned:
+            return []
+
+        prompt = f"""
+Tu es un expert en rédaction de CV.
+
+Ta mission :
+Réécrire légèrement les activités pour les rendre plus professionnelles et utiles.
+
+RÈGLES STRICTES :
+- Tu ne dois PAS inventer d'activité
+- Tu ne dois PAS ajouter de nouvelles informations factuelles
+- Tu peux seulement :
+  - reformuler
+  - préciser légèrement
+  - ajouter UNE qualité cohérente (discipline, rigueur, curiosité…)
+
+FORMAT :
+- Une ligne = une activité
+- Format : Activité : description ; qualité.
+- Maximum 1 ligne par activité
+- Style sobre, CV
+
+ACTIVITÉS :
+{chr(10).join(cleaned)}
+"""
+
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.2,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        text = resp.choices[0].message.content.strip()
+
+        return [l.strip() for l in text.split("\n") if l.strip()]
+
+    except Exception:
+        return lines
+
 def trim_finance_experiences(
     exps: list[dict],
     is_cv_long: bool = True,
