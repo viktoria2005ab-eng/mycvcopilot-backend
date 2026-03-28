@@ -1205,8 +1205,10 @@ def strip_hallucinated_impact(text: str) -> str:
 
     patterns = [
         r"\s*,\s*(permettant|améliorant|augmentant|optimisant|renforçant|contribuant\s+à|favorisant|facilitant|entraînant)\b.*$",
-        r"\s+pour\s+(identifier|améliorer|optimiser|renforcer|faciliter|augmenter)\b.*$",
-        r"\s+(garantissant|permettant|optimisant|améliorant|renforçant|contribuant\s+à|favorisant)\b.*$",
+        r"\s+pour\s+(identifier|améliorer|optimiser|renforcer|faciliter|augmenter|soutenir|garantir|assurer|fiabiliser)\b.*$",
+        r"\s+(garantissant|permettant|optimisant|améliorant|renforçant|contribuant\s+à|favorisant|assurant|soutenant|fiabilisant)\b.*$",
+        r"\s+afin\s+d['’](assurer|optimiser|renforcer|fiabiliser|garantir|améliorer)\b.*$",
+        r"\s+dans\s+le\s+but\s+de\s+(assurer|optimiser|renforcer|fiabiliser|garantir|améliorer)\b.*$",
     ]
 
     for pattern in patterns:
@@ -1708,30 +1710,38 @@ def enrich_experience_bullets_with_llm(exps: list[dict], sector: str = "") -> li
             return exps
 
         prompt = f"""
-Tu es un expert en rédaction de CV.
+        Tu es un expert en rédaction de CV.
+        
+        Ta mission :
+        Réécrire légèrement des bullet points d'expérience pour les rendre plus professionnels, sans rien inventer.
+        
+        RÈGLES STRICTES :
+        - Tu gardes exactement le même sens
+        - Tu n’inventes aucune nouvelle mission
+        - Tu n’ajoutes aucun chiffre
+        - Tu n’ajoutes aucun outil non mentionné
+        - Tu n’ajoutes aucun impact business non fourni
+        - Tu n’ajoutes aucune finalité implicite
+        - Tu n’ajoutes aucun bénéfice, aucune amélioration, aucune optimisation, aucune fiabilisation
+        - Tu n’ajoutes aucune responsabilité nouvelle
+        - Tu n’ajoutes jamais d’idée de formation, supervision, coordination, pilotage ou amélioration si ce n’est pas déjà écrit dans le bullet source
+        - Tu travailles bullet par bullet, uniquement à partir du bullet source correspondant
+        - Tu peux seulement :
+          - reformuler
+          - rendre la phrase un peu plus fluide
+          - préciser légèrement le geste déjà écrit, sans dépasser son sens
+        
+        IMPORTANT :
+        - Tu dois garder EXACTEMENT le même nombre de bullet points
+        - Tu ne fusionnes jamais deux bullets
+        - Tu ne transformes jamais un bullet simple en mission plus ambitieuse
+        - Une ligne en sortie = un bullet point
+        - Tu ne dois rien écrire d’autre
+        
+        BULLETS :
+        {chr(10).join(flat_bullets)}
+        """
 
-Ta mission :
-Enrichir légèrement des bullet points d'expérience pour les rendre plus professionnels et un peu plus denses.
-
-RÈGLES STRICTES :
-- Tu gardes exactement le même sens
-- Tu n’inventes aucune nouvelle mission
-- Tu n’ajoutes aucun chiffre
-- Tu n’ajoutes aucun outil non mentionné
-- Tu n’ajoutes aucun impact business non fourni
-- Tu peux seulement :
-  - reformuler
-  - préciser légèrement
-  - mieux exploiter la matière déjà présente
-
-IMPORTANT :
-- Tu dois garder EXACTEMENT le même nombre de bullet points
-- Une ligne en sortie = un bullet point
-- Tu ne dois rien écrire d’autre
-
-BULLETS :
-{chr(10).join(flat_bullets)}
-"""
 
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -2861,14 +2871,15 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         interests_raw = []
 
     if isinstance(interests_raw, list):
+        interests_enriched = enrich_activities_with_llm(
+            interests_raw,
+            payload.get("sector", "")
+        )
+    
         if is_legal:
-            interests_enriched = enrich_activities_with_llm(
-                interests_raw,
-                payload.get("sector", "")
-            )
             interests_value = trim_activities_droit(interests_enriched)
         else:
-            interests_value = trim_activities(interests_raw, cv_is_long=cv_is_long)
+            interests_value = trim_activities(interests_enriched, cv_is_long=cv_is_long)
     else:
         interests_value = interests_raw
     mapping = {
