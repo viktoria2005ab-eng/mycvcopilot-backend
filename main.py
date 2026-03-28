@@ -1106,6 +1106,27 @@ SECTION_SPACING = Pt(3) # espace entre sections (Formation -> Exp, Exp -> Skills
 
 from docx.oxml.ns import qn
 
+def count_education_blocks(raw_education: str) -> int:
+    blocks = []
+    current = []
+    for line in (raw_education or "").splitlines():
+        if line.strip():
+            current.append(line.strip())
+        else:
+            if current:
+                blocks.append(current)
+                current = []
+    if current:
+        blocks.append(current)
+    return len(blocks)
+
+# dans generate_cv_text()
+expected_edu_blocks = count_education_blocks(payload.get("education", ""))
+actual_edu_blocks = cv_text.count("DEGREE:")
+
+if actual_edu_blocks < expected_edu_blocks:
+    print("=== WARNING EDUCATION: BLOCS MANQUANTS ===")
+
 def _keep_lines(paragraph: Paragraph, keep_lines=True, keep_next=False):
     """
     Empêche Word/LibreOffice de couper ce paragraphe sur 2 pages,
@@ -2024,62 +2045,34 @@ def trim_activities(
     lines: list[str],
     cv_is_long: bool,
     ideal_max: int = 3,
-    max_no_space_per_activity: int = 90,
 ) -> list[str]:
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
         return []
 
     weak_exact = {
-        "sport",
-        "sports",
-        "lecture",
-        "voyage",
-        "voyages",
-        "cinéma",
-        "cinema",
-        "musique",
-        "running",
+        "sport", "sports", "lecture", "voyage", "voyages",
+        "cinéma", "cinema", "musique", "running"
     }
 
-    weak_prefixes = (
-        "sport :",
-        "sports :",
-        "lecture :",
-        "voyages :",
-        "voyage :",
-        "musique :",
-        "cinéma :",
-        "cinema :",
-    )
-
-    filtered = []
+    out = []
     for line in cleaned:
         low = line.lower().strip()
         if low in weak_exact:
             continue
-        if low.startswith(weak_prefixes) and len(low) < 25:
-            continue
-        filtered.append(line)
 
-    cleaned = filtered[:ideal_max]
+        line = re.sub(r"\s*;\s*[^;:.]+\.?$", "", line).strip()
+        line = clean_punctuation_text(line)
 
-    if not cleaned:
-        return []
+        if line and ":" in line:
+            head, tail = line.split(":", 1)
+            head = head.strip()
+            tail = tail.strip().rstrip(".")
+            line = f"{head} : {tail}."
 
-    # même si le CV n'est pas long, on réécrit si les activités sont trop faibles
-    needs_rewrite = any(
-        len(line.split()) <= 3 or ":" not in line
-        for line in cleaned
-    )
+        out.append(line)
 
-    if cv_is_long or needs_rewrite:
-        return shorten_activities_with_llm(
-            cleaned,
-            max_no_space_per_activity=70,
-        )
-
-    return cleaned
+    return out[:ideal_max]
 
 def trim_activities_droit(
     lines: list[str],
@@ -2778,16 +2771,34 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
     sections = _split_sections(cv_text)
 
-    raw_skills = (payload.get("skills") or "").strip()
-    raw_languages = (payload.get("languages") or "").strip()
+    # On garde en priorité les SKILLS générés par le LLM
+    llm_skills = sections.get("SKILLS") or []
+    llm_languages = sections.get("LANGUAGES") or []
 
-    locked_skills = []
-    if raw_skills:
-        locked_skills.append(f"Maîtrise des logiciels : {raw_skills}")
-    if raw_languages:
-        locked_skills.append(f"Langues : {raw_languages}")
+    if not llm_skills:
+        llm_skills = []
 
-    sections["SKILLS"] = locked_skills
+    # fallback minimal si le LLM n'a rien mis
+    if not llm_skills:
+        raw_skills = (payload.get("skills") or "").strip()
+        raw_languages = (payload.get("languages") or "").strip()
+
+        if raw_skills:
+            llm_skills.append(f"Maîtrise des logiciels : {raw_skills}")
+        if raw_languages:
+            llm_skills.append(f"Langues : {raw_languages}")
+
+    # si le LLM a mis les langues en section séparée, on les réintègre
+    if llm_languages:
+        lang_text = ", ".join(x.strip() for x in llm_languages if x.strip())
+        has_languages_line = any(
+            (line or "").strip().lower().startswith("langues")
+            for line in llm_skills
+        )
+        if lang_text and not has_languages_line:
+            llm_skills.append(f"Langues : {lang_text}")
+
+    sections["SKILLS"] = llm_skills
     sections["LANGUAGES"] = []
 
     if not sections.get("SKILLS"):
@@ -2871,17 +2882,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         interests_raw = []
 
     if isinstance(interests_raw, list):
-        interests_enriched = enrich_activities_with_llm(
-            interests_raw,
-            payload.get("sector", "")
-        )
-    
         if is_legal:
-            interests_value = trim_activities_droit(interests_enriched)
+            interests_value = trim_activities_droit(interests_raw)
         else:
-            interests_value = trim_activities(interests_enriched, cv_is_long=cv_is_long)
-    else:
-        interests_value = interests_raw
+            interests_value = trim_activities(interests_raw, cv_is_long=cv_is_long)
     mapping = {
         "%%FULL_NAME%%": full_name,
         "%%CONTACT_LINE%%": contact_line,
@@ -3788,11 +3792,14 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
             continue
     
         # 2) 1 page mais trop vide => expand
-        if pages == 1 and fill < 0.84:
+        if pages == 1 and fill < 0.88:
             if expand_count >= 2:
                 break
 
-        
+            cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
+            last_action = "expand"
+            expand_count += 1
+            continue
         # 3) OK
         break
 
