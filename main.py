@@ -3781,10 +3781,6 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
             if expand_count >= 2:
                 break
 
-            cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
-            last_action = "expand"
-            expand_count += 1
-            continue
         
         # 3) OK
         break
