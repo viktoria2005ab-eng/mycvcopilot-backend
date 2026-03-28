@@ -279,6 +279,10 @@ def is_legal_sector(sector: str) -> bool:
         or "legal" in s
     )
 
+def is_audit_sector(sector: str) -> bool:
+    s = (sector or "").lower()
+    return "audit" in s
+
 def sanitize_filename(name: str) -> str:
     name = re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip())
     return name[:50] or "cv"
@@ -1383,6 +1387,62 @@ PLACEHOLDERS = [
     "%%LANGUAGES%%",
     "%%INTERESTS%%",
 ]
+
+def parse_raw_experiences_input(raw_text: str) -> list[dict]:
+    """
+    Parse les expériences directement depuis le texte brut utilisateur.
+    Format attendu par bloc :
+    ligne 1 = rôle
+    ligne 2 = société
+    ligne 3 = lieu
+    ligne 4 = dates
+    ligne 5 = type
+    puis bullets commençant par "-"
+    """
+    blocks = []
+    current = []
+
+    for raw in (raw_text or "").splitlines():
+        line = (raw or "").strip()
+        if not line:
+            if current:
+                blocks.append(current)
+                current = []
+            continue
+        current.append(line)
+
+    if current:
+        blocks.append(current)
+
+    exps = []
+
+    for block in blocks:
+        meta = []
+        bullets = []
+
+        for line in block:
+            if line.startswith("-"):
+                bullets.append(line[1:].strip())
+            else:
+                meta.append(line)
+
+        role = meta[0] if len(meta) > 0 else ""
+        company = meta[1] if len(meta) > 1 else ""
+        location = meta[2] if len(meta) > 2 else ""
+        dates = meta[3] if len(meta) > 3 else ""
+        type_ = meta[4] if len(meta) > 4 else ""
+
+        if role or bullets:
+            exps.append({
+                "role": role,
+                "company": company,
+                "dates": dates,
+                "location": location,
+                "type": type_,
+                "bullets": bullets,
+            })
+
+    return exps
 def parse_education_structured(lines: list[str]) -> list[dict]:
     """
     Parse une section EDUCATION structurée avec les tags :
@@ -1706,12 +1766,52 @@ def trim_experiences_droit(
         return score
 
     cleaned.sort(key=legal_score, reverse=True)
+    cleaned = cleaned[:4]
+
     for i, exp in enumerate(cleaned):
         bullets = exp.get("bullets", [])
         if i == 0:
-            exp["bullets"] = bullets[:3] if not is_cv_long else bullets[:2]
+            exp["bullets"] = bullets[:3]
         else:
             exp["bullets"] = bullets[:2]
+
+    return cleaned
+
+def trim_experiences_audit(
+    exps: list[dict],
+    is_cv_long: bool = True,
+) -> list[dict]:
+    cleaned = []
+
+    for e in exps:
+        role = (e.get("role") or "").strip()
+        company = (e.get("company") or "").strip()
+        dates = (e.get("dates") or "").strip()
+        location = (e.get("location") or "").strip()
+        type_ = (e.get("type") or "").strip()
+        bullets = [b.strip() for b in (e.get("bullets") or []) if (b or "").strip()]
+
+        if not role and not bullets:
+            continue
+
+        cleaned.append({
+            "role": role,
+            "company": company,
+            "dates": dates,
+            "location": location,
+            "type": type_,
+            "bullets": bullets,
+        })
+
+    cleaned = cleaned[:4]
+
+    for i, exp in enumerate(cleaned):
+        bullets = exp.get("bullets", [])
+        if i == 0:
+            exp["bullets"] = bullets[:3]
+        else:
+            exp["bullets"] = bullets[:2]
+
     return cleaned
 
 def shorten_activities_with_llm(
@@ -1859,7 +1959,7 @@ def trim_activities(
 
 def trim_activities_droit(
     lines: list[str],
-    ideal_max: int = 2,
+    ideal_max: int = 3,
 ) -> list[str]:
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
@@ -2536,6 +2636,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     # ------- Données générales -------
     payload = payload or {}
     is_legal = is_legal_sector(payload.get("sector", ""))
+    is_audit = is_audit_sector(payload.get("sector", ""))
     full_name = payload.get("full_name", "").strip() or "NOM Prénom"
     role = payload.get("role", "").strip()
     finance_type = payload.get("finance_type", "").strip()
@@ -2552,16 +2653,18 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     ])
 
     sections = _split_sections(cv_text)
-    if is_legal:
-        raw_skills = (payload.get("skills") or "").strip()
-        raw_languages = (payload.get("languages") or "").strip()
-        legal_skills = []
-        if raw_skills:
-            legal_skills.append(f"Maîtrise des logiciels : {raw_skills}")
-        if raw_languages:
-            legal_skills.append(f"Langues : {raw_languages}")
-        sections["SKILLS"] = legal_skills
-        sections["LANGUAGES"] = []
+
+    raw_skills = (payload.get("skills") or "").strip()
+    raw_languages = (payload.get("languages") or "").strip()
+
+    locked_skills = []
+    if raw_skills:
+        locked_skills.append(f"Maîtrise des logiciels : {raw_skills}")
+    if raw_languages:
+        locked_skills.append(f"Langues : {raw_languages}")
+
+    sections["SKILLS"] = locked_skills
+    sections["LANGUAGES"] = []
 
     if not sections.get("SKILLS"):
         fallback_skills = []
@@ -2638,7 +2741,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     
     sections["LANGUAGES"] = []
     
-    interests_raw = sections.get("INTERESTS", []) or sections.get("ACTIVITIES", [])
+    interests_raw = [line.strip() for line in (payload.get("interests") or "").splitlines() if line.strip()]
     # ✅ si l'utilisateur n'a rien mis, on n'affiche rien (et on n'invente pas)
     if not (payload.get("interests") or "").strip():
         interests_raw = []
@@ -2722,12 +2825,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         location = ""
                     dates = (edu.get("dates") or "").strip()
                     details = edu.get("details") or []
-                    if is_legal:
-                        source_courses = source_courses_blocks[idx] if idx < len(source_courses_blocks) else []
-                        legal_details = []
-                        if source_courses:
-                            legal_details.append("Matières fondamentales : " + ", ".join(source_courses) + ".")
-                        details = legal_details
+                    source_courses = source_courses_blocks[idx] if idx < len(source_courses_blocks) else []
+
+                    if source_courses:
+                        details = ["Matières fondamentales : " + ", ".join(source_courses) + "."]
                     else:
                         details = filter_education_details(
                             details,
@@ -3154,11 +3255,14 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
         # ------- EXPÉRIENCES PROFESSIONNELLES -------
         if ph == "%%EXPERIENCE%%":
-            # On parse les expériences au format structuré ROLE/COMPANY/DATES/...
-            exps = parse_finance_experiences(value or [])
             if is_legal:
+                exps = parse_raw_experiences_input(payload.get("experiences", ""))
                 exps = trim_experiences_droit(exps, is_cv_long=cv_is_long)
+            elif is_audit:
+                exps = parse_raw_experiences_input(payload.get("experiences", ""))
+                exps = trim_experiences_audit(exps, is_cv_long=cv_is_long)
             else:
+                exps = parse_finance_experiences(value or [])
                 exps = trim_finance_experiences(exps, is_cv_long=cv_is_long)
             anchor = p
             first_table = True
