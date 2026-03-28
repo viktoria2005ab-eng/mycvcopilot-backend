@@ -1691,6 +1691,77 @@ ACTIVITÉS :
     except Exception:
         return lines
 
+def enrich_experience_bullets_with_llm(exps: list[dict], sector: str = "") -> list[dict]:
+    if not client:
+        return exps
+
+    try:
+        flat_bullets = []
+        bullet_counts = []
+
+        for exp in exps:
+            bullets = [b.strip() for b in (exp.get("bullets") or []) if b and b.strip()]
+            bullet_counts.append(len(bullets))
+            flat_bullets.extend(bullets)
+
+        if not flat_bullets:
+            return exps
+
+        prompt = f"""
+Tu es un expert en rédaction de CV.
+
+Ta mission :
+Enrichir légèrement des bullet points d'expérience pour les rendre plus professionnels et un peu plus denses.
+
+RÈGLES STRICTES :
+- Tu gardes exactement le même sens
+- Tu n’inventes aucune nouvelle mission
+- Tu n’ajoutes aucun chiffre
+- Tu n’ajoutes aucun outil non mentionné
+- Tu n’ajoutes aucun impact business non fourni
+- Tu peux seulement :
+  - reformuler
+  - préciser légèrement
+  - mieux exploiter la matière déjà présente
+
+IMPORTANT :
+- Tu dois garder EXACTEMENT le même nombre de bullet points
+- Une ligne en sortie = un bullet point
+- Tu ne dois rien écrire d’autre
+
+BULLETS :
+{chr(10).join(flat_bullets)}
+"""
+
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.2,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        lines = [
+            l.strip().lstrip("-").strip()
+            for l in resp.choices[0].message.content.split("\n")
+            if l.strip()
+        ]
+
+        if len(lines) != len(flat_bullets):
+            return exps
+
+        idx = 0
+        new_exps = []
+
+        for exp, count in zip(exps, bullet_counts):
+            copied = dict(exp)
+            copied["bullets"] = lines[idx:idx + count]
+            idx += count
+            new_exps.append(copied)
+
+        return new_exps
+
+    except Exception:
+        return exps
+
 def trim_finance_experiences(
     exps: list[dict],
     is_cv_long: bool = True,
@@ -2025,10 +2096,10 @@ def trim_activities_droit(
         low = line.lower().strip()
         if low in weak_exact:
             continue
-        line = re.sub(r"\s*;\s*.+$", "", line).strip()
         out.append(line)
-
+    
     return out[:ideal_max]
+        
 def clean_skills_lines(lines: list[str]) -> list[str]:
     if not lines:
         return []
@@ -2791,7 +2862,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
     if isinstance(interests_raw, list):
         if is_legal:
-            interests_value = trim_activities_droit(interests_raw)
+            interests_enriched = enrich_activities_with_llm(
+                interests_raw,
+                payload.get("sector", "")
+            )
+            interests_value = trim_activities_droit(interests_enriched)
         else:
             interests_value = trim_activities(interests_raw, cv_is_long=cv_is_long)
     else:
@@ -3300,12 +3375,15 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         if ph == "%%EXPERIENCE%%":
             if is_legal:
                 exps = parse_raw_experiences_input(payload.get("experiences", ""))
+                exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
                 exps = trim_experiences_droit(exps, is_cv_long=cv_is_long)
             elif is_audit:
                 exps = parse_raw_experiences_input(payload.get("experiences", ""))
+                exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
                 exps = trim_experiences_audit(exps, is_cv_long=cv_is_long)
             else:
                 exps = parse_finance_experiences(value or [])
+                exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
                 exps = trim_finance_experiences(exps, is_cv_long=cv_is_long)
             anchor = p
             first_table = True
