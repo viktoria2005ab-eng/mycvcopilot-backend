@@ -1096,6 +1096,12 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
     print(cv_text)
     print("=== END RAW CV TEXT ===")
 
+    expected_edu_blocks = count_education_blocks(payload.get("education", ""))
+    actual_edu_blocks = cv_text.count("DEGREE:")
+
+    if actual_edu_blocks < expected_edu_blocks:
+        print("=== WARNING EDUCATION: BLOCS MANQUANTS ===")
+
     return cv_text
 
 from docx.shared import Pt, Cm
@@ -1120,12 +1126,6 @@ def count_education_blocks(raw_education: str) -> int:
         blocks.append(current)
     return len(blocks)
 
-# dans generate_cv_text()
-expected_edu_blocks = count_education_blocks(payload.get("education", ""))
-actual_edu_blocks = cv_text.count("DEGREE:")
-
-if actual_edu_blocks < expected_edu_blocks:
-    print("=== WARNING EDUCATION: BLOCS MANQUANTS ===")
 
 def _keep_lines(paragraph: Paragraph, keep_lines=True, keep_next=False):
     """
@@ -2083,15 +2083,8 @@ def trim_activities_droit(
         return []
 
     weak_exact = {
-        "sport",
-        "sports",
-        "lecture",
-        "voyage",
-        "voyages",
-        "cinéma",
-        "cinema",
-        "musique",
-        "running",
+        "sport", "sports", "lecture", "voyage", "voyages",
+        "cinéma", "cinema", "musique", "running"
     }
 
     out = []
@@ -2099,8 +2092,18 @@ def trim_activities_droit(
         low = line.lower().strip()
         if low in weak_exact:
             continue
+
+        line = re.sub(r"\s*;\s*[^;:.]+\.?$", "", line).strip()
+        line = clean_punctuation_text(line)
+
+        if line and ":" in line:
+            head, tail = line.split(":", 1)
+            head = head.strip()
+            tail = tail.strip().rstrip(".")
+            line = f"{head} : {tail}."
+
         out.append(line)
-    
+
     return out[:ideal_max]
         
 def clean_skills_lines(lines: list[str]) -> list[str]:
@@ -2310,10 +2313,6 @@ def _render_interests(anchor: Paragraph, lines: list[str]):
 
         # Nouveau paragraphe en mode liste à puces
         new_p = _insert_paragraph_after(last, "")
-        try:
-            new_p.style = "List Bullet"
-        except Exception:
-            pass
 
         head = text
         tail = ""
@@ -2886,6 +2885,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             interests_value = trim_activities_droit(interests_raw)
         else:
             interests_value = trim_activities(interests_raw, cv_is_long=cv_is_long)
+    else:
+        interests_value = []
+        
     mapping = {
         "%%FULL_NAME%%": full_name,
         "%%CONTACT_LINE%%": contact_line,
