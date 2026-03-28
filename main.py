@@ -302,7 +302,17 @@ def is_legal_sector(sector: str) -> bool:
 def is_audit_sector(sector: str) -> bool:
     s = (sector or "").lower()
     return "audit" in s
-
+    
+def is_management_sector(sector: str) -> bool:
+    s = (sector or "").lower()
+    return (
+        "management stratégique" in s
+        or "management strategique" in s
+        or "stratégie" in s
+        or "strategie" in s
+        or "conseil" in s
+    )
+    
 def sanitize_filename(name: str) -> str:
     name = re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip())
     return name[:50] or "cv"
@@ -1091,23 +1101,21 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
         prompt = build_prompt_finance(payload)
     elif "audit" in sector:
         prompt = build_prompt_audit(payload)
-    elif "management stratégique" in sector or "management strategique" in sector or "stratégie" in sector or "strategie" in sector:
+    elif is_management_sector(sector):
         prompt = build_prompt_management(payload)
     elif "droit" in sector or "juridique" in sector or "juriste" in sector or "avocat" in sector:
         prompt = build_prompt_droit(payload)
     else:
         prompt = build_prompt(payload)
 
-    # 1er appel : génération normale
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
     )
 
     cv_text = resp.choices[0].message.content.strip()
-
-    # Nettoyage final robuste (enlève les phrases meta, les """ etc.)
     cv_text = clean_cv_output(cv_text)
+
     if is_legal_sector(payload.get("sector", "")):
         if "DEGREE:" not in cv_text or "ROLE:" not in cv_text:
             print("=== WARNING DROIT: FORMAT STRUCTURÉ INCOMPLET ===")
@@ -1118,26 +1126,11 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 
     expected_edu_blocks = count_education_blocks(payload.get("education", ""))
     actual_edu_blocks = cv_text.count("DEGREE:")
-    
+
     if actual_edu_blocks < expected_edu_blocks:
         print("=== WARNING EDUCATION: BLOCS MANQUANTS ===")
-        sections = _split_sections(cv_text)
-        rebuilt_edu = rebuild_education_from_input(payload.get("education", ""))
-        rebuilt = [
-            "EDUCATION:",
-            *rebuilt_edu,
-            "",
-            "EXPERIENCES:",
-            *(sections.get("EXPERIENCES") or []),
-            "",
-            "SKILLS:",
-            *(sections.get("SKILLS") or []),
-            "",
-            "ACTIVITIES:",
-            *(sections.get("ACTIVITIES") or []),
-        ]
-        cv_text = clean_cv_output("\n".join(rebuilt))
 
+    cv_text = ensure_required_sections(cv_text, payload)
     return cv_text
 
 from docx.shared import Pt, Cm
@@ -1204,7 +1197,99 @@ def rebuild_education_from_input(raw_education: str) -> list[str]:
         out.append("")
 
     return out
+def rebuild_experiences_from_input(raw_experiences: str) -> list[str]:
+    exps = parse_raw_experiences_input(raw_experiences)
+    out = []
 
+    for exp in exps:
+        out.append(f"ROLE: {(exp.get('role') or '').strip()}")
+        out.append(f"COMPANY: {(exp.get('company') or '').strip()}")
+        out.append(f"DATES: {(exp.get('dates') or '').strip()}")
+        out.append(f"LOCATION: {(exp.get('location') or '').strip()}")
+        out.append(f"TYPE: {(exp.get('type') or '').strip()}")
+        out.append("BULLETS:")
+
+        bullets = [b.strip() for b in (exp.get("bullets") or []) if b and b.strip()]
+        if bullets:
+            for b in bullets:
+                out.append(f"- {b}")
+        else:
+            out.append("- Expérience professionnelle.")
+        out.append("")
+
+    return out
+
+
+def rebuild_activities_from_input(raw_interests: str) -> list[str]:
+    lines = []
+    for raw in (raw_interests or "").splitlines():
+        text = clean_punctuation_text((raw or "").strip())
+        if not text:
+            continue
+        if ":" in text:
+            head, tail = text.split(":", 1)
+            head = head.strip()
+            tail = tail.strip().rstrip(".")
+            lines.append(f"{head} : {tail}.")
+        else:
+            lines.append(text)
+    return lines
+
+
+def build_skills_from_payload(payload: Dict[str, Any]) -> list[str]:
+    lines = []
+
+    raw_skills = clean_punctuation_text((payload.get("skills") or "").strip())
+    raw_languages = clean_punctuation_text((payload.get("languages") or "").strip())
+
+    if raw_skills:
+        lines.append(f"Maîtrise des logiciels : {raw_skills}")
+    else:
+        lines.append("Maîtrise des logiciels : Pack Office")
+
+    if raw_languages:
+        lines.append(f"Langues : {raw_languages}")
+    else:
+        lines.append("Langues : Français")
+
+    return lines
+
+
+def ensure_required_sections(cv_text: str, payload: Dict[str, Any]) -> str:
+    sections = _split_sections(cv_text)
+
+    education_lines = sections.get("EDUCATION") or []
+    experience_lines = sections.get("EXPERIENCES") or []
+    skills_lines = sections.get("SKILLS") or []
+    activity_lines = sections.get("ACTIVITIES") or []
+
+    if not education_lines:
+        education_lines = rebuild_education_from_input(payload.get("education", ""))
+
+    if not experience_lines:
+        experience_lines = rebuild_experiences_from_input(payload.get("experiences", ""))
+
+    if not skills_lines:
+        skills_lines = build_skills_from_payload(payload)
+
+    if not activity_lines:
+        activity_lines = rebuild_activities_from_input(payload.get("interests", ""))
+
+    rebuilt = [
+        "EDUCATION:",
+        *education_lines,
+        "",
+        "EXPERIENCES:",
+        *experience_lines,
+        "",
+        "SKILLS:",
+        *skills_lines,
+        "",
+        "ACTIVITIES:",
+        *activity_lines,
+    ]
+
+    return clean_cv_output("\n".join(rebuilt))
 
 def _keep_lines(paragraph: Paragraph, keep_lines=True, keep_next=False):
     """
@@ -1423,6 +1508,14 @@ def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
         pass
     
     return table
+
+def _insert_spacer_after_table(table, parent, space_after):
+    spacer_elt = OxmlElement("w:p")
+    table._tbl.addnext(spacer_elt)
+    spacer = Paragraph(spacer_elt, parent)
+    spacer.paragraph_format.space_before = Pt(0)
+    spacer.paragraph_format.space_after = space_after
+    return spacer
 
 def parse_finance_experiences(lines: list[str]) -> list[dict]:
     exps = []
@@ -1873,6 +1966,28 @@ def enrich_experience_bullets_with_llm(exps: list[dict], sector: str = "") -> li
     except Exception:
         return exps
 
+def apply_density_to_experiences(
+    exps: list[dict],
+    is_cv_long: bool = False,
+    is_cv_short: bool = False,
+    keep_three_for_short: int = 2,
+    keep_three_for_normal: int = 2,
+    keep_three_for_long: int = 1,
+) -> list[dict]:
+    for i, exp in enumerate(exps):
+        bullets = [b.strip() for b in (exp.get("bullets") or []) if (b or "").strip()]
+
+        if is_cv_short:
+            limit = 3 if i < keep_three_for_short else 2
+        elif is_cv_long:
+            limit = 3 if i < keep_three_for_long else 2
+        else:
+            limit = 3 if i < keep_three_for_normal else 2
+
+        exp["bullets"] = bullets[:limit]
+
+    return exps
+
 def trim_finance_experiences(
     exps: list[dict],
     is_cv_long: bool = True,
@@ -1931,7 +2046,7 @@ def trim_experiences_droit(
     cleaned: list[dict] = []
 
     for e in exps:
-        role = (e.get("role") or "").strip()
+        role = normalize_role_text((e.get("role") or "").strip())
         company = (e.get("company") or "").strip()
         dates = (e.get("dates") or "").strip()
         location = (e.get("location") or "").strip()
@@ -1959,13 +2074,26 @@ def trim_experiences_droit(
         ]).lower()
 
         score = 0
-        for k in ["jurid", "droit", "social", "veille", "note", "recherche", "dossier", "rh", "relations sociales", "travail"]:
+
+        strong = [
+            "jurid", "droit", "social", "veille", "note", "recherche",
+            "dossier", "rh", "relations sociales", "travail"
+        ]
+        medium = [
+            "administratif", "rédaction", "documents", "suivi",
+            "coordination", "association", "partenariat"
+        ]
+        weak = [
+            "vente", "magasin", "encaissement", "stock", "client"
+        ]
+
+        for k in strong:
             if k in text:
                 score += 5
-        for k in ["trésori", "association", "coordination", "documents", "administratif", "rédaction", "suivi"]:
+        for k in medium:
             if k in text:
                 score += 2
-        for k in ["vente", "magasin", "encaissement", "stock", "client"]:
+        for k in weak:
             if k in text:
                 score -= 2
 
@@ -1973,36 +2101,25 @@ def trim_experiences_droit(
 
     cleaned.sort(key=legal_score, reverse=True)
     cleaned = cleaned[:4]
-
-    for i, exp in enumerate(cleaned):
-        bullets = exp.get("bullets", [])
-
-        if is_cv_short:
-            if i < 2:
-                exp["bullets"] = bullets[:3]
-            else:
-                exp["bullets"] = bullets[:2]
-        elif is_cv_long:
-            if i == 0:
-                exp["bullets"] = bullets[:3]
-            else:
-                exp["bullets"] = bullets[:2]
-        else:
-            if i < 2:
-                exp["bullets"] = bullets[:3]
-            else:
-                exp["bullets"] = bullets[:2]
-
+    cleaned = apply_density_to_experiences(
+        cleaned,
+        is_cv_long=is_cv_long,
+        is_cv_short=is_cv_short,
+        keep_three_for_short=2,
+        keep_three_for_normal=2,
+        keep_three_for_long=1,
+    )
     return cleaned
 
 def trim_experiences_audit(
     exps: list[dict],
     is_cv_long: bool = True,
+    is_cv_short: bool = False,
 ) -> list[dict]:
     cleaned = []
 
     for e in exps:
-        role = (e.get("role") or "").strip()
+        role = normalize_role_text((e.get("role") or "").strip())
         company = (e.get("company") or "").strip()
         dates = (e.get("dates") or "").strip()
         location = (e.get("location") or "").strip()
@@ -2021,15 +2138,123 @@ def trim_experiences_audit(
             "bullets": bullets,
         })
 
+    def audit_score(exp: dict) -> int:
+        text = " ".join([
+            exp.get("role", ""),
+            exp.get("company", ""),
+            exp.get("type", ""),
+            " ".join(exp.get("bullets", []))
+        ]).lower()
+
+        score = 0
+
+        strong = [
+            "audit", "comptabilité", "comptable", "contrôle",
+            "contrôle de gestion", "reporting", "analyse financière",
+            "trésorerie", "procédure", "vérification", "documentation"
+        ]
+        medium = [
+            "excel", "suivi", "budget", "association", "administratif"
+        ]
+        weak = [
+            "vente", "magasin", "encaissement", "stock", "client"
+        ]
+
+        for k in strong:
+            if k in text:
+                score += 5
+        for k in medium:
+            if k in text:
+                score += 2
+        for k in weak:
+            if k in text:
+                score -= 2
+
+        return score
+
+    cleaned.sort(key=audit_score, reverse=True)
     cleaned = cleaned[:4]
+    cleaned = apply_density_to_experiences(
+        cleaned,
+        is_cv_long=is_cv_long,
+        is_cv_short=is_cv_short,
+        keep_three_for_short=2,
+        keep_three_for_normal=2,
+        keep_three_for_long=1,
+    )
+    return cleaned
 
-    for i, exp in enumerate(cleaned):
-        bullets = exp.get("bullets", [])
-        if i == 0:
-            exp["bullets"] = bullets[:3]
-        else:
-            exp["bullets"] = bullets[:2]
+def trim_experiences_management(
+    exps: list[dict],
+    is_cv_long: bool = True,
+    is_cv_short: bool = False,
+) -> list[dict]:
+    cleaned = []
 
+    for e in exps:
+        role = normalize_role_text((e.get("role") or "").strip())
+        company = (e.get("company") or "").strip()
+        dates = (e.get("dates") or "").strip()
+        location = (e.get("location") or "").strip()
+        type_ = (e.get("type") or "").strip()
+        bullets = [b.strip() for b in (e.get("bullets") or []) if (b or "").strip()]
+
+        if not role and not bullets:
+            continue
+
+        cleaned.append({
+            "role": role,
+            "company": company,
+            "dates": dates,
+            "location": location,
+            "type": type_,
+            "bullets": bullets,
+        })
+
+    def management_score(exp: dict) -> int:
+        text = " ".join([
+            exp.get("role", ""),
+            exp.get("company", ""),
+            exp.get("type", ""),
+            " ".join(exp.get("bullets", []))
+        ]).lower()
+
+        score = 0
+
+        strong = [
+            "analyse", "benchmark", "coordination", "gestion de projet",
+            "recommandation", "stratégie", "communication", "prospection",
+            "partenariat", "présentation", "synthèse", "étude de marché"
+        ]
+        medium = [
+            "association", "événement", "organisation", "suivi", "rédaction"
+        ]
+        weak = [
+            "vente", "magasin", "encaissement", "stock"
+        ]
+
+        for k in strong:
+            if k in text:
+                score += 5
+        for k in medium:
+            if k in text:
+                score += 2
+        for k in weak:
+            if k in text:
+                score -= 2
+
+        return score
+
+    cleaned.sort(key=management_score, reverse=True)
+    cleaned = cleaned[:4]
+    cleaned = apply_density_to_experiences(
+        cleaned,
+        is_cv_long=is_cv_long,
+        is_cv_short=is_cv_short,
+        keep_three_for_short=2,
+        keep_three_for_normal=2,
+        keep_three_for_long=1,
+    )
     return cleaned
 
 def shorten_activities_with_llm(
