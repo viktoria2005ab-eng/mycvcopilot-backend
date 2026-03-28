@@ -1435,6 +1435,35 @@ def parse_education_structured(lines: list[str]) -> list[dict]:
 
     push()
     return programs
+
+def extract_source_courses_by_education_block(raw_education_input: str) -> list[list[str]]:
+    blocks = []
+    current = []
+
+    for raw in (raw_education_input or "").splitlines():
+        line = (raw or "").strip()
+        if not line:
+            if current:
+                blocks.append(current)
+                current = []
+            continue
+        current.append(line)
+
+    if current:
+        blocks.append(current)
+
+    out = []
+    for block in blocks:
+        courses = []
+        for line in block:
+            if line.lower().startswith("cours"):
+                _, _, after = line.partition(":")
+                courses = [x.strip() for x in after.split(",") if x.strip()]
+                break
+        out.append(courses)
+
+    return out
+    
 def _no_space_len(s: str) -> int:
     """Longueur d'un texte sans compter les espaces."""
     return len(re.sub(r"\s+", "", s or ""))
@@ -1639,7 +1668,7 @@ def trim_experiences_droit(
             "dates": dates,
             "location": location,
             "type": type_,
-            "bullets": bullets[:2] if is_cv_long else bullets[:3],
+            "bullets": bullets,
         })
 
     def legal_score(exp: dict) -> int:
@@ -1677,6 +1706,12 @@ def trim_experiences_droit(
         return score
 
     cleaned.sort(key=legal_score, reverse=True)
+    for i, exp in enumerate(cleaned):
+        bullets = exp.get("bullets", [])
+        if i == 0:
+            exp["bullets"] = bullets[:3] if not is_cv_long else bullets[:2]
+        else:
+            exp["bullets"] = bullets[:2]
     return cleaned
 
 def shorten_activities_with_llm(
@@ -1824,13 +1859,8 @@ def trim_activities(
 
 def trim_activities_droit(
     lines: list[str],
-    ideal_max: int = 3,
+    ideal_max: int = 2,
 ) -> list[str]:
-    """
-    Version DROIT :
-    - ne réécrit PAS les activités avec le prompt finance
-    - garde uniquement des lignes simples, factuelles, sobres
-    """
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
         return []
@@ -1852,9 +1882,7 @@ def trim_activities_droit(
         low = line.lower().strip()
         if low in weak_exact:
             continue
-
-        # coupe les enrichissements trop RH si jamais ils arrivent déjà générés
-        line = re.sub(r"\s*;\s*(pensée critique|compétences en organisation|sens du collectif|bien-être)\.?$", "", line, flags=re.IGNORECASE)
+        line = re.sub(r"\s*;\s*.+$", "", line).strip()
         out.append(line)
 
     return out[:ideal_max]
@@ -2524,6 +2552,16 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     ])
 
     sections = _split_sections(cv_text)
+    if is_legal:
+        raw_skills = (payload.get("skills") or "").strip()
+        raw_languages = (payload.get("languages") or "").strip()
+        legal_skills = []
+        if raw_skills:
+            legal_skills.append(f"Maîtrise des logiciels : {raw_skills}")
+        if raw_languages:
+            legal_skills.append(f"Langues : {raw_languages}")
+        sections["SKILLS"] = legal_skills
+        sections["LANGUAGES"] = []
 
     if not sections.get("SKILLS"):
         fallback_skills = []
@@ -2673,6 +2711,8 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 anchor = p
                 first_edu = True
 
+                source_courses_blocks = extract_source_courses_by_education_block(payload.get("education", ""))
+
                 for idx, edu in enumerate(programs):
                     degree = (edu.get("degree") or "").strip()
                     school = (edu.get("school") or "").strip()
@@ -2682,11 +2722,18 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         location = ""
                     dates = (edu.get("dates") or "").strip()
                     details = edu.get("details") or []
-                    details = filter_education_details(
-                        details,
-                        payload.get("education", ""),
-                        is_legal=is_legal
-                    )
+                    if is_legal:
+                        source_courses = source_courses_blocks[idx] if idx < len(source_courses_blocks) else []
+                        legal_details = []
+                        if source_courses:
+                            legal_details.append("Matières fondamentales : " + ", ".join(source_courses) + ".")
+                        details = legal_details
+                    else:
+                        details = filter_education_details(
+                            details,
+                            payload.get("education", ""),
+                            is_legal=is_legal
+                        )
 
                     # 🚫 supprime les classements inventés
                     details = [
