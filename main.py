@@ -75,6 +75,26 @@ def clean_punctuation_text(text: str) -> str:
 
     return text.strip()
 
+def normalize_role_text(role: str) -> str:
+    if not role:
+        return role
+
+    fixes = {
+        "tuuteur": "Tuteur",
+        "tuetrice": "Tutrice",
+        "assitante": "Assistante",
+        "stagaire": "Stagiaire",
+    }
+
+    low = role.strip().lower()
+    if low in fixes:
+        return fixes[low]
+
+    for bad, good in fixes.items():
+        role = re.sub(rf"(?i)\b{re.escape(bad)}\b", good, role)
+
+    return role.strip()
+
 def has_all_sections(cv_text: str) -> bool:
     t = (cv_text or "")
     return all(sec in t for sec in REQUIRED_SECTIONS)
@@ -1098,9 +1118,25 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 
     expected_edu_blocks = count_education_blocks(payload.get("education", ""))
     actual_edu_blocks = cv_text.count("DEGREE:")
-
+    
     if actual_edu_blocks < expected_edu_blocks:
         print("=== WARNING EDUCATION: BLOCS MANQUANTS ===")
+        sections = _split_sections(cv_text)
+        rebuilt_edu = rebuild_education_from_input(payload.get("education", ""))
+        rebuilt = [
+            "EDUCATION:",
+            *rebuilt_edu,
+            "",
+            "EXPERIENCES:",
+            *(sections.get("EXPERIENCES") or []),
+            "",
+            "SKILLS:",
+            *(sections.get("SKILLS") or []),
+            "",
+            "ACTIVITIES:",
+            *(sections.get("ACTIVITIES") or []),
+        ]
+        cv_text = clean_cv_output("\n".join(rebuilt))
 
     return cv_text
 
@@ -1125,6 +1161,49 @@ def count_education_blocks(raw_education: str) -> int:
     if current:
         blocks.append(current)
     return len(blocks)
+
+def rebuild_education_from_input(raw_education: str) -> list[str]:
+    """
+    Reconvertit l'input brut formation en pseudo-format structuré minimal.
+    """
+    blocks = []
+    current = []
+
+    for raw in (raw_education or "").splitlines():
+        line = (raw or "").strip()
+        if not line:
+            if current:
+                blocks.append(current)
+                current = []
+            continue
+        current.append(line)
+
+    if current:
+        blocks.append(current)
+
+    out = []
+    for block in blocks:
+        degree = block[0] if len(block) > 0 else ""
+        school = block[1] if len(block) > 1 else ""
+        location = block[2] if len(block) > 2 else ""
+        dates = block[3] if len(block) > 3 else ""
+        details = block[4:] if len(block) > 4 else []
+
+        out.append(f"DEGREE: {degree}")
+        out.append(f"SCHOOL: {school}")
+        out.append(f"LOCATION: {location}")
+        out.append(f"DATES: {dates}")
+        out.append("DETAILS:")
+
+        if details:
+            for d in details:
+                if d.strip():
+                    out.append(f"- {d.strip().lstrip('-').strip()}")
+        else:
+            out.append("- Formation.")
+        out.append("")
+
+    return out
 
 
 def _keep_lines(paragraph: Paragraph, keep_lines=True, keep_next=False):
@@ -1218,24 +1297,25 @@ def translate_months_fr(text: str) -> str:
 
     return text
 
-def strip_hallucinated_impact(text: str) -> str:
+def soften_overclaiming(text: str) -> str:
     if not text:
         return text
 
     t = text.strip()
 
-    patterns = [
-        r"\s*,\s*(permettant|améliorant|augmentant|optimisant|renforçant|contribuant\s+à|favorisant|facilitant|entraînant)\b.*$",
-        r"\s+pour\s+(identifier|améliorer|optimiser|renforcer|faciliter|augmenter|soutenir|garantir|assurer|fiabiliser)\b.*$",
-        r"\s+(garantissant|permettant|optimisant|améliorant|renforçant|contribuant\s+à|favorisant|assurant|soutenant|fiabilisant)\b.*$",
-        r"\s+afin\s+d['’](assurer|optimiser|renforcer|fiabiliser|garantir|améliorer)\b.*$",
-        r"\s+dans\s+le\s+but\s+de\s+(assurer|optimiser|renforcer|fiabiliser|garantir|améliorer)\b.*$",
+    replacements = [
+        (r"(?i)\bgénérant de nombreuses opportunités\b", "favorisant des opportunités"),
+        (r"(?i)\boptimisant la performance\b", "soutenant l'activité"),
+        (r"(?i)\brenforçant le réseau stratégique\b", "développant les échanges"),
+        (r"(?i)\bgarantissant\b", "assurant"),
+        (r"(?i)\bmaximisant\b", "soutenant"),
+        (r"(?i)\btransformant\b", "accompagnant"),
     ]
 
-    for pattern in patterns:
-        t = re.sub(pattern, "", t, flags=re.IGNORECASE).strip()
+    for pattern, repl in replacements:
+        t = re.sub(pattern, repl, t)
 
-    return t.rstrip(".") + "."
+    return t
 
 def filter_education_details(details: list[str], raw_education_input: str, is_legal: bool = False) -> list[str]:
     out = []
@@ -1846,14 +1926,8 @@ def trim_finance_experiences(
 def trim_experiences_droit(
     exps: list[dict],
     is_cv_long: bool = True,
+    is_cv_short: bool = False,
 ) -> list[dict]:
-    """
-    Version DROIT :
-    - ne réécrit PAS les bullets avec le prompt finance
-    - ne supprime pas les expériences
-    - garde un style sobre
-    - réordonne légèrement pour mettre en haut ce qui est le plus crédible pour un poste juridique
-    """
     cleaned: list[dict] = []
 
     for e in exps:
@@ -1885,26 +1959,13 @@ def trim_experiences_droit(
         ]).lower()
 
         score = 0
-
-        strong_keywords = [
-            "jurid", "droit", "social", "veille", "note", "recherche",
-            "dossier", "rh", "relations sociales", "travail"
-        ]
-        medium_keywords = [
-            "trésori", "association", "coordination", "documents",
-            "administratif", "rédaction", "suivi"
-        ]
-        weak_keywords = [
-            "vente", "magasin", "encaissement", "stock", "client"
-        ]
-
-        for k in strong_keywords:
+        for k in ["jurid", "droit", "social", "veille", "note", "recherche", "dossier", "rh", "relations sociales", "travail"]:
             if k in text:
                 score += 5
-        for k in medium_keywords:
+        for k in ["trésori", "association", "coordination", "documents", "administratif", "rédaction", "suivi"]:
             if k in text:
                 score += 2
-        for k in weak_keywords:
+        for k in ["vente", "magasin", "encaissement", "stock", "client"]:
             if k in text:
                 score -= 2
 
@@ -1915,10 +1976,22 @@ def trim_experiences_droit(
 
     for i, exp in enumerate(cleaned):
         bullets = exp.get("bullets", [])
-        if i == 0:
-            exp["bullets"] = bullets[:3]
+
+        if is_cv_short:
+            if i < 2:
+                exp["bullets"] = bullets[:3]
+            else:
+                exp["bullets"] = bullets[:2]
+        elif is_cv_long:
+            if i == 0:
+                exp["bullets"] = bullets[:3]
+            else:
+                exp["bullets"] = bullets[:2]
         else:
-            exp["bullets"] = bullets[:2]
+            if i < 2:
+                exp["bullets"] = bullets[:3]
+            else:
+                exp["bullets"] = bullets[:2]
 
     return cleaned
 
@@ -2045,6 +2118,7 @@ def trim_activities(
     lines: list[str],
     cv_is_long: bool,
     ideal_max: int = 3,
+    cv_is_short: bool = False,
 ) -> list[str]:
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
@@ -2060,6 +2134,7 @@ def trim_activities(
         low = line.lower().strip()
         if low in weak_exact:
             continue
+
         line = clean_punctuation_text(line)
 
         if line and ":" in line:
@@ -2070,6 +2145,8 @@ def trim_activities(
 
         out.append(line)
 
+    if cv_is_short:
+        return out[:4]
     return out[:ideal_max]
 
 def trim_activities_droit(
@@ -2340,6 +2417,104 @@ def _render_interests(anchor: Paragraph, lines: list[str]):
         last = new_p
 
     return last
+
+def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
+    """
+    Force SKILLS à être une liste propre de lignes séparées :
+    - Certifications : ...
+    - Maîtrise des logiciels : ...
+    - Capacités professionnelles : ...
+    - Langues : ...
+    """
+    raw = " ".join((x or "").strip() for x in (lines or []) if (x or "").strip())
+    raw = re.sub(r"\s+", " ", raw).strip()
+
+    if not raw:
+        out = []
+        if payload.get("skills"):
+            out.append(f"Maîtrise des logiciels : {payload['skills'].strip()}")
+        if payload.get("languages"):
+            out.append(f"Langues : {payload['languages'].strip()}")
+        return out
+
+    labels = [
+        "Certifications :",
+        "Maîtrise des logiciels :",
+        "Capacités professionnelles :",
+        "Langues :",
+    ]
+
+    chunks = []
+    current = raw
+
+    while current:
+        next_positions = []
+        for label in labels:
+            pos = current.find(label)
+            if pos != -1:
+                next_positions.append((pos, label))
+
+        if not next_positions:
+            if chunks:
+                chunks[-1] = chunks[-1].rstrip(", ") + ", " + current.strip()
+            else:
+                chunks.append(current.strip())
+            break
+
+        next_positions.sort(key=lambda x: x[0])
+        first_pos, first_label = next_positions[0]
+
+        if first_pos > 0:
+            orphan = current[:first_pos].strip(" ,")
+            if orphan:
+                if chunks:
+                    chunks[-1] = chunks[-1].rstrip(", ") + ", " + orphan
+                else:
+                    chunks.append(orphan)
+
+        current = current[first_pos:]
+
+        next_positions = []
+        for label in labels:
+            pos = current.find(label)
+            if pos != -1:
+                next_positions.append((pos, label))
+        next_positions.sort(key=lambda x: x[0])
+
+        if len(next_positions) >= 2:
+            start = next_positions[0][0]
+            end = next_positions[1][0]
+            chunk = current[start:end].strip()
+            current = current[end:]
+        else:
+            chunk = current.strip()
+            current = ""
+
+        if chunk:
+            chunks.append(chunk)
+
+    cleaned = []
+    seen = set()
+
+    for chunk in chunks:
+        chunk = clean_punctuation_text(chunk)
+        if not chunk:
+            continue
+        key = chunk.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(chunk)
+
+    if not any(x.lower().startswith("maîtrise des logiciels") for x in cleaned):
+        if payload.get("skills"):
+            cleaned.insert(0, f"Maîtrise des logiciels : {payload['skills'].strip()}")
+
+    if not any(x.lower().startswith("langues") for x in cleaned):
+        if payload.get("languages"):
+            cleaned.append(f"Langues : {payload['languages'].strip()}")
+
+    return cleaned
 
 def _render_skills(anchor: Paragraph, lines: list[str]):
     """
@@ -2794,7 +2969,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         if lang_text and not has_languages_line:
             llm_skills.append(f"Langues : {lang_text}")
 
-    sections["SKILLS"] = llm_skills
+    sections["SKILLS"] = normalize_skills_block(llm_skills, payload)
     sections["LANGUAGES"] = []
 
     if not sections.get("SKILLS"):
@@ -2881,9 +3056,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         if is_legal:
             interests_value = trim_activities_droit(interests_raw)
         else:
-            interests_value = trim_activities(interests_raw, cv_is_long=cv_is_long)
+            interests_value = trim_activities(interests_raw, cv_is_long=cv_is_long, cv_is_short=cv_is_short)
     else:
         interests_value = []
+
+    sections["SKILLS"] = normalize_skills_block(sections.get("SKILLS", []), payload)
         
     mapping = {
         "%%FULL_NAME%%": full_name,
@@ -3392,12 +3569,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             if is_legal:
                 exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
                 exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
-                exps = trim_experiences_droit(exps, is_cv_long=cv_is_long)
+                exps = trim_experiences_droit(exps, is_cv_long=cv_is_long, is_cv_short=cv_is_short)
 
             elif is_audit:
                 exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
                 exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
-                exps = trim_experiences_audit(exps, is_cv_long=cv_is_long)
+                exps = trim_experiences_audit(exps, is_cv_long=cv_is_long, is_cv_short=cv_is_short)
 
             else:
                 exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
@@ -3425,7 +3602,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
             for idx, exp in enumerate(exps):
                 raw_role = (exp.get("role") or "").strip()
-                role = raw_role
+                role = normalize_role_text(raw_role)
 
                 # 1) Cas du type "Stage en audit financier" -> on vire "Stage + en/dans/au/aux"
                 if not is_legal:
@@ -3507,7 +3684,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         continue
                 
                     if not is_legal:
-                        b = strip_hallucinated_impact(b.strip())
+                        b = soften_overclaiming(b.strip())
                     else:
                         b = b.strip()
 
