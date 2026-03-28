@@ -2377,6 +2377,7 @@ def trim_activities(
 def trim_activities_droit(
     lines: list[str],
     ideal_max: int = 3,
+    cv_is_short: bool = False,
 ) -> list[str]:
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
@@ -2403,6 +2404,8 @@ def trim_activities_droit(
 
         out.append(line)
 
+    if cv_is_short:
+        return out[:4]
     return out[:ideal_max]
         
 def clean_skills_lines(lines: list[str]) -> list[str]:
@@ -3279,7 +3282,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
     if isinstance(interests_raw, list):
         if is_legal:
-            interests_value = trim_activities_droit(interests_raw)
+            interests_value = trim_activities_droit(interests_raw, cv_is_short=cv_is_short)
         else:
             interests_value = trim_activities(interests_raw, cv_is_long=cv_is_long, cv_is_short=cv_is_short)
     else:
@@ -3800,6 +3803,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
                 exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
                 exps = trim_experiences_audit(exps, is_cv_long=cv_is_long, is_cv_short=cv_is_short)
+
+            elif is_management_sector(payload.get("sector", "")):
+                exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
+                exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
+                exps = trim_experiences_management(exps, is_cv_long=cv_is_long, is_cv_short=cv_is_short)
 
             else:
                 exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
