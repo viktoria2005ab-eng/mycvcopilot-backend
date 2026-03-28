@@ -2875,10 +2875,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     
     sections["LANGUAGES"] = []
     
-    interests_raw = [line.strip() for line in (payload.get("interests") or "").splitlines() if line.strip()]
-    # ✅ si l'utilisateur n'a rien mis, on n'affiche rien (et on n'invente pas)
-    if not (payload.get("interests") or "").strip():
-        interests_raw = []
+    interests_raw = sections.get("ACTIVITIES", []) or []
+
+    if not interests_raw:
+        interests_raw = [line.strip() for line in (payload.get("interests") or "").splitlines() if line.strip()]
 
     if isinstance(interests_raw, list):
         if is_legal:
@@ -3390,16 +3390,20 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
         # ------- EXPÉRIENCES PROFESSIONNELLES -------
         if ph == "%%EXPERIENCE%%":
+            exps_from_cv = parse_finance_experiences(value or [])
+
             if is_legal:
-                exps = parse_raw_experiences_input(payload.get("experiences", ""))
+                exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
                 exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
                 exps = trim_experiences_droit(exps, is_cv_long=cv_is_long)
+
             elif is_audit:
-                exps = parse_raw_experiences_input(payload.get("experiences", ""))
+                exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
                 exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
                 exps = trim_experiences_audit(exps, is_cv_long=cv_is_long)
+
             else:
-                exps = parse_finance_experiences(value or [])
+                exps = exps_from_cv
                 exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
                 exps = trim_finance_experiences(exps, is_cv_long=cv_is_long)
             anchor = p
