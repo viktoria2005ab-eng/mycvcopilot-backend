@@ -2060,8 +2060,6 @@ def trim_activities(
         low = line.lower().strip()
         if low in weak_exact:
             continue
-
-        line = re.sub(r"\s*;\s*[^;:.]+\.?$", "", line).strip()
         line = clean_punctuation_text(line)
 
         if line and ":" in line:
