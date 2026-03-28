@@ -2091,7 +2091,6 @@ def trim_activities_droit(
         if low in weak_exact:
             continue
 
-        line = re.sub(r"\s*;\s*[^;:.]+\.?$", "", line).strip()
         line = clean_punctuation_text(line)
 
         if line and ":" in line:
@@ -3401,7 +3400,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 exps = trim_experiences_audit(exps, is_cv_long=cv_is_long)
 
             else:
-                exps = exps_from_cv
+                exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
                 exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
                 exps = trim_finance_experiences(exps, is_cv_long=cv_is_long)
             anchor = p
