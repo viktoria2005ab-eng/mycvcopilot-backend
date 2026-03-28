@@ -987,6 +987,12 @@ SECTION SKILLS :
 - Les langues doivent être intégrées dans "Langues : ..."
 - Si un niveau CECRL est fourni, tu le conserves.
 - Si un score TOEIC / TOEFL / IELTS est fourni, tu peux l’intégrer à la ligne langues.
+- La section SKILLS ne doit jamais être vide.
+- Tu dois toujours écrire au minimum 2 lignes :
+  "Maîtrise des logiciels : ..."
+  "Langues : ..."
+- Si aucune certification n’est fournie, tu n’écris pas "Certifications : ...".
+- Si aucune capacité professionnelle claire n’est fournie, tu n’écris pas "Capacités professionnelles : ...".
 
 SECTION ACTIVITIES :
 - Tu n’y mets QUE des centres d’intérêt personnels.
@@ -1636,7 +1642,8 @@ def shorten_activities_with_llm(
     }
 
     prompt = f"""
-Tu es recruteur en finance.
+Tu es recruteur exigeant.
+Tu réécris des bullet points de CV de manière sobre, factuelle et crédible.
 
 On te donne une liste d'activités / centres d'intérêt.
 
@@ -2420,6 +2427,20 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
     sections = _split_sections(cv_text)
 
+    if not sections.get("SKILLS"):
+        fallback_skills = []
+
+        raw_skills = (payload.get("skills") or "").strip()
+        raw_languages = (payload.get("languages") or "").strip()
+    
+        if raw_skills:
+            fallback_skills.append(f"Maîtrise des logiciels : {raw_skills}")
+    
+        if raw_languages:
+            fallback_skills.append(f"Langues : {raw_languages}")
+    
+        sections["SKILLS"] = fallback_skills
+
     # SKILLS : on garde plusieurs lignes, mais on filtre ce qui n'est pas dans l'input user
     if isinstance(sections.get("SKILLS"), list):
         raw_skills_input = (
@@ -2560,7 +2581,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                     # ✅ fallback : si l'IA a oublié DETAILS, on met une ligne minimale
                     if not details:
-                        details = ["Matières fondamentales : Corporate Finance, Valuation, Accounting."]
+                        details = []    
 
                     # Création du tableau 2 colonnes
                     table = _add_table_after(anchor, rows=1, cols=2)
