@@ -941,8 +941,11 @@ SECTION EDUCATION :
 
 SECTION EXPERIENCES :
 - 2 bullet points par défaut par expérience.
+- Classe les expériences de la plus pertinente à la moins pertinente pour le poste visé.
+- Pour un poste en droit social, les expériences liées aux RH, au droit du travail, à la gestion de dossiers, à la rédaction formelle, à l’administratif structuré ou aux responsabilités associatives passent avant les jobs de vente ou d’accueil.
 - 3 bullet points maximum uniquement pour les expériences les plus pertinentes.
 - Chaque bullet doit être court, factuel, professionnel.
+- Chaque bullet doit reprendre STRICTEMENT l’idée présente dans l’expérience brute, sans ajouter de finalité, de bénéfice, de conformité, d’efficacité, d’optimisation ou d’impact implicite.
 - Verbes à privilégier seulement s’ils correspondent réellement au contenu :
   rédiger, analyser, rechercher, synthétiser, préparer, constituer, qualifier, assister, interpréter, mettre en conformité
 - Interdiction d’inventer :
@@ -957,6 +960,7 @@ SECTION EXPERIENCES :
   - nombre de dossiers
   - domaines juridiques non fournis
 - Si l’expérience est non juridique, tu la reformules de manière sobre et transférable, sans la transformer artificiellement en expérience juridique.
+- Pour une expérience non juridique, tu n’ajoutes jamais de vocabulaire pseudo-juridique comme conformité, réglementation, sécurité juridique, analyse contractuelle ou contentieux sauf si ces mots figurent explicitement dans le texte source.
 - Tu ne transformes jamais un job étudiant en faux stage juridique.
 - Si peu d’informations sont fournies, tu restes simple et crédible.
 
@@ -1206,26 +1210,33 @@ def strip_hallucinated_impact(text: str) -> str:
 
     return t.rstrip(".") + "."
 
-def filter_education_details(details: list[str], raw_education_input: str) -> list[str]:
-    raw = (raw_education_input or "").lower()
-
+def filter_education_details(details: list[str], raw_education_input: str, is_legal: bool = False) -> list[str]:
     out = []
+
+    # Récupère les lignes "Cours :" exactes depuis l'input utilisateur
+    source_courses = []
+    for line in (raw_education_input or "").splitlines():
+        if line.lower().startswith("cours"):
+            _, _, after = line.partition(":")
+            source_courses.extend([x.strip() for x in after.split(",") if x.strip()])
+
     for d in (details or []):
         t = (d or "").strip()
         low = t.lower()
 
-        # si c'est une ligne matières fondamentales, on ne garde QUE ce qui vient du "Cours :" utilisateur
-        if low.startswith("matières fondamentales"):
-            # récupérer les matières source depuis l'input
-            source_courses = []
-            for line in raw_education_input.splitlines():
-                if line.lower().startswith("cours"):
-                    _, _, after = line.partition(":")
-                    source_courses.extend([x.strip() for x in after.split(",") if x.strip()])
-
+        # En DROIT : si le détail parle de matières/cours, on remplace par les cours exacts utilisateur
+        if is_legal and (
+            low.startswith("matières fondamentales")
+            or low.startswith("cours")
+            or "droit du travail" in low
+            or "relations collectives" in low
+            or "procédure civile" in low
+            or "droit des obligations" in low
+        ):
             if source_courses:
                 t = "Matières fondamentales : " + ", ".join(source_courses) + "."
-            out.append(t)
+                if t not in out:
+                    out.append(t)
             continue
 
         banned_keywords = [
@@ -1238,6 +1249,10 @@ def filter_education_details(details: list[str], raw_education_input: str) -> li
             continue
 
         out.append(t)
+
+    # En DROIT : si rien n’a survécu mais qu’il y a des cours source, on force une ligne propre
+    if is_legal and not out and source_courses:
+        out.append("Matières fondamentales : " + ", ".join(source_courses) + ".")
 
     return out
 
@@ -1603,7 +1618,7 @@ def trim_experiences_droit(
     - ne réécrit PAS les bullets avec le prompt finance
     - ne supprime pas les expériences
     - garde un style sobre
-    - limite simplement le nombre de bullets selon la longueur du CV
+    - réordonne légèrement pour mettre en haut ce qui est le plus crédible pour un poste juridique
     """
     cleaned: list[dict] = []
 
@@ -1627,6 +1642,41 @@ def trim_experiences_droit(
             "bullets": bullets[:2] if is_cv_long else bullets[:3],
         })
 
+    def legal_score(exp: dict) -> int:
+        text = " ".join([
+            exp.get("role", ""),
+            exp.get("company", ""),
+            exp.get("type", ""),
+            " ".join(exp.get("bullets", []))
+        ]).lower()
+
+        score = 0
+
+        strong_keywords = [
+            "jurid", "droit", "social", "veille", "note", "recherche",
+            "dossier", "rh", "relations sociales", "travail"
+        ]
+        medium_keywords = [
+            "trésori", "association", "coordination", "documents",
+            "administratif", "rédaction", "suivi"
+        ]
+        weak_keywords = [
+            "vente", "magasin", "encaissement", "stock", "client"
+        ]
+
+        for k in strong_keywords:
+            if k in text:
+                score += 5
+        for k in medium_keywords:
+            if k in text:
+                score += 2
+        for k in weak_keywords:
+            if k in text:
+                score -= 2
+
+        return score
+
+    cleaned.sort(key=legal_score, reverse=True)
     return cleaned
 
 def shorten_activities_with_llm(
@@ -1779,8 +1829,7 @@ def trim_activities_droit(
     """
     Version DROIT :
     - ne réécrit PAS les activités avec le prompt finance
-    - enlève seulement les lignes vides ou trop faibles
-    - garde un style simple et crédible
+    - garde uniquement des lignes simples, factuelles, sobres
     """
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
@@ -1798,14 +1847,17 @@ def trim_activities_droit(
         "running",
     }
 
-    filtered = []
+    out = []
     for line in cleaned:
         low = line.lower().strip()
         if low in weak_exact:
             continue
-        filtered.append(line)
 
-    return filtered[:ideal_max]
+        # coupe les enrichissements trop RH si jamais ils arrivent déjà générés
+        line = re.sub(r"\s*;\s*(pensée critique|compétences en organisation|sens du collectif|bien-être)\.?$", "", line, flags=re.IGNORECASE)
+        out.append(line)
+
+    return out[:ideal_max]
 def clean_skills_lines(lines: list[str]) -> list[str]:
     if not lines:
         return []
@@ -2516,6 +2568,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     "compétences avancées en",
                     "visualisation de données",
                     "gestion financière avancée",
+                    "capacités analytiques",
+                    "facilitant la communication interculturelle",
+                    "compétences numériques en gestion documentaire",
+                    "pensée critique",
+                    "communication interculturelle",
                 ]
                 if any(b in low for b in banned):
                     continue
@@ -2625,7 +2682,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         location = ""
                     dates = (edu.get("dates") or "").strip()
                     details = edu.get("details") or []
-                    details = filter_education_details(details, payload.get("education", ""))
+                    details = filter_education_details(
+                        details,
+                        payload.get("education", ""),
+                        is_legal=is_legal
+                    )
 
                     # 🚫 supprime les classements inventés
                     details = [
@@ -3077,12 +3138,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 role = raw_role
 
                 # 1) Cas du type "Stage en audit financier" -> on vire "Stage + en/dans/au/aux"
-                role = re.sub(
-                    r"^(stage|stagiaire|internship|intern|traineeship)\s+(en|dans|au|aux)\s+",
-                    "",
-                    role,
-                    flags=re.IGNORECASE,
-                ).strip()
+                if not is_legal:
+                    role = re.sub(
+                        r"^(stage|stagiaire|internship|intern|traineeship)\s+(en|dans|au|aux)\s+",
+                        "",
+                        role,
+                        flags=re.IGNORECASE,
+                    ).strip()
 
                 lower_role = role.lower()
 
