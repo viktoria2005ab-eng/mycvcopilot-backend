@@ -188,6 +188,7 @@ Règles ABSOLUES :
   2) préciser légèrement 1 à 2 bullets existantes sans inventer,
   3) préciser légèrement UNE ligne existante dans EDUCATION sans ajouter de nouvelle matière,
   4) enrichir au maximum 1 activité existante sur une seule ligne, uniquement si le texte source contient déjà assez d’éléments factuels,
+  5) reformuler une expérience existante de manière plus professionnelle sans ajouter de fait nouveau.
 - Priorité absolue : densifier d'abord EXPERIENCES, puis EDUCATION.
 - Tu évites de densifier SKILLS.
 - Tu ne densifies ACTIVITIES qu’en dernier recours et de manière minimale.
@@ -303,6 +304,10 @@ def is_legal_sector(sector: str) -> bool:
 def is_audit_sector(sector: str) -> bool:
     s = (sector or "").lower()
     return "audit" in s
+
+def is_finance_sector(sector: str) -> bool:
+    s = (sector or "").lower()
+    return "finance" in s
     
 def is_management_sector(sector: str) -> bool:
     s = (sector or "").lower()
@@ -1524,6 +1529,14 @@ def _insert_spacer_after_table(table, parent, space_after):
     spacer = Paragraph(spacer_elt, parent)
     spacer.paragraph_format.space_before = Pt(0)
     spacer.paragraph_format.space_after = space_after
+    return spacer
+
+def _insert_section_spacer_after_table(table, parent):
+    spacer_elt = OxmlElement("w:p")
+    table._tbl.addnext(spacer_elt)
+    spacer = Paragraph(spacer_elt, parent)
+    spacer.paragraph_format.space_before = Pt(0)
+    spacer.paragraph_format.space_after = SECTION_SPACING
     return spacer
 
 def parse_finance_experiences(lines: list[str]) -> list[dict]:
@@ -3168,6 +3181,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     payload = payload or {}
     is_legal = is_legal_sector(payload.get("sector", ""))
     is_audit = is_audit_sector(payload.get("sector", ""))
+    is_finance = is_finance_sector(payload.get("sector", ""))
     full_name = payload.get("full_name", "").strip() or "NOM Prénom"
     role = payload.get("role", "").strip()
     finance_type = payload.get("finance_type", "").strip()
@@ -3558,8 +3572,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         spacer.paragraph_format.space_after = ITEM_SPACING
                         anchor = spacer  # on ancre le prochain tableau après ce spacer
                     else:
-                        # ❌ pas d'anchor vide après la dernière formation
-                        anchor = p  # valeur inutile ensuite, mais on évite de créer une ligne vide
+                        # ✅ On laisse FINANCE totalement intact
+                        if is_finance:
+                            anchor = p
+                        else:
+                            anchor = _insert_section_spacer_after_table(table, p._parent)
                 
                 _remove_paragraph(p)
                 continue
@@ -3790,16 +3807,22 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     r_loc.font.size = Pt(9)
                     rp.paragraph_format.space_after = Pt(0)
 
-                new_p_elt = OxmlElement("w:p")
-                table._tbl.addnext(new_p_elt)
-                anchor = Paragraph(new_p_elt, p._parent)
-                
-                # ✅ espace entre formations vs après la dernière formation
                 if i < len(filtered_blocks) - 1:
+                    new_p_elt = OxmlElement("w:p")
+                    table._tbl.addnext(new_p_elt)
+                    anchor = Paragraph(new_p_elt, p._parent)
                     anchor.paragraph_format.space_after = ITEM_SPACING
+                    anchor.paragraph_format.space_before = Pt(0)
                 else:
-                    anchor.paragraph_format.space_after = Pt(0)
-                anchor.paragraph_format.space_before = Pt(0)
+                    # ✅ On laisse FINANCE totalement intact
+                    if is_finance:
+                        new_p_elt = OxmlElement("w:p")
+                        table._tbl.addnext(new_p_elt)
+                        anchor = Paragraph(new_p_elt, p._parent)
+                        anchor.paragraph_format.space_after = Pt(0)
+                        anchor.paragraph_format.space_before = Pt(0)
+                    else:
+                        anchor = _insert_section_spacer_after_table(table, p._parent)
 
             # ⚠️ NE PAS supprimer anchor : c’est lui qui porte le space_after !
             _remove_paragraph(p)
@@ -4216,7 +4239,7 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
             continue
     
         # 2) 1 page mais trop vide => expand
-        if pages == 1 and fill < 0.88:
+        if pages == 1 and fill < 0.90:
             if expand_count >= 2:
                 break
 
