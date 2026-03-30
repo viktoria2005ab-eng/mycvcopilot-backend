@@ -186,10 +186,11 @@ Règles ABSOLUES :
   1) ajouter 1 bullet à chacune des 1 ou 2 expériences les plus pertinentes si elles n'ont que 2 bullets,
   1bis) rendre plus précises les bullets trop génériques déjà présentes,
   2) préciser légèrement 1 à 2 bullets existantes sans inventer,
-  3) enrichir légèrement une ligne de SKILLS si elle est trop pauvre, sans ajouter de nouvel outil, de nouvelle certification ou de nouvelle langue,
-  4) préciser légèrement UNE ligne existante dans EDUCATION sans ajouter de nouvelle matière,
-  5) enrichir 1 à 3 activités existantes sur une seule ligne chacune, de façon plus précise et plus professionnelle, sans inventer de niveau, fréquence, compétition, club ou événement.
-- Priorité absolue : densifier d'abord EXPERIENCES, puis ACTIVITIES, puis SKILLS, avant EDUCATION.
+  3) préciser légèrement UNE ligne existante dans EDUCATION sans ajouter de nouvelle matière,
+  4) enrichir au maximum 1 activité existante sur une seule ligne, uniquement si le texte source contient déjà assez d’éléments factuels,
+- Priorité absolue : densifier d'abord EXPERIENCES, puis EDUCATION.
+- Tu évites de densifier SKILLS.
+- Tu ne densifies ACTIVITIES qu’en dernier recours et de manière minimale.
 - Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
 - Si une activité est trop vague, tu la reformules ainsi :
   activité + pratique factuelle issue du texte + qualité utile au travail.
@@ -463,6 +464,14 @@ Ces règles priment sur toutes les autres instructions.
 - Tu peux reformuler une expérience existante pour la rendre plus claire et plus professionnelle.
 - Tu ne dois jamais déduire un impact, une recommandation, une amélioration, une optimisation, une opportunité identifiée, une qualité de rapport, une relation stratégique ou une finalité business si ce n’est pas explicitement fourni.
 - Tu ne dois jamais inventer une activité, un projet, un événement, un impact, une recommandation ou un bénéfice business.
+- Tu peux améliorer la formulation pour la rendre plus professionnelle, plus concise et plus crédible.
+- Tu peux faire ressortir une qualité transférable ou une compétence utile au poste uniquement si elle découle directement d’un fait fourni.
+- Exemple autorisé :
+  "Équitation pratiquée à niveau national pendant 15 ans" peut devenir
+  "Équitation : pratique de haut niveau développant discipline, patience et résilience."
+- Exemple interdit :
+  ajouter une fréquence, un club, un palmarès, un encadrement, un rôle ou une performance non fournis.
+- Tu enrichis le style, jamais les faits.
 
 HALLUCINATIONS (INTERDICTION ABSOLUE) :
 - Dans EDUCATION : interdiction d’ajouter des séminaires, conférences, ateliers, études de cas, projets, classements, GPA/moyenne, prix, bourses, matières, cours, spécialisations, options ou modules
@@ -2371,7 +2380,7 @@ def trim_activities(
         out.append(line)
 
     if cv_is_short:
-        return out[:4]
+        return out[:3]
     return out[:ideal_max]
 
 def trim_activities_droit(
@@ -2405,7 +2414,7 @@ def trim_activities_droit(
         out.append(line)
 
     if cv_is_short:
-        return out[:4]
+        return out[:3]
     return out[:ideal_max]
         
 def clean_skills_lines(lines: list[str]) -> list[str]:
@@ -2421,6 +2430,12 @@ def clean_skills_lines(lines: list[str]) -> list[str]:
         "connaissance approfondie",
         "maîtrise approfondie",
         "excellente maîtrise",
+        "approche orientée résultats",
+        "communication interculturelle",
+        "pensée critique",
+        "leadership",
+        "esprit stratégique",
+        "sens stratégique",
     ]
 
     cleaned = []
@@ -3796,22 +3811,18 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
             if is_legal:
                 exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
-                exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
                 exps = trim_experiences_droit(exps, is_cv_long=cv_is_long, is_cv_short=cv_is_short)
 
             elif is_audit:
                 exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
-                exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
                 exps = trim_experiences_audit(exps, is_cv_long=cv_is_long, is_cv_short=cv_is_short)
 
             elif is_management_sector(payload.get("sector", "")):
                 exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
-                exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
                 exps = trim_experiences_management(exps, is_cv_long=cv_is_long, is_cv_short=cv_is_short)
 
             else:
                 exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
-                exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
                 exps = trim_finance_experiences(exps, is_cv_long=cv_is_long)
             anchor = p
             first_table = True
