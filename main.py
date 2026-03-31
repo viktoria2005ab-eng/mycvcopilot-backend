@@ -72,6 +72,8 @@ def clean_punctuation_text(text: str) -> str:
     text = re.sub(r"\s+;", ";", text)
     text = re.sub(r";\.", ".", text)
     text = re.sub(r":\.", ".", text)
+    text = re.sub(r",\s*$", "", text)   # ✅ enlève une virgule finale
+    text = re.sub(r";\s*$", "", text)   # ✅ enlève un point-virgule final
 
     return text.strip()
 
@@ -174,30 +176,45 @@ def llm_expand_cv(cv_text: str) -> str:
         return cv_text
 
     prompt = f"""
-Tu dois rendre ce CV PLUS DENSE pour remplir correctement 1 page Word (éviter un grand vide en bas).
+Tu dois rendre ce CV PLUS DENSE pour remplir correctement 1 page Word, sans le rendre faux.
 
 Règles ABSOLUES :
 - Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, ACTIVITIES:
 - Tu ne rajoutes AUCUN commentaire ni phrase méta.
 - Tu ne coupes JAMAIS une phrase.
 - Tu n'utilises JAMAIS "..." ni de guillemets triples.
-- Tu n'inventes rien : pas de nouvelles missions, chiffres, outils.
+- Tu n'inventes rien : pas de nouvelles missions, chiffres, outils, matières, activités, résultats ou événements.
 - Tu peux uniquement :
   1) ajouter 1 bullet à chacune des 1 ou 2 expériences les plus pertinentes si elles n'ont que 2 bullets,
-  1bis) rendre plus précises les bullets trop génériques déjà présentes,
-  2) préciser légèrement 1 à 2 bullets existantes sans inventer,
+  2) rendre plus précises 1 à 2 bullets existantes sans ajouter de bénéfice, d'impact ou de finalité non présents,
   3) préciser légèrement UNE ligne existante dans EDUCATION sans ajouter de nouvelle matière,
   4) enrichir au maximum 1 activité existante sur une seule ligne, uniquement si le texte source contient déjà assez d’éléments factuels,
   5) reformuler une expérience existante de manière plus professionnelle sans ajouter de fait nouveau.
-- Priorité absolue : densifier d'abord EXPERIENCES, puis EDUCATION.
-- Tu évites de densifier SKILLS.
-- Tu ne densifies ACTIVITIES qu’en dernier recours et de manière minimale.
-- Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
-- Si une activité est trop vague, tu la reformules ainsi :
-  activité + pratique factuelle issue du texte + qualité utile au travail.
-- Exemple de style attendu :
-  "Course à pied : pratique régulière favorisant discipline et endurance."
-- Tu n’inventes jamais de compétition, de club, de fréquence ou de performance.
+
+Interdictions absolues :
+- Tu n'ajoutes jamais :
+  "améliorant", "optimisant", "renforçant", "garantissant", "assurant", "fiabilisant",
+  "augmentant", "développant le portefeuille", "taux de réponse", "pipeline",
+  "conformité réglementaire", "rentabilité", "flux de trésorerie", "partenariat durable",
+  "engagement des parties prenantes", "plan d'action", "performance globale"
+  sauf si ces mots ou ces idées sont explicitement déjà présents dans le CV source.
+- Tu n'ajoutes jamais de bénéfice implicite.
+- Tu n'ajoutes jamais de qualité de service, de satisfaction client, de résultat commercial ou de résultat opérationnel implicite.
+- Tu n'ajoutes jamais de vocabulaire cabinet / conseil / audit si le texte source ne le contient pas déjà.
+
+Priorité absolue :
+- densifier d'abord EXPERIENCES,
+- puis EDUCATION,
+- éviter de densifier SKILLS,
+- densifier ACTIVITIES seulement en dernier recours et de manière minimale.
+
+Style attendu :
+- sobre
+- crédible
+- factuel
+- professionnel
+- aucun ton marketing
+
 Sortie : UNIQUEMENT le CV complet.
 
 CV :
@@ -1277,7 +1294,15 @@ def ensure_required_sections(cv_text: str, payload: Dict[str, Any]) -> str:
     skills_lines = sections.get("SKILLS") or []
     activity_lines = sections.get("ACTIVITIES") or []
 
-    if not education_lines:
+    expected_edu_blocks = count_education_blocks(payload.get("education", ""))
+    actual_edu_blocks = sum(
+        1 for line in education_lines
+        if (line or "").strip().startswith("DEGREE:")
+    )
+
+    # ✅ si EDUCATION manque ou si le LLM a oublié un ou plusieurs diplômes,
+    # on reconstruit depuis l'input utilisateur
+    if not education_lines or actual_edu_blocks < expected_edu_blocks:
         education_lines = rebuild_education_from_input(payload.get("education", ""))
 
     if not experience_lines:
@@ -1536,7 +1561,7 @@ def _insert_section_spacer_after_table(table, parent):
     table._tbl.addnext(spacer_elt)
     spacer = Paragraph(spacer_elt, parent)
     spacer.paragraph_format.space_before = Pt(0)
-    spacer.paragraph_format.space_after = Pt(1.5)
+    spacer.paragraph_format.space_after = Pt(0.75)
     return spacer
 
 def parse_finance_experiences(lines: list[str]) -> list[dict]:
@@ -1926,38 +1951,36 @@ def enrich_experience_bullets_with_llm(exps: list[dict], sector: str = "") -> li
             return exps
 
         prompt = f"""
-        Tu es un expert en rédaction de CV.
-        
-        Ta mission :
-        Réécrire légèrement des bullet points d'expérience pour les rendre plus professionnels, sans rien inventer.
-        
-        RÈGLES STRICTES :
-        - Tu gardes exactement le même sens
-        - Tu n’inventes aucune nouvelle mission
-        - Tu n’ajoutes aucun chiffre
-        - Tu n’ajoutes aucun outil non mentionné
-        - Tu n’ajoutes aucun impact business non fourni
-        - Tu n’ajoutes aucune finalité implicite
-        - Tu n’ajoutes aucun bénéfice, aucune amélioration, aucune optimisation, aucune fiabilisation
-        - Tu n’ajoutes aucune responsabilité nouvelle
-        - Tu n’ajoutes jamais d’idée de formation, supervision, coordination, pilotage ou amélioration si ce n’est pas déjà écrit dans le bullet source
-        - Tu travailles bullet par bullet, uniquement à partir du bullet source correspondant
-        - Tu peux seulement :
-          - reformuler
-          - rendre la phrase un peu plus fluide
-          - préciser légèrement le geste déjà écrit, sans dépasser son sens
-        
-        IMPORTANT :
-        - Tu dois garder EXACTEMENT le même nombre de bullet points
-        - Tu ne fusionnes jamais deux bullets
-        - Tu ne transformes jamais un bullet simple en mission plus ambitieuse
-        - Une ligne en sortie = un bullet point
-        - Tu ne dois rien écrire d’autre
-        
-        BULLETS :
-        {chr(10).join(flat_bullets)}
-        """
+Tu es un expert en rédaction de CV juridiques.
 
+Ta mission :
+Réécrire légèrement des bullet points d'expérience pour les rendre plus professionnels, sobres et juridiquement crédibles.
+
+RÈGLES STRICTES :
+- Tu gardes exactement le même sens.
+- Tu n’inventes aucune nouvelle mission.
+- Tu n’ajoutes aucun chiffre.
+- Tu n’ajoutes aucun outil non mentionné.
+- Tu n’ajoutes aucun impact, aucun bénéfice, aucune amélioration implicite.
+- Tu n’ajoutes jamais :
+  conformité, sécurité juridique, optimisation, efficacité, amélioration continue,
+  gain de temps, réduction des risques, fiabilisation, cadre légal, réglementation
+  sauf si ces notions sont déjà présentes dans le bullet source.
+- Tu ne transformes jamais une expérience non juridique en expérience juridique.
+- Tu peux seulement :
+  - reformuler,
+  - rendre la phrase plus fluide,
+  - préciser légèrement le geste déjà écrit, sans dépasser son sens.
+
+IMPORTANT :
+- Tu dois garder EXACTEMENT le même nombre de bullet points.
+- Tu ne fusionnes jamais deux bullets.
+- Une ligne en sortie = un bullet point.
+- Tu ne dois rien écrire d’autre.
+
+BULLETS :
+{chr(10).join(flat_bullets)}
+        """
 
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -2099,11 +2122,12 @@ def trim_experiences_droit(
 
         strong = [
             "jurid", "droit", "social", "veille", "note", "recherche",
-            "dossier", "rh", "relations sociales", "travail"
+            "dossier", "rh", "relations sociales", "travail",
+            "administratif", "documents", "rédaction"
         ]
         medium = [
-            "administratif", "rédaction", "documents", "suivi",
-            "coordination", "association", "partenariat"
+            "suivi", "coordination", "association", "partenariat",
+            "tuteur", "tutrice", "tutorat"
         ]
         weak = [
             "vente", "magasin", "encaissement", "stock", "client"
@@ -3834,6 +3858,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
             if is_legal:
                 exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
+                exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
                 exps = trim_experiences_droit(exps, is_cv_long=cv_is_long, is_cv_short=cv_is_short)
 
             elif is_audit:
@@ -4240,7 +4265,8 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
     
         # 2) 1 page mais trop vide => expand
         if pages == 1 and fill < 0.90:
-            if expand_count >= 2:
+            max_expand = 2 if is_legal_sector(payload.get("sector", "")) else 1
+            if expand_count >= max_expand:
                 break
 
             cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
