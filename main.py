@@ -201,6 +201,9 @@ Interdictions absolues :
 - Tu n'ajoutes jamais de bénéfice implicite.
 - Tu n'ajoutes jamais de qualité de service, de satisfaction client, de résultat commercial ou de résultat opérationnel implicite.
 - Tu n'ajoutes jamais de vocabulaire cabinet / conseil / audit si le texte source ne le contient pas déjà.
+- Tu n'ajoutes jamais de compétition, de niveau, de fréquence, de club, de championnat, de contexte local ou régional dans ACTIVITIES si ce n'est pas explicitement présent.
+- Tu n'ajoutes jamais "juridique", "juridiques", "réglementaire", "stratégique", "commercial", "spécifiques", "sur mesure" si ces termes ne figurent pas déjà dans le texte source.
+- Tu n'ajoutes jamais de rôle métier fictif dans EXPERIENCES.
 
 Priorité absolue :
 - densifier d'abord EXPERIENCES,
@@ -1207,8 +1210,8 @@ def rebuild_education_from_input(raw_education: str) -> list[str]:
 
     out = []
     for block in blocks:
-        degree = block[0] if len(block) > 0 else ""
-        school = block[1] if len(block) > 1 else ""
+        school = block[0] if len(block) > 0 else ""
+        degree = block[1] if len(block) > 1 else ""
         location = block[2] if len(block) > 2 else ""
         dates = block[3] if len(block) > 3 else ""
         details = block[4:] if len(block) > 4 else []
@@ -1302,7 +1305,13 @@ def ensure_required_sections(cv_text: str, payload: Dict[str, Any]) -> str:
 
     # ✅ si EDUCATION manque ou si le LLM a oublié un ou plusieurs diplômes,
     # on reconstruit depuis l'input utilisateur
-    if not education_lines or actual_edu_blocks < expected_edu_blocks:
+    if (
+        not education_lines
+        or actual_edu_blocks < expected_edu_blocks
+        or is_legal_sector(payload.get("sector", ""))
+        or is_audit_sector(payload.get("sector", ""))
+        or is_management_sector(payload.get("sector", ""))
+    ):
         education_lines = rebuild_education_from_input(payload.get("education", ""))
 
     if not experience_lines:
@@ -1554,14 +1563,6 @@ def _insert_spacer_after_table(table, parent, space_after):
     spacer = Paragraph(spacer_elt, parent)
     spacer.paragraph_format.space_before = Pt(0)
     spacer.paragraph_format.space_after = space_after
-    return spacer
-
-def _insert_section_spacer_after_table(table, parent):
-    spacer_elt = OxmlElement("w:p")
-    table._tbl.addnext(spacer_elt)
-    spacer = Paragraph(spacer_elt, parent)
-    spacer.paragraph_format.space_before = Pt(0)
-    spacer.paragraph_format.space_after = Pt(0.75)
     return spacer
 
 def parse_finance_experiences(lines: list[str]) -> list[dict]:
@@ -3594,11 +3595,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
                         spacer.paragraph_format.space_after = ITEM_SPACING
-                        anchor = spacer  # on ancre le prochain tableau après ce spacer
+                        anchor = spacer
                     else:
-                        # ✅ On laisse FINANCE totalement intact
-                        if is_finance:
-                            anchor = p
+                        # ✅ on copie exactement le comportement Finance
+                        anchor = p
                         else:
                             anchor = _insert_section_spacer_after_table(table, p._parent)
                 
@@ -3838,15 +3838,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     anchor.paragraph_format.space_after = ITEM_SPACING
                     anchor.paragraph_format.space_before = Pt(0)
                 else:
-                    # ✅ On laisse FINANCE totalement intact
-                    if is_finance:
-                        new_p_elt = OxmlElement("w:p")
-                        table._tbl.addnext(new_p_elt)
-                        anchor = Paragraph(new_p_elt, p._parent)
-                        anchor.paragraph_format.space_after = Pt(0)
-                        anchor.paragraph_format.space_before = Pt(0)
-                    else:
-                        anchor = _insert_section_spacer_after_table(table, p._parent)
+                    # ✅ on copie exactement le comportement Finance
+                    new_p_elt = OxmlElement("w:p")
+                    table._tbl.addnext(new_p_elt)
+                    anchor = Paragraph(new_p_elt, p._parent)
+                    anchor.paragraph_format.space_after = Pt(0)
+                    anchor.paragraph_format.space_before = Pt(0)
 
             # ⚠️ NE PAS supprimer anchor : c’est lui qui porte le space_after !
             _remove_paragraph(p)
@@ -3858,7 +3855,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
             if is_legal:
                 exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
-                exps = enrich_experience_bullets_with_llm(exps, payload.get("sector", ""))
                 exps = trim_experiences_droit(exps, is_cv_long=cv_is_long, is_cv_short=cv_is_short)
 
             elif is_audit:
@@ -3895,6 +3891,19 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             for idx, exp in enumerate(exps):
                 raw_role = (exp.get("role") or "").strip()
                 role = normalize_role_text(raw_role)
+                
+                raw_experiences_input = payload.get("experiences", "").lower()
+                if role and role.lower() not in raw_experiences_input:
+                    original_role = (exp.get("role") or "").strip()
+                    if original_role.lower() not in raw_experiences_input:
+                        # fallback fort : on essaie de récupérer le rôle depuis l'input brut parsé
+                        parsed_original_exps = parse_raw_experiences_input(payload.get("experiences", ""))
+                        for original_exp in parsed_original_exps:
+                            original_company = (original_exp.get("company") or "").strip().lower()
+                            current_company = (exp.get("company") or "").strip().lower()
+                            if original_company and current_company and original_company == current_company:
+                                role = normalize_role_text((original_exp.get("role") or "").strip())
+                                break
 
                 # 1) Cas du type "Stage en audit financier" -> on vire "Stage + en/dans/au/aux"
                 if not is_legal:
