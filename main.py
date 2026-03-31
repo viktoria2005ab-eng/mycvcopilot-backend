@@ -1536,7 +1536,7 @@ def _insert_section_spacer_after_table(table, parent):
     table._tbl.addnext(spacer_elt)
     spacer = Paragraph(spacer_elt, parent)
     spacer.paragraph_format.space_before = Pt(0)
-    spacer.paragraph_format.space_after = SECTION_SPACING
+    spacer.paragraph_format.space_after = Pt(1.5)
     return spacer
 
 def parse_finance_experiences(lines: list[str]) -> list[dict]:
