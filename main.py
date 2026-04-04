@@ -459,7 +459,8 @@ RÈGLES :
 - 1 page maximum (ABSOLUMENT aucune 2e page).
 - Format de dates homogène, toujours sous la forme "MMM YYYY – MMM YYYY"
   (exemple : "Sept 2023 – Juin 2025") et jamais "09/2023", "2023-2025" ou "au".
-- Chaque bullet = Verbe fort + Action + Impact business (sans inventer de chiffres).
+- Chaque bullet = Verbe fort + action concrète issue de l'expérience source.
+- Tu peux professionnaliser la formulation, mais tu n'ajoutes jamais d'impact business ou de bénéfice implicite non fourni.
 - 2 à 3 bullets maximum par expérience (3 par défaut, 2 uniquement pour les expériences les moins pertinentes).
 - Interdiction des mots : assisted, helped, worked on.
 - Ton professionnel, précis, sobre.
@@ -720,7 +721,8 @@ OFFRE D’EMPLOI :
 RÈGLES :
 - 1 page maximum.
 - Format de dates homogène, toujours sous la forme "MMM YYYY – MMM YYYY".
-- Chaque bullet = Verbe fort + Action concrète + finalité professionnelle, sans inventer de chiffres.
+- Chaque bullet = Verbe fort + action concrète issue de l'expérience source.
+- Tu peux professionnaliser la formulation, mais tu n'ajoutes jamais de finalité professionnelle ou de bénéfice implicite non fourni.
 - 2 à 3 bullets maximum par expérience.
 - Ton professionnel, précis, rigoureux, sobre.
 - Classe les expériences de la plus pertinente à la moins pertinente par rapport au poste visé.
@@ -848,7 +850,8 @@ OFFRE D’EMPLOI :
 RÈGLES :
 - 1 page maximum.
 - Format de dates homogène, toujours sous la forme "MMM YYYY – MMM YYYY".
-- Chaque bullet = Verbe fort + Action concrète + finalité professionnelle, sans inventer de chiffres.
+- Chaque bullet = Verbe fort + action concrète issue de l'expérience source.
+- Tu peux professionnaliser la formulation, mais tu n'ajoutes jamais de recommandation, de finalité ou de bénéfice implicite non fourni.
 - 2 à 3 bullets maximum par expérience.
 - Ton professionnel, structuré, analytique, orienté résolution de problèmes.
 - Classe les expériences de la plus pertinente à la moins pertinente par rapport au poste visé.
@@ -1898,25 +1901,84 @@ def enrich_activities_with_llm(lines: list[str], sector: str = "") -> list[str]:
         if not cleaned:
             return []
 
+        sector_low = (sector or "").lower()
+
+        if "finance" in sector_low:
+            sector_hint = "Valorise des qualités comme discipline, rigueur, résilience, persévérance, esprit de compétition, gestion de la pression."
+        elif "audit" in sector_low:
+            sector_hint = "Valorise des qualités comme rigueur, discipline, constance, précision, persévérance."
+        elif "management" in sector_low or "stratégie" in sector_low or "strategie" in sector_low or "conseil" in sector_low:
+            sector_hint = "Valorise des qualités comme esprit d'équipe, esprit critique, aisance orale, persévérance, adaptabilité."
+        elif "droit" in sector_low or "juridique" in sector_low or "juriste" in sector_low or "avocat" in sector_low:
+            sector_hint = "Valorise des qualités comme rigueur, discipline, persévérance, esprit critique, capacité d'analyse."
+        else:
+            sector_hint = "Valorise des qualités simples, crédibles et cohérentes avec l'activité."
+
         prompt = f"""
-Tu es un expert en rédaction de CV.
+Tu es un expert en rédaction de CV premium.
 
 Ta mission :
-Réécrire légèrement les activités pour les rendre plus professionnelles et utiles.
+Transformer des centres d’intérêt bruts en lignes de CV plus valorisantes et plus élégantes,
+sans ajouter de faits faux ou absurdes.
 
-RÈGLES STRICTES :
-- Tu ne dois PAS inventer d'activité
-- Tu ne dois PAS ajouter de nouvelles informations factuelles
-- Tu peux seulement :
-  - reformuler
-  - préciser légèrement
-  - ajouter UNE qualité cohérente (discipline, rigueur, curiosité…)
+OBJECTIF PRODUIT :
+- On doit apporter de la valeur.
+- On doit rendre l’activité plus intéressante pour un recruteur.
+- On peut faire ressortir des qualités transférables, même si elles ne sont pas écrites mot pour mot,
+  à condition qu’elles soient LOGIQUES et cohérentes avec l’activité.
+- On n’invente jamais un niveau, une fréquence, un club, un championnat, un événement ou un contexte précis
+  qui n’existent pas dans l’entrée.
 
-FORMAT :
-- Une ligne = une activité
-- Format : Activité : description ; qualité.
-- Maximum 1 ligne par activité
-- Style sobre, CV
+RÈGLES :
+- Tu gardes EXACTEMENT le même nombre de lignes.
+- Une ligne en entrée = une ligne en sortie.
+- Tu écris en français.
+- Aucun markdown.
+- Aucun commentaire.
+- Pas de puces.
+- Pas de guillemets.
+- Pas de ton RH cliché.
+
+AUTORISÉ :
+- reformuler de manière plus premium
+- rendre l’activité plus professionnelle
+- ajouter 1 à 3 qualités transférables logiques
+- transformer un hobby simple en ligne plus valorisante
+
+INTERDIT :
+- inventer une compétition, un club, un niveau, une fréquence, une durée, un événement, un voyage précis
+- écrire des clichés comme :
+  "culture générale", "perspective internationale", "enrichit la vision du monde",
+  "analyse des récits", "forme physique et mentale", "ouverture sur le monde"
+- faire des phrases lourdes ou scolaires
+- faire trop long
+
+IMPORTANT :
+- Si l’entrée contient déjà un niveau précis, tu peux le reprendre.
+- Si l’entrée est simple ("Lecture", "Voyages", "Running"), tu peux enrichir intelligemment
+  avec des qualités cohérentes, sans inventer de faits précis.
+- Exemple attendu :
+  "Équitation : pratique à haut niveau développant discipline, résilience et concentration."
+- Exemple attendu :
+  "Football : pratique développant esprit d’équipe et esprit de compétition."
+- Exemple attendu :
+  "Lecture : intérêt personnel développant curiosité et esprit d’analyse."
+- Exemple attendu :
+  "Voyages : découverte de nouvelles cultures développant adaptabilité et ouverture."
+- Exemple attendu :
+  "Running : pratique régulière développant discipline et persévérance."
+- Exemple interdit :
+  "Lecture : participation à des clubs de lecture..."
+  si ce n'est pas dans l'entrée.
+- Exemple interdit :
+  "Football : compétitions régionales"
+  si ce n'est pas dans l'entrée.
+
+INDICATION SECTEUR :
+{sector_hint}
+
+FORMAT DE SORTIE :
+Nom activité : phrase valorisante concise.
 
 ACTIVITÉS :
 {chr(10).join(cleaned)}
@@ -1924,13 +1986,17 @@ ACTIVITÉS :
 
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
-            temperature=0.2,
+            temperature=0.3,
             messages=[{"role": "user", "content": prompt}],
         )
 
         text = resp.choices[0].message.content.strip()
+        result = [l.strip() for l in text.split("\n") if l.strip()]
 
-        return [l.strip() for l in text.split("\n") if l.strip()]
+        if len(result) != len(cleaned):
+            return cleaned
+
+        return result
 
     except Exception:
         return lines
@@ -2396,15 +2462,21 @@ def trim_activities(
     if not cleaned:
         return []
 
-    weak_exact = {
-        "sport", "sports", "lecture", "voyage", "voyages",
-        "cinéma", "cinema", "musique", "running"
-    }
-
     out = []
+    banned_fragments = [
+        "clubs de lecture",
+        "perspective internationale",
+        "enrichit la perspective",
+        "analyse des récits",
+        "forme physique et mentale",
+        "culture générale",
+        "vision du monde",
+    ]
+
     for line in cleaned:
         low = line.lower().strip()
-        if low in weak_exact:
+
+        if any(b in low for b in banned_fragments):
             continue
 
         line = clean_punctuation_text(line)
@@ -2430,15 +2502,21 @@ def trim_activities_droit(
     if not cleaned:
         return []
 
-    weak_exact = {
-        "sport", "sports", "lecture", "voyage", "voyages",
-        "cinéma", "cinema", "musique", "running"
-    }
-
     out = []
+    banned_fragments = [
+        "clubs de lecture",
+        "perspective internationale",
+        "enrichit la perspective",
+        "analyse des récits",
+        "forme physique et mentale",
+        "culture générale",
+        "vision du monde",
+    ]
+
     for line in cleaned:
         low = line.lower().strip()
-        if low in weak_exact:
+
+        if any(b in low for b in banned_fragments):
             continue
 
         line = clean_punctuation_text(line)
@@ -2707,8 +2785,11 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
     - Capacités professionnelles : ...
     - Langues : ...
     """
-    raw = " ".join((x or "").strip() for x in (lines or []) if (x or "").strip())
-    raw = re.sub(r"\s+", " ", raw).strip()
+    raw = re.sub(r"(?i)\bcertifications\s*:", "Certifications :", raw)
+    raw = re.sub(r"(?i)\bma[iî]trise des logiciels\s*:", "Maîtrise des logiciels :", raw)
+    raw = re.sub(r"(?i)\bcapacités professionnelles\s*:", "Capacités professionnelles :", raw)
+    raw = re.sub(r"(?i)\bcapacites professionnelles\s*:", "Capacités professionnelles :", raw)
+    raw = re.sub(r"(?i)\blangues\s*:", "Langues :", raw)
 
     if not raw:
         out = []
@@ -3108,7 +3189,7 @@ def collapse_blank_paragraphs(doc: Document, max_consecutive: int = 1):
         else:
             blanks = 0
 
-def normalize_section_titles_spacing(doc: Document):
+def normalize_section_titles_spacing(doc: Document, section_space: Pt, title_space_after: Pt):
     TITLES = {
         "FORMATION",
         "EXPÉRIENCES PROFESSIONNELLES",
@@ -3119,10 +3200,8 @@ def normalize_section_titles_spacing(doc: Document):
     for p in doc.paragraphs:
         t = (p.text or "").strip()
         if t.upper() in TITLES:
-            # ✅ l'espace AVANT le titre = espace entre sections
-            p.paragraph_format.space_before = SECTION_SPACING   
-            # ✅ petit espace après le titre (pas 2 lignes)
-            p.paragraph_format.space_after = ITEM_SPACING       
+            p.paragraph_format.space_before = section_space
+            p.paragraph_format.space_after = title_space_after     
 
 def _strip_blank_neighbors(doc: Document, p: Paragraph, before: int = 1, after: int = 1):
     """
@@ -3159,7 +3238,7 @@ def _strip_blank_neighbors(doc: Document, p: Paragraph, before: int = 1, after: 
             
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None, compact_mode: bool = False) -> None:
     doc = Document(template_path)
-    normalize_section_titles_spacing(doc)
+    # spacing appliqué plus bas selon le secteur
 
     # On mesure la longueur du texte pour savoir si on doit "tailler" ou pas.
     raw_text = cv_text or ""
@@ -3207,6 +3286,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     is_legal = is_legal_sector(payload.get("sector", ""))
     is_audit = is_audit_sector(payload.get("sector", ""))
     is_finance = is_finance_sector(payload.get("sector", ""))
+    if is_finance:
+        normalize_section_titles_spacing(doc, SECTION_SPACING, ITEM_SPACING)
+    else:
+        normalize_section_titles_spacing(doc, Pt(0), Pt(0))
     full_name = payload.get("full_name", "").strip() or "NOM Prénom"
     role = payload.get("role", "").strip()
     finance_type = payload.get("finance_type", "").strip()
@@ -3329,16 +3412,21 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     
     sections["LANGUAGES"] = []
     
-    interests_raw = sections.get("ACTIVITIES", []) or []
+    interests_source = [line.strip() for line in (payload.get("interests") or "").splitlines() if line.strip()]
 
-    if not interests_raw:
-        interests_raw = [line.strip() for line in (payload.get("interests") or "").splitlines() if line.strip()]
+    if interests_source:
+        interests_rewritten = enrich_activities_with_llm(
+            interests_source,
+            sector=payload.get("sector", "")
+        )
+    else:
+        interests_rewritten = []
 
-    if isinstance(interests_raw, list):
+    if isinstance(interests_rewritten, list):
         if is_legal:
-            interests_value = trim_activities_droit(interests_raw, cv_is_short=cv_is_short)
+            interests_value = trim_activities_droit(interests_rewritten, cv_is_short=cv_is_short)
         else:
-            interests_value = trim_activities(interests_raw, cv_is_long=cv_is_long, cv_is_short=cv_is_short)
+            interests_value = trim_activities(interests_rewritten, cv_is_long=cv_is_long, cv_is_short=cv_is_short)
     else:
         interests_value = []
 
@@ -3597,10 +3685,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         spacer.paragraph_format.space_after = ITEM_SPACING
                         anchor = spacer
                     else:
-                        # ✅ on copie exactement le comportement Finance
-                        anchor = p
-                        else:
-                            anchor = _insert_section_spacer_after_table(table, p._parent)
+                        anchor = None
                 
                 _remove_paragraph(p)
                 continue
@@ -3838,12 +3923,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     anchor.paragraph_format.space_after = ITEM_SPACING
                     anchor.paragraph_format.space_before = Pt(0)
                 else:
-                    # ✅ on copie exactement le comportement Finance
-                    new_p_elt = OxmlElement("w:p")
-                    table._tbl.addnext(new_p_elt)
-                    anchor = Paragraph(new_p_elt, p._parent)
-                    anchor.paragraph_format.space_after = Pt(0)
-                    anchor.paragraph_format.space_before = Pt(0)
+                    anchor = None
 
             # ⚠️ NE PAS supprimer anchor : c’est lui qui porte le space_after !
             _remove_paragraph(p)
@@ -4274,7 +4354,10 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
     
         # 2) 1 page mais trop vide => expand
         if pages == 1 and fill < 0.90:
-            max_expand = 2 if is_legal_sector(payload.get("sector", "")) else 1
+            if not is_finance_sector(payload.get("sector", "")):
+                break
+
+            max_expand = 1
             if expand_count >= max_expand:
                 break
 
