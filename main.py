@@ -4244,16 +4244,14 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             non_bac_blocks = [b for b in blocks_sorted if not _is_bac_block(b)]
 
             # ✅ Si CV trop court : on garde le bac même si normal (mieux que d'inventer)
+            # 4) Gestion du bac (on peut le masquer)
+            non_bac_blocks = [b for b in blocks_sorted if not _is_bac_block(b)]
+            
+            # ✅ Si CV trop court : on garde le bac même si normal
             if len(non_bac_blocks) <= 1:
                 filtered_blocks = blocks_sorted[:]
             elif cv_is_short and len(non_bac_blocks) == 1:
                 filtered_blocks = blocks_sorted[:]
-            else:
-                filtered_blocks = []
-                for b in blocks_sorted:
-                    if _is_bac_block(b) and not _keep_bac_block(b):
-                        continue
-                    filtered_blocks.append(b)
             else:
                 # ✅ Sinon : on garde le bac uniquement s'il est "élite"
                 filtered_blocks = []
