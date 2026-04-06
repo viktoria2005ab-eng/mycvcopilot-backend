@@ -4962,7 +4962,10 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
     
         # 2) 1 page mais trop vide => expand
         # pour les profils très légers, on accepte un remplissage plus faible plutôt que d'inventer
-        fill_threshold = 0.85 if cv_is_short else 0.93
+        chars_no_space_check = len(re.sub(r"\s+", "", cv_text))
+        nb_lines_check = cv_text.count("\n") + 1
+        _is_short = (chars_no_space_check < 1150) or (nb_lines_check < 42)
+        fill_threshold = 0.85 if _is_short else 0.93
         if pages == 1 and fill < fill_threshold:
             sector = payload.get("sector", "")
             max_expand = 3
