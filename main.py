@@ -77,6 +77,36 @@ def clean_punctuation_text(text: str) -> str:
 
     return text.strip()
 
+def clean_activities_output(activities):
+    if not activities:
+        return activities
+
+    cleaned = []
+
+    banned_phrases = [
+        "rigueur intellectuelle",
+        "approfondissement",
+        "ouverture d’esprit",
+        "analyse critique",
+        "passion pour",
+        "intérêt pour",
+    ]
+
+    for act in activities:
+        text = (act.get("text") or "").lower()
+
+        # supprimer activités trop faibles
+        if len(text) < 40:
+            continue
+
+        if any(b in text for b in banned_phrases):
+            continue
+
+        cleaned.append(act)
+
+    # max 3
+    return cleaned[:3]
+
 def normalize_role_text(role: str) -> str:
     if not role:
         return role
@@ -1156,13 +1186,37 @@ SECTION SKILLS :
   "Langues : ..."
 
 SECTION ACTIVITIES :
-- Tu n’y mets QUE des centres d’intérêt personnels.
+- Tu n’y mets QUE des centres d’intérêt personnels réels.
+- Chaque activité doit obligatoirement contenir :
+    1. une pratique concrète (ex : compétition, engagement, fréquence, projet, expérience)
+    2. un contexte ou niveau (ex : club, association, voyage, événement, durée)
+    3. un lien implicite avec des qualités utiles (sans exagération)
+
 - Format obligatoire :
-  "Activité : pratique factuelle ; qualité simple"
-- Si le niveau, la fréquence ou le contexte ne sont pas fournis, tu ne les inventes pas.
-- Tu évites les activités trop vagues si elles n’apportent rien.
-- Tu peux mentionner au maximum une qualité simple et crédible : rigueur, discipline, persévérance, culture générale, ouverture d’esprit.
-- Interdiction de ton RH artificiel.
+  "Activité : description concrète + impact ou apprentissage"
+
+- Interdiction ABSOLUE :
+  - "développement de la rigueur"
+  - "approfondissement des connaissances"
+  - "ouverture d’esprit"
+  - "analyse critique"
+  - "passion pour"
+  - "intérêt pour"
+  - toute formulation vague ou académique
+
+- Interdiction de faire des activités vides :
+  ❌ "course à pied : préparation d’un 5 km"
+  ❌ "lecture : loisir"
+  ❌ "cinéma : passion"
+
+- Exemples attendus :
+  ✔️ "Course à pied : entraînement régulier et participation à des courses locales, développant endurance et discipline"
+  ✔️ "Piano : pratique depuis 5 ans, apprentissage progressif et rigoureux"
+  ✔️ "Voyages : découverte de plusieurs pays, développant adaptabilité et ouverture culturelle"
+  ✔️ "Bénévolat : engagement associatif ponctuel, gestion d’événements étudiants"
+
+- Maximum 2 à 3 activités
+- Chaque activité doit apporter une information utile ou valorisante
 
 RÈGLES DE STYLE :
 - Phrases courtes.
@@ -1590,6 +1644,32 @@ def soften_overclaiming(text: str) -> str:
         (r"(?i)\bmaximisant\b", "renforçant"),
         (r"(?i)\bgarantissant\b", "assurant"),
         (r"(?i)\baméliorant\b", "soutenant"),
+    ]
+
+    for pattern, repl in replacements:
+        t = re.sub(pattern, repl, t)
+
+    t = re.sub(r"\s+", " ", t).strip()
+    return clean_punctuation_text(t)
+
+def soften_legal_overclaiming(text: str) -> str:
+    if not text:
+        return text
+
+    t = text.strip()
+
+    replacements = [
+        (r"(?i)\bfacilitant (leur|la) compréhension\b", "à destination de l'équipe"),
+        (r"(?i)\bgarantissant la conformité\b", "dans le respect des documents fournis"),
+        (r"(?i)\bgarantissant (leur|une) précision\b", "avec rigueur"),
+        (r"(?i)\bfavorisant\b", "dans le cadre de"),
+        (r"(?i)\bcontribuant à\b", ""),
+        (r"(?i)\bvisant à\b", ""),
+        (r"(?i)\bassurant une gestion optimale\b", "participant au suivi"),
+        (r"(?i)\bdéveloppant des stratégies de défense\b", "analysant des cas pratiques"),
+        (r"(?i)\bpermettant\b", ""),
+        (r"(?i)\boptimale\b", "structurée"),
+        (r"(?i)\befficace\b", "rigoureux"),
     ]
 
     for pattern, repl in replacements:
@@ -2776,17 +2856,8 @@ def trim_activities_droit(
 
         weak_legal_hobbies = ["musique", "cinéma", "cinema", "shopping"]
         if any(h in low_after for h in weak_legal_hobbies):
-            has_precision = any(
-                marker in low_after
-                for marker in [
-                    "fois", "km", "pays", "bénévol", "benevol", "lecture",
-                    "philosophie", "histoire", "club", "ans", "élèves", "eleves", "course"
-                ]
-            )
-            if not has_precision:
-                # on ne supprime plus automatiquement si le CV est court
-                if not cv_is_short:
-                    continue
+            if cv_is_long:
+                continue
 
         if line and ":" in line:
             head, tail = line.split(":", 1)
@@ -3971,16 +4042,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                     # ✅ fallback : si aucun détail n'existe, on ajoute une ligne courte pour éviter le trou visuel
                     if not details:
-                        degree_low = (degree or "").lower()
-                    
-                        if "baccalauréat" in degree_low or "baccalaureat" in degree_low:
-                            details = []
-                        elif "licence" in degree_low:
-                            details = ["Formation généraliste en lien avec le cursus."]
-                        elif "double licence" in degree_low:
-                            details = ["Formation pluridisciplinaire en lien avec le cursus."]
-                        else:
-                            details = ["Formation en lien avec le programme suivi."]   
+                        details = []    
 
                     # Création du tableau 2 colonnes
                     table = _add_table_after(anchor, rows=1, cols=2)
@@ -4182,8 +4244,16 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             non_bac_blocks = [b for b in blocks_sorted if not _is_bac_block(b)]
 
             # ✅ Si CV trop court : on garde le bac même si normal (mieux que d'inventer)
-            if cv_is_short or len(non_bac_blocks) <= 1:
+            if len(non_bac_blocks) <= 1:
                 filtered_blocks = blocks_sorted[:]
+            elif cv_is_short and len(non_bac_blocks) == 1:
+                filtered_blocks = blocks_sorted[:]
+            else:
+                filtered_blocks = []
+                for b in blocks_sorted:
+                    if _is_bac_block(b) and not _keep_bac_block(b):
+                        continue
+                    filtered_blocks.append(b)
             else:
                 # ✅ Sinon : on garde le bac uniquement s'il est "élite"
                 filtered_blocks = []
@@ -4458,7 +4528,17 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                                 role = normalize_role_text((original_exp.get("role") or "").strip())
                                 break
 
-                if len(role.strip()) <= 5 or role.strip().lower() in {"rh", "audit", "finance", "juridique"}:
+                if len(role.strip()) <= 8 or role.strip().lower() in {
+                    "rh", "audit", "finance", "juridique", "juridique contentieux", "service juridique"
+                }:
+                    parsed_original_exps = parse_raw_experiences_input(payload.get("experiences", ""))
+                    for original_exp in parsed_original_exps:
+                        original_company = (original_exp.get("company") or "").strip().lower()
+                        current_company = (exp.get("company") or "").strip().lower()
+                        original_role = (original_exp.get("role") or "").strip()
+                        if original_company and current_company and original_company == current_company and original_role:
+                            role = normalize_role_text(original_role)
+                            break
                     parsed_original_exps = parse_raw_experiences_input(payload.get("experiences", ""))
                     for original_exp in parsed_original_exps:
                         original_company = (original_exp.get("company") or "").strip().lower()
@@ -4547,10 +4627,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     if not b:
                         continue
                 
-                    if not is_legal:
-                        b = soften_overclaiming(b.strip())
+                    if is_legal:
+                        b = soften_legal_overclaiming(b.strip())
                     else:
-                        b = b.strip()
+                        b = soften_overclaiming(b.strip())
 
                     b = clean_punctuation_text(b)
                     b_clean = b.strip().lower()
@@ -4717,7 +4797,17 @@ def quota_check(email: str):
     email = email.strip().lower()
     if not email:
         raise HTTPException(status_code=400, detail="Email manquant.")
-    return {"ok": True, "message": "ℹ️ Ton CV gratuit du mois est déjà utilisé. Le prochain sera payant."}
+    current_month = month_key()
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT month FROM quota WHERE email = %s", (email,))
+                row = cur.fetchone()
+    except Exception:
+        raise HTTPException(status_code=503, detail="DB unavailable")
+    if not row or row[0] != current_month:
+        return {"ok": True, "free": True, "message": "✅ Tu as encore ton CV gratuit ce mois-ci."}
+    return {"ok": True, "free": False, "message": "ℹ️ Ton CV gratuit du mois est déjà utilisé. Le prochain sera payant."}
 
 @app.post("/start")
 async def start(payload: Dict[str, Any]):
@@ -4753,12 +4843,6 @@ async def start(payload: Dict[str, Any]):
 
     job_id = await generate_and_store(payload)
     return {"mode": "free", "downloads": make_download_urls(job_id)}
-
-    # Sinon paiement obligatoire
-    raise HTTPException(
-        status_code=402,
-        detail="CV gratuit déjà utilisé. Paiement requis."
-    )
 
 @app.post("/confirm_paid")
 async def confirm_paid(payload: Dict[str, Any]):
@@ -4893,6 +4977,8 @@ import os
 
 @app.get("/_setup_db")
 def setup_db():
+    if os.getenv("ENV", "production") != "development":
+        raise HTTPException(status_code=403, detail="Interdit en production.")
     DATABASE_URL = os.getenv("DATABASE_URL")
     if not DATABASE_URL:
         return {"error": "DATABASE_URL not configured"}
