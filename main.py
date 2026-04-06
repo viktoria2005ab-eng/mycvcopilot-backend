@@ -973,7 +973,9 @@ RÈGLES STRICTES :
 - Tu n’utilises que les informations fournies.
 - Si une expérience est peu détaillée, tu la professionnalises sans extrapoler.
 - Tu peux reformuler une expérience existante de manière plus structurée, plus professionnelle et légèrement plus valorisante si cela reste crédible.
+- Tu dois privilégier des formulations simples, directes et naturelles.
 - Tu n’inventes jamais de projet, d’événement, de recommandation stratégique formelle ni d’impact chiffré.
+- Tu évites les expressions artificielles comme : besoins d'un client spécifique, décisions stratégiques, planification efficace, environnement collaboratif, portefeuille clients, processus de vente, service orienté satisfaction, fidélisation.
 
 HALLUCINATIONS (INTERDICTION ABSOLUE) :
 - Dans EDUCATION : interdiction d’ajouter classements, GPA, distinctions, projets, matières, cours, spécialisations, options ou modules non fournis.
@@ -1276,8 +1278,8 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
-ITEM_SPACING = Pt(0.5)   # espace entre 2 formations / 2 expériences
-SECTION_SPACING = Pt(1.5) # espace entre sections (Formation -> Exp, Exp -> Skills)
+ITEM_SPACING = Pt(0.2)   # espace entre 2 formations / 2 expériences
+SECTION_SPACING = Pt(1) # espace entre sections (Formation -> Exp, Exp -> Skills)
 
 from docx.oxml.ns import qn
 
@@ -1567,24 +1569,27 @@ def soften_overclaiming(text: str) -> str:
     t = text.strip()
 
     replacements = [
-        (r"(?i)\bfavorisant la décision et le reporting\b", "pour l'équipe"),
-        (r"(?i)\bpour recommandations précises\b", "pour analyse"),
-        (r"(?i)\bassurant une expérience agréable pour les clients\b", "dans le respect du flux en caisse"),
-        (r"(?i)\bgarantir leur participation\b", "assurer le suivi des échanges"),
-        (r"(?i)\bbon déroulement annuel\b", "bon déroulement des événements"),
-        (r"(?i)\bet vérification des documents pertinents\b", "et vérification des documents"),
-        (r"(?i)\bde manière structurée\b", ""),
-        (r"(?i)\ben utilisant des outils de gestion\b", ""),
-        (r"(?i)\bdétaillé\b", ""),
-        (r"(?i)\borganisation de réunions budgétaires avec les membres\b", "présentation aux membres"),
-        (r"(?i)\bavec un service attentionné\b", ""),
-        (r"(?i)\bet optimisation de l'espace\b", ""),
+        (r"(?i)\bfavorisant la compréhension des données\b", "pour analyse"),
+        (r"(?i)\bfacilitant la prise de décisions stratégiques\b", "pour l'équipe"),
+        (r"(?i)\bcontribuant aux travaux d'analyse\b", "pour le suivi des analyses"),
+        (r"(?i)\brenforçant le réseau associatif\b", "pour développer les partenariats"),
+        (r"(?i)\bétablissant des relations durables\b", "assurant le suivi des échanges"),
+        (r"(?i)\bassurant une planification efficace\b", "pour le bon déroulement des événements"),
+        (r"(?i)\bassurant un service de qualité\b", "dans le respect du flux en caisse"),
+        (r"(?i)\bdéveloppant des compétences en stress\b", "mobilisant réactivité et organisation"),
+        (r"(?i)\bfavorisant leur progression académique\b", "dans leur apprentissage"),
+        (r"(?i)\bstimulant l'intérêt des élèves\b", "dans la compréhension des méthodes"),
+        (r"(?i)\bscrupuleusement\b", ""),
+        (r"(?i)\bdocumentation exhaustive\b", "documentation claire"),
+        (r"(?i)\bsaine et responsable\b", "structurée"),
+        (r"(?i)\bconcerts scolaires\b", "pratique collective"),
+        (r"(?i)\bpromotion d'un environnement accueillant\b", "accueil des visiteurs"),
+        (r"(?i)\bengagement constant pour l'actualité\b", "intérêt pour l'actualité"),
+        (r"(?i)\bcultivant discipline, créativité et confiance en soi\b", "développant discipline et constance"),
         (r"(?i)\boptimisant\b", "soutenant"),
         (r"(?i)\bmaximisant\b", "renforçant"),
         (r"(?i)\bgarantissant\b", "assurant"),
         (r"(?i)\baméliorant\b", "soutenant"),
-        (r"(?i)\bperformance\b", "activité"),
-        (r"(?i)\bopportunités\b", "pistes"),
     ]
 
     for pattern, repl in replacements:
@@ -2513,7 +2518,14 @@ def trim_experiences_audit(
 
     cleaned.sort(key=audit_score, reverse=True)
     cleaned = cleaned[:4]
-    cleaned = trim_finance_experiences(cleaned, is_cv_long=is_cv_long)
+    cleaned = apply_density_to_experiences(
+        cleaned,
+        is_cv_long=is_cv_long,
+        is_cv_short=is_cv_short,
+        keep_three_for_short=4,
+        keep_three_for_normal=3,
+        keep_three_for_long=2,
+    )
     return cleaned
 
 def trim_experiences_management(
@@ -2579,7 +2591,14 @@ def trim_experiences_management(
 
     cleaned.sort(key=management_score, reverse=True)
     cleaned = cleaned[:4]
-    cleaned = trim_finance_experiences(cleaned, is_cv_long=is_cv_long)
+    cleaned = apply_density_to_experiences(
+        cleaned,
+        is_cv_long=is_cv_long,
+        is_cv_short=is_cv_short,
+        keep_three_for_short=4,
+        keep_three_for_normal=3,
+        keep_three_for_long=2,
+    )
     return cleaned
 
 def shorten_activities_with_llm(
@@ -2712,10 +2731,13 @@ def trim_activities(
 
     if cv_is_short:
         return out[:4]
-
+    
     if cv_is_long:
         return out[:4] if len(out) <= 4 else out[:3]
-
+    
+    if len(out) <= 4:
+        return out
+    
     return out[:4]
 
 def trim_activities_droit(
@@ -2780,10 +2802,13 @@ def trim_activities_droit(
 
     if cv_is_short:
         return out[:4]
-
+    
     if cv_is_long:
         return out[:4] if len(out) <= 4 else out[:3]
-
+    
+    if len(out) <= 4:
+        return out
+    
     return out[:4]
         
 def clean_skills_lines(lines: list[str]) -> list[str]:
@@ -3802,12 +3827,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     else:
         interests_source = payload_activities
     
-    # on garde l'enrichissement produit des activités
+    # on stabilise les activités : on garde la version générée ou utilisateur sans réécriture LLM
     if interests_source:
-        interests_rewritten = enrich_activities_with_llm(
-            interests_source,
-            sector=payload.get("sector", "")
-        )
+        interests_rewritten = interests_source
     else:
         interests_rewritten = []
     
@@ -3947,9 +3969,18 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     ]
                     details = dedupe_preserve_order(details)
 
-                    # ✅ fallback : si l'IA a oublié DETAILS, on met une ligne minimale
+                    # ✅ fallback : si aucun détail n'existe, on ajoute une ligne courte pour éviter le trou visuel
                     if not details:
-                        details = []    
+                        degree_low = (degree or "").lower()
+                    
+                        if "baccalauréat" in degree_low or "baccalaureat" in degree_low:
+                            details = []
+                        elif "licence" in degree_low:
+                            details = ["Formation généraliste en lien avec le cursus."]
+                        elif "double licence" in degree_low:
+                            details = ["Formation pluridisciplinaire en lien avec le cursus."]
+                        else:
+                            details = ["Formation en lien avec le programme suivi."]   
 
                     # Création du tableau 2 colonnes
                     table = _add_table_after(anchor, rows=1, cols=2)
@@ -4116,7 +4147,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         table._tbl.addnext(spacer_elt)
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
-                        spacer.paragraph_format.space_after = Pt(0.5)
+                        spacer.paragraph_format.space_after = Pt(0)
                         anchor = spacer
                 
                 _remove_paragraph(p)
@@ -4359,7 +4390,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     new_p_elt = OxmlElement("w:p")
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
-                    anchor.paragraph_format.space_after = Pt(0.5)
+                    anchor.paragraph_format.space_after = Pt(0)
                     anchor.paragraph_format.space_before = Pt(0)
 
             # ⚠️ NE PAS supprimer anchor : c’est lui qui porte le space_after !
@@ -4427,7 +4458,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                                 role = normalize_role_text((original_exp.get("role") or "").strip())
                                 break
 
-                if len(role.strip()) <= 3:
+                if len(role.strip()) <= 5 or role.strip().lower() in {"rh", "audit", "finance", "juridique"}:
                     parsed_original_exps = parse_raw_experiences_input(payload.get("experiences", ""))
                     for original_exp in parsed_original_exps:
                         original_company = (original_exp.get("company") or "").strip().lower()
