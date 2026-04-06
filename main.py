@@ -271,6 +271,88 @@ CV :
     )
     return resp.choices[0].message.content.strip()
 
+def llm_expand_cv_audit(cv_text: str) -> str:
+    if not client:
+        return cv_text
+
+    prompt = f"""
+Tu dois rendre ce CV AUDIT légèrement plus dense pour mieux remplir une page Word,
+sans inventer la moindre information.
+
+Règles ABSOLUES :
+- Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, ACTIVITIES:
+- Tu ne rajoutes aucun commentaire.
+- Tu n’inventes rien.
+- Tu n’ajoutes aucune mission, aucun chiffre, aucun outil, aucune matière, aucune activité.
+- Tu ne rajoutes jamais d’impact implicite, de gain, d’optimisation ou de bénéfice.
+- Tu ne rajoutes jamais "conformité", "contrôle interne", "procédures d'audit", "états financiers"
+  si ces notions ne sont pas déjà présentes.
+
+Tu peux uniquement :
+1) ajouter 1 bullet à l’expérience la plus pertinente si elle n’en a que 2,
+2) reformuler légèrement 1 ou 2 bullets pour les rendre un peu plus précises,
+3) conserver davantage de détails académiques déjà présents,
+4) enrichir très légèrement une activité existante sans ajouter de fait nouveau.
+
+Style :
+- sobre
+- rigoureux
+- crédible
+- factuel
+- professionnel
+
+Sortie : UNIQUEMENT le CV complet.
+
+CV :
+\"\"\"{cv_text}\"\"\"
+"""
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.choices[0].message.content.strip()
+
+
+def llm_expand_cv_management(cv_text: str) -> str:
+    if not client:
+        return cv_text
+
+    prompt = f"""
+Tu dois rendre ce CV MANAGEMENT légèrement plus dense pour mieux remplir une page Word,
+sans inventer la moindre information.
+
+Règles ABSOLUES :
+- Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, ACTIVITIES:
+- Tu ne rajoutes aucun commentaire.
+- Tu n’inventes rien.
+- Tu n’ajoutes aucune mission, aucun chiffre, aucun outil, aucune matière, aucune activité.
+- Tu ne rajoutes jamais de recommandation, de diagnostic, de benchmark, de pilotage ou de bénéfice
+  si cela n'est pas déjà présent dans le texte source.
+
+Tu peux uniquement :
+1) ajouter 1 bullet à l’expérience la plus pertinente si elle n’en a que 2,
+2) reformuler légèrement 1 ou 2 bullets pour les rendre un peu plus précises,
+3) conserver davantage de détails académiques déjà présents,
+4) enrichir très légèrement une activité existante sans ajouter de fait nouveau.
+
+Style :
+- sobre
+- structuré
+- crédible
+- factuel
+- professionnel
+
+Sortie : UNIQUEMENT le CV complet.
+
+CV :
+\"\"\"{cv_text}\"\"\"
+"""
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.choices[0].message.content.strip()
+
 # --- MVP "DB" en mémoire (à remplacer par Postgres plus tard)
 # quota[email] = "YYYY-MM" (mois où le gratuit a été consommé)
 quota: Dict[str, str] = {}
@@ -1371,9 +1453,6 @@ def ensure_required_sections(cv_text: str, payload: Dict[str, Any]) -> str:
     if (
         not education_lines
         or actual_edu_blocks < expected_edu_blocks
-        or is_legal_sector(payload.get("sector", ""))
-        or is_audit_sector(payload.get("sector", ""))
-        or is_management_sector(payload.get("sector", ""))
     ):
         education_lines = rebuild_education_from_input(payload.get("education", ""))
 
@@ -1556,6 +1635,61 @@ def filter_education_details(details: list[str], raw_education_input: str, is_le
     # En DROIT : si rien n’a survécu mais qu’il y a des cours source, on force une ligne propre
     if is_legal and not out and source_courses:
         out.append("Matières fondamentales : " + ", ".join(source_courses) + ".")
+
+    return out
+def is_course_detail_line(text: str) -> bool:
+    if not text:
+        return False
+
+    low = text.strip().lower()
+
+    course_markers = [
+        "matières fondamentales",
+        "matieres fondamentales",
+        "cours",
+        "key coursework",
+    ]
+
+    if any(low.startswith(marker) for marker in course_markers):
+        return True
+
+    if "droit du travail" in low or "protection sociale" in low or "relations collectives" in low:
+        return True
+    if "comptabilité" in low or "comptabilite" in low or "analyse financière" in low or "analyse financiere" in low:
+        return True
+    if "contrôle de gestion" in low or "controle de gestion" in low:
+        return True
+    if "stratégie" in low or "strategie" in low or "analyse de marché" in low or "analyse de marche" in low:
+        return True
+
+    return False
+
+
+def normalize_detail_for_dedupe(text: str) -> str:
+    if not text:
+        return ""
+    t = text.strip().lower()
+    t = t.replace("’", "'")
+    t = re.sub(r"\s+", " ", t)
+    t = re.sub(r"[.;:,]+$", "", t)
+    return t
+
+
+def dedupe_preserve_order(lines: list[str]) -> list[str]:
+    out = []
+    seen = set()
+
+    for line in lines or []:
+        txt = clean_punctuation_text((line or "").strip())
+        if not txt:
+            continue
+
+        key = normalize_detail_for_dedupe(txt)
+        if key in seen:
+            continue
+
+        seen.add(key)
+        out.append(txt)
 
     return out
 
@@ -2531,7 +2665,7 @@ Voici les activités :
 def trim_activities(
     lines: list[str],
     cv_is_long: bool,
-    ideal_max: int = 3,
+    ideal_max: int = 4,
     cv_is_short: bool = False,
 ) -> list[str]:
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
@@ -2547,8 +2681,6 @@ def trim_activities(
         "forme physique et mentale",
         "culture générale",
         "vision du monde",
-        "cinéma",
-        "shopping",
     ]
 
     for line in cleaned:
@@ -2564,17 +2696,26 @@ def trim_activities(
             head = head.strip()
             tail = tail.strip().rstrip(".")
             line = f"{head} : {tail}."
+        elif line and " : " not in line:
+            line = line.rstrip(".") + "."
 
         out.append(line)
 
+    out = dedupe_preserve_order(out)
+
     if cv_is_short:
+        return out[:4]
+
+    if cv_is_long:
         return out[:3]
-    return out[:ideal_max]
+
+    return out[:4]
 
 def trim_activities_droit(
     lines: list[str],
-    ideal_max: int = 3,
+    ideal_max: int = 4,
     cv_is_short: bool = False,
+    cv_is_long: bool = False,
 ) -> list[str]:
     cleaned = [(l or "").strip() for l in (lines or []) if (l or "").strip()]
     if not cleaned:
@@ -2589,8 +2730,6 @@ def trim_activities_droit(
         "forme physique et mentale",
         "culture générale",
         "vision du monde",
-        "cinéma",
-        "shopping",
     ]
 
     for line in cleaned:
@@ -2602,30 +2741,39 @@ def trim_activities_droit(
         line = clean_punctuation_text(line)
         low_after = line.lower()
 
-        # En droit, on évite les activités trop floues si elles ne sont pas contextualisées
-        weak_legal_hobbies = ["musique", "cinéma", "shopping"]
+        weak_legal_hobbies = ["musique", "cinéma", "cinema", "shopping"]
         if any(h in low_after for h in weak_legal_hobbies):
             has_precision = any(
                 marker in low_after
                 for marker in [
-                    "fois", "km", "pays", "bénévol", "lecture", "philosophie",
-                    "histoire", "club", "ans", "élèves", "eleves", "course"
+                    "fois", "km", "pays", "bénévol", "benevol", "lecture",
+                    "philosophie", "histoire", "club", "ans", "élèves", "eleves", "course"
                 ]
             )
             if not has_precision:
-                continue
+                # on ne supprime plus automatiquement si le CV est court
+                if not cv_is_short:
+                    continue
 
         if line and ":" in line:
             head, tail = line.split(":", 1)
             head = head.strip()
             tail = tail.strip().rstrip(".")
             line = f"{head} : {tail}."
+        elif line and " : " not in line:
+            line = line.rstrip(".") + "."
 
         out.append(line)
 
+    out = dedupe_preserve_order(out)
+
     if cv_is_short:
+        return out[:4]
+
+    if cv_is_long:
         return out[:3]
-    return out[:ideal_max]
+
+    return out[:4]
         
 def clean_skills_lines(lines: list[str]) -> list[str]:
     if not lines:
@@ -2871,6 +3019,57 @@ def _render_interests(anchor: Paragraph, lines: list[str]):
 
     return last
 
+def dedupe_language_items(items: list[str]) -> list[str]:
+    if not items:
+        return []
+
+    normalized = []
+    seen_exact = set()
+    seen_language_bases = set()
+
+    language_roots = [
+        "anglais", "français", "francais", "espagnol", "allemand",
+        "italien", "chinois", "mandarin", "cantonais", "japonais",
+        "coréen", "coreen", "arabe", "portugais", "russe"
+    ]
+
+    test_keywords = ["toeic", "toefl", "ielts", "cambridge"]
+
+    for raw in items:
+        txt = clean_punctuation_text((raw or "").strip())
+        if not txt:
+            continue
+
+        low = txt.lower()
+        low = low.replace("niveau ", "")
+        low = re.sub(r"\s+", " ", low).strip()
+
+        # si c'est un test officiel, on le garde tel quel une seule fois
+        if any(k in low for k in test_keywords):
+            if low not in seen_exact:
+                seen_exact.add(low)
+                normalized.append(txt)
+            continue
+
+        matched_root = None
+        for root in language_roots:
+            if low.startswith(root):
+                matched_root = root
+                break
+
+        if matched_root:
+            if matched_root in seen_language_bases:
+                continue
+            seen_language_bases.add(matched_root)
+            normalized.append(txt)
+            continue
+
+        if low not in seen_exact:
+            seen_exact.add(low)
+            normalized.append(txt)
+
+    return normalized
+
 def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
     raw = " ".join((x or "").strip() for x in (lines or []) if (x or "").strip())
     raw = re.sub(r"\s+", " ", raw).strip()
@@ -2986,6 +3185,8 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
         else:
             cleaned.insert(0, "Maîtrise des logiciels : Pack Office")
 
+    certifications_items = dedupe_preserve_order(certifications_items)
+
     if certifications_items:
         cert_line = "Certifications : " + ", ".join(certifications_items)
         if not any(x.lower().startswith("certifications :") for x in cleaned):
@@ -2996,6 +3197,8 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
         for lang in base_langs:
             if lang not in language_tests:
                 language_tests.insert(0, lang)
+
+    language_tests = dedupe_language_items(language_tests)
 
     if language_tests:
         lang_line = "Langues : " + ", ".join(language_tests)
@@ -3565,27 +3768,34 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     
     sections["LANGUAGES"] = []
     
-    interests_source = [line.strip() for line in (payload.get("interests") or "").splitlines() if line.strip()]
-
-    if interests_source:
-        if is_finance_sector(payload.get("sector", "")):
-            interests_rewritten = enrich_activities_with_llm(
-                interests_source,
-                sector=payload.get("sector", "")
-            )
-        else:
-            interests_rewritten = interests_source
+    generated_activities = sections.get("ACTIVITIES") or []
+    payload_activities = [line.strip() for line in (payload.get("interests") or "").splitlines() if line.strip()]
+    
+    # priorité à la sortie générée si elle existe, sinon fallback input utilisateur
+    if generated_activities and isinstance(generated_activities, list):
+        interests_source = [x.strip() for x in generated_activities if x and x.strip()]
     else:
-        interests_rewritten = []
-
+        interests_source = payload_activities
+    
+    # pour stabiliser avant lancement, on désactive l'enrichissement LLM des activités
+    interests_rewritten = interests_source
+    
     if isinstance(interests_rewritten, list):
         if is_legal:
-            interests_value = trim_activities_droit(interests_rewritten, cv_is_short=cv_is_short)
+            interests_value = trim_activities_droit(
+                interests_rewritten,
+                cv_is_short=cv_is_short,
+                cv_is_long=cv_is_long,
+            )
         else:
-            interests_value = trim_activities(interests_rewritten, cv_is_long=cv_is_long, cv_is_short=cv_is_short)
+            interests_value = trim_activities(
+                interests_rewritten,
+                cv_is_long=cv_is_long,
+                cv_is_short=cv_is_short,
+            )
     else:
         interests_value = []
-
+    
     sections["SKILLS"] = normalize_skills_block(sections.get("SKILLS", []), payload)
         
     mapping = {
@@ -3673,28 +3883,38 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                     merged_details = []
 
+                    # 1) on garde d'abord les extra details utilisateur SAUF les lignes de cours
                     for d in extra_details:
                         d = clean_punctuation_text((d or "").strip())
-                        if d and d not in merged_details:
-                            merged_details.append(d)
-
-                    if source_courses:
-                        course_line = "Matières fondamentales : " + ", ".join(source_courses) + "."
-                        if course_line not in merged_details:
-                            merged_details.append(course_line)
-
+                        if not d:
+                            continue
+                        if is_course_detail_line(d):
+                            continue
+                        merged_details.append(d)
+                    
+                    # 2) on garde ensuite les détails LLM SAUF les lignes de cours
+                    #    car les matières doivent venir d'une seule source de vérité
                     for d in details:
                         d = clean_punctuation_text((d or "").strip())
-                        if d and d not in merged_details:
-                            merged_details.append(d)
-
-                    details = merged_details
+                        if not d:
+                            continue
+                        if is_course_detail_line(d):
+                            continue
+                        merged_details.append(d)
+                    
+                    # 3) on ajoute UNE SEULE ligne matières si l'utilisateur a fourni des cours
+                    if source_courses:
+                        course_line = "Matières fondamentales : " + ", ".join(source_courses) + "."
+                        merged_details.append(course_line)
+                    
+                    details = dedupe_preserve_order(merged_details)
 
                     # 🚫 supprime les classements inventés
                     details = [
                         d for d in details
                         if not re.search(r"(?i)classement|rank|top\s*\d+", d)
                     ]
+                    details = dedupe_preserve_order(details)
 
                     # ✅ fallback : si l'IA a oublié DETAILS, on met une ligne minimale
                     if not details:
@@ -4546,35 +4766,39 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
         # 2) 1 page mais trop vide => expand
         if pages == 1 and fill < 0.90:
             sector = payload.get("sector", "")
-
-            # DROIT : on tente une expansion mais avec prompt dédié plus sûr
+            max_expand = 1
+        
+            if expand_count >= max_expand:
+                break
+        
             if is_legal_sector(sector):
-                max_expand = 1
-                if expand_count >= max_expand:
-                    break
-
                 cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_droit(cv_text))
                 last_action = "expand"
                 expand_count += 1
                 continue
-
-            # AUDIT / MANAGEMENT : on n'utilise plus l'expansion générique
-            # car elle invente trop de valeur implicite
-            if is_audit_sector(sector) or is_management_sector(sector):
-                break
-
-            # FINANCE : on garde l'expansion générique
+        
+            if is_audit_sector(sector):
+                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_audit(cv_text))
+                last_action = "expand"
+                expand_count += 1
+                continue
+        
+            if is_management_sector(sector):
+                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_management(cv_text))
+                last_action = "expand"
+                expand_count += 1
+                continue
+        
             if is_finance_sector(sector):
-                max_expand = 1
-                if expand_count >= max_expand:
-                    break
-
                 cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
                 last_action = "expand"
                 expand_count += 1
                 continue
-
-            break
+        
+            cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
+            last_action = "expand"
+            expand_count += 1
+            continue
             
         # 3) OK
         break
