@@ -50,6 +50,9 @@ def clean_cv_output(cv_text: str) -> str:
             continue
 
         s = re.sub(r"\[[^\]]+\]", "", s).strip()
+        s = re.sub(r"\*\*([^*]*)\*\*", r"\1", s).strip()
+        s = re.sub(r"\*([^*]+)\*", r"\1", s).strip()
+        s = re.sub(r"^#+\s*", "", s).strip()
 
         if not s:
             out.append("")
@@ -1644,6 +1647,18 @@ def soften_overclaiming(text: str) -> str:
         (r"(?i)\bmaximisant\b", "renforçant"),
         (r"(?i)\bgarantissant\b", "assurant"),
         (r"(?i)\baméliorant\b", "soutenant"),
+        (r"(?i)\bcréant des présentations percutantes\b", "pour présentation"),
+        (r"(?i)\bfacilitant l[''](analyse|information|accès)\b", "pour l'équipe"),
+        (r"(?i)\bassurant une communication claire\b", ""),
+        (r"(?i)\bcontribuant à l[''](amélioration|optimisation) des processus\b", "dans le cadre du suivi"),
+        (r"(?i)\bun approvisionnement optimal\b", "le réapprovisionnement"),
+        (r"(?i)\bune expérience client satisfaisante\b", "l'accueil des clients"),
+        (r"(?i)\bcompétences interpersonnelles\b", ""),
+        (r"(?i)\bsurveillance efficace et proactive\b", "suivi"),
+        (r"(?i)\brenforçant la fiabilité des résultats\b", ""),
+        (r"(?i)\btransparence financière\b", ""),
+        (r"(?i)\bpour une efficacité accrue\b", ""),
+        (r"(?i)\boptimisation des ressources\b", ""),
     ]
 
     for pattern, repl in replacements:
@@ -1713,7 +1728,14 @@ def filter_education_details(details: list[str], raw_education_input: str, is_le
             "rank", "gpa", "moyenne", "bourse", "award", "prix",
             "spécialité", "specialite", "option", "mineure", "majeure",
             "formation spécialisée", "formation specialisee",
-            "formation en gestion générale", "formation en gestion generale"
+            "formation en gestion générale", "formation en gestion generale",
+            "formation académique", "formation générale", "formation en",
+            "développement des compétences", "capacité à réaliser",
+            "préparation approfondie", "acquisition de compétences",
+            "études complémentaires", "distinction obtenue", "certificat de compétences",
+            "compétences fondamentales", "large éventail", "travaux de recherche",
+            "exercices de débat", "mémoire à rédiger", "concours professionnels",
+            "solide capacité", "méthodologique", "analytique",
         ]
 
         if any(k in low for k in banned_keywords):
@@ -2657,6 +2679,11 @@ def trim_experiences_management(
             "vente", "magasin", "encaissement", "stock"
         ]
 
+        # pénalise les associations purement étudiantes face à de vrais stages pro
+        assoc_student = ["bde", "association étudiante", "enactus", "junior entreprise"]
+        for k in assoc_student:
+            if k in text:
+                score -= 4
         for k in strong:
             if k in text:
                 score += 5
@@ -3095,7 +3122,13 @@ def _render_interests(anchor: Paragraph, lines: list[str]):
     for raw in (lines or []):
         text = clean_punctuation_text((raw or "").strip())
         text = re.sub(r"(?i)^je\s+", "", text).strip()
-        text = re.sub(r"(?i)^j['’]\s*", "", text).strip()
+        text = re.sub(r"(?i)^j['']\s*", "", text).strip()
+        # supprime la première personne embarquée dans la phrase
+        text = re.sub(r"(?i),?\s+ce qui m[''](a|ont)\s+permis\s+de\s+", ", permettant de ", text)
+        text = re.sub(r"(?i),?\s+pour\s+(approfondir mes|rester informée|développer ma|développer mon)\s+", ", développant ", text)
+        text = re.sub(r"(?i)\bmes\s+(connaissances|compétences)\b", "les compétences", text)
+        text = re.sub(r"(?i)\bmon\s+esprit\b", "l'esprit", text)
+        text = re.sub(r"(?i)\bma\s+capacité\b", "la capacité", text)
         if not text:
             last = _insert_paragraph_after(last, "")
             continue
@@ -3163,6 +3196,11 @@ def dedupe_language_items(items: list[str]) -> list[str]:
             if low not in seen_exact:
                 seen_exact.add(low)
                 normalized.append(txt)
+                # marque aussi la langue de base pour éviter le doublon "Anglais B2" + "Anglais B2 (TOEIC)"
+                for root in language_roots:
+                    if low.startswith(root):
+                        seen_language_bases.add(root)
+                        break
             continue
 
         matched_root = None
@@ -4923,7 +4961,9 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
             continue
     
         # 2) 1 page mais trop vide => expand
-        if pages == 1 and fill < 0.93:
+        # pour les profils très légers, on accepte un remplissage plus faible plutôt que d'inventer
+        fill_threshold = 0.85 if cv_is_short else 0.93
+        if pages == 1 and fill < fill_threshold:
             sector = payload.get("sector", "")
             max_expand = 3
         
