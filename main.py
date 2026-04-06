@@ -229,6 +229,48 @@ CV :
     )
     return resp.choices[0].message.content.strip()
 
+def llm_expand_cv_droit(cv_text: str) -> str:
+    if not client:
+        return cv_text
+
+    prompt = f"""
+Tu dois rendre ce CV DROIT légèrement plus dense pour mieux remplir 1 page Word,
+sans inventer la moindre information.
+
+Règles ABSOLUES :
+- Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, ACTIVITIES:
+- Tu ne rajoutes AUCUN commentaire.
+- Tu n'inventes rien.
+- Tu ne rajoutes aucune mission, aucun chiffre, aucun outil, aucune matière, aucune activité.
+- Tu ne transformes jamais un job étudiant en expérience juridique.
+- Tu ne rajoutes jamais de bénéfice implicite, de finalité, d'optimisation ou d'impact.
+- Tu conserves absolument tous les éléments académiques explicites déjà présents, notamment :
+  mémoire, concours, moot court, mock trial, distinctions, matières, certifications.
+
+Tu peux uniquement :
+1) reformuler légèrement une ou deux bullets existantes pour qu'elles soient un peu plus complètes,
+2) laisser 3 bullets sur l'expérience la plus pertinente si elles existent déjà,
+3) enrichir très légèrement UNE activité existante sans ajouter de fait nouveau,
+4) conserver davantage de détails académiques déjà présents dans EDUCATION.
+
+Style :
+- sobre
+- académique
+- crédible
+- factuel
+- professionnel
+
+Sortie : UNIQUEMENT le CV complet.
+
+CV :
+\"\"\"{cv_text}\"\"\"
+"""
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.choices[0].message.content.strip()
+
 # --- MVP "DB" en mémoire (à remplacer par Postgres plus tard)
 # quota[email] = "YYYY-MM" (mois où le gratuit a été consommé)
 quota: Dict[str, str] = {}
@@ -1788,6 +1830,36 @@ def extract_source_courses_by_education_block(raw_education_input: str) -> list[
         out.append(courses)
 
     return out
+
+def extract_non_course_details_by_education_block(raw_education_input: str) -> list[list[str]]:
+    blocks = []
+    current = []
+
+    for raw in (raw_education_input or "").splitlines():
+        line = (raw or "").strip()
+        if not line:
+            if current:
+                blocks.append(current)
+                current = []
+            continue
+        current.append(line)
+
+    if current:
+        blocks.append(current)
+
+    out = []
+    for block in blocks:
+        extra_details = []
+        for idx, line in enumerate(block):
+            low = line.lower()
+            if idx < 4:
+                continue
+            if low.startswith("cours"):
+                continue
+            extra_details.append(line.strip())
+        out.append(extra_details)
+
+    return out
     
 def _no_space_len(s: str) -> int:
     """Longueur d'un texte sans compter les espaces."""
@@ -2800,13 +2872,6 @@ def _render_interests(anchor: Paragraph, lines: list[str]):
     return last
 
 def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
-    """
-    Force SKILLS à être une liste propre de lignes séparées :
-    - Certifications : ...
-    - Maîtrise des logiciels : ...
-    - Capacités professionnelles : ...
-    - Langues : ...
-    """
     raw = " ".join((x or "").strip() for x in (lines or []) if (x or "").strip())
     raw = re.sub(r"\s+", " ", raw).strip()
 
@@ -2815,14 +2880,6 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
     raw = re.sub(r"(?i)\bcapacités professionnelles\s*:", "Capacités professionnelles :", raw)
     raw = re.sub(r"(?i)\bcapacites professionnelles\s*:", "Capacités professionnelles :", raw)
     raw = re.sub(r"(?i)\blangues\s*:", "Langues :", raw)
-
-    if not raw:
-        out = []
-        if payload.get("skills"):
-            out.append(f"Maîtrise des logiciels : {payload['skills'].strip()}")
-        if payload.get("languages"):
-            out.append(f"Langues : {payload['languages'].strip()}")
-        return out
 
     labels = [
         "Certifications :",
@@ -2842,22 +2899,17 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
                 next_positions.append((pos, label))
 
         if not next_positions:
-            if chunks:
-                chunks[-1] = chunks[-1].rstrip(", ") + ", " + current.strip()
-            else:
+            if current.strip():
                 chunks.append(current.strip())
             break
 
         next_positions.sort(key=lambda x: x[0])
-        first_pos, first_label = next_positions[0]
+        first_pos, _ = next_positions[0]
 
         if first_pos > 0:
             orphan = current[:first_pos].strip(" ,")
             if orphan:
-                if chunks:
-                    chunks[-1] = chunks[-1].rstrip(", ") + ", " + orphan
-                else:
-                    chunks.append(orphan)
+                chunks.append(orphan)
 
         current = current[first_pos:]
 
@@ -2869,10 +2921,8 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
         next_positions.sort(key=lambda x: x[0])
 
         if len(next_positions) >= 2:
-            start = next_positions[0][0]
-            end = next_positions[1][0]
-            chunk = current[start:end].strip()
-            current = current[end:]
+            chunk = current[next_positions[0][0]:next_positions[1][0]].strip()
+            current = current[next_positions[1][0]:]
         else:
             chunk = current.strip()
             current = ""
@@ -2880,11 +2930,15 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
         if chunk:
             chunks.append(chunk)
 
+    payload_certifications = [x.strip() for x in re.split(r",|;", payload.get("certifications", "") or "") if x.strip()]
+    payload_languages = clean_punctuation_text((payload.get("languages") or "").strip())
+    payload_skills = clean_punctuation_text((payload.get("skills") or "").strip())
+
     cleaned = []
     seen = set()
 
     language_tests = []
-    final_chunks = []
+    certifications_items = []
 
     for chunk in chunks:
         chunk = clean_punctuation_text(chunk)
@@ -2893,59 +2947,77 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
 
         low = chunk.lower()
 
-        # Si le LLM a mis un test de langue dans Certifications,
-        # on le bascule vers Langues pour éviter les doublons
         if low.startswith("certifications :"):
-            cert_content = chunk.split(":", 1)[1].strip() if ":" in chunk else ""
-            cert_items = [x.strip() for x in cert_content.split(",") if x.strip()]
-
-            kept_certs = []
-            for item in cert_items:
+            content = chunk.split(":", 1)[1].strip() if ":" in chunk else ""
+            for item in [x.strip() for x in content.split(",") if x.strip()]:
                 item_low = item.lower()
                 if any(k in item_low for k in ["toeic", "toefl", "ielts", "cambridge"]):
                     language_tests.append(item)
                 else:
-                    kept_certs.append(item)
-
-            if kept_certs:
-                chunk = "Certifications : " + ", ".join(kept_certs)
-            else:
-                chunk = ""
-
-        if chunk:
-            final_chunks.append(chunk)
-
-    for chunk in final_chunks:
-        key = chunk.lower()
-        if key in seen:
+                    certifications_items.append(item)
             continue
-        seen.add(key)
-        cleaned.append(chunk)
+
+        if low.startswith("langues :"):
+            content = chunk.split(":", 1)[1].strip() if ":" in chunk else ""
+            if content:
+                parts = [x.strip() for x in content.split(",") if x.strip()]
+                for p in parts:
+                    if p not in language_tests:
+                        language_tests.append(p)
+            continue
+
+        key = low
+        if key not in seen:
+            seen.add(key)
+            cleaned.append(chunk)
+
+    for item in payload_certifications:
+        item_low = item.lower()
+        if any(k in item_low for k in ["toeic", "toefl", "ielts", "cambridge"]):
+            if item not in language_tests:
+                language_tests.append(item)
+        else:
+            if item not in certifications_items:
+                certifications_items.append(item)
 
     if not any(x.lower().startswith("maîtrise des logiciels") for x in cleaned):
-        if payload.get("skills"):
-            cleaned.insert(0, f"Maîtrise des logiciels : {payload['skills'].strip()}")
+        if payload_skills:
+            cleaned.insert(0, f"Maîtrise des logiciels : {payload_skills}")
+        else:
+            cleaned.insert(0, "Maîtrise des logiciels : Pack Office")
 
-    has_languages_line = any(x.lower().startswith("langues") for x in cleaned)
+    if certifications_items:
+        cert_line = "Certifications : " + ", ".join(certifications_items)
+        if not any(x.lower().startswith("certifications :") for x in cleaned):
+            cleaned.insert(0, cert_line)
 
-    if has_languages_line and language_tests:
-        updated = []
-        for line in cleaned:
-            if line.lower().startswith("langues"):
-                content = line.split(":", 1)[1].strip() if ":" in line else ""
-                parts = [content] if content else []
-                parts.extend(language_tests)
-                line = "Langues : " + ", ".join([p for p in parts if p])
-            updated.append(line)
-        cleaned = updated
+    if payload_languages:
+        base_langs = [x.strip() for x in payload_languages.split(",") if x.strip()]
+        for lang in base_langs:
+            if lang not in language_tests:
+                language_tests.insert(0, lang)
+
+    if language_tests:
+        lang_line = "Langues : " + ", ".join(language_tests)
     else:
-        if not has_languages_line and payload.get("languages"):
-            lang_line = payload["languages"].strip()
-            if language_tests:
-                lang_line = f"{lang_line}, " + ", ".join(language_tests)
-            cleaned.append(f"Langues : {lang_line}")
+        lang_line = "Langues : Français"
 
-    return cleaned
+    cleaned = [x for x in cleaned if not x.lower().startswith("langues :")]
+    cleaned.append(lang_line)
+
+    final = []
+    seen_final = set()
+    for line in cleaned:
+        line = clean_punctuation_text(line)
+        if not line:
+            continue
+        key = line.lower()
+        if key in seen_final:
+            continue
+        seen_final.add(key)
+        final.append(line)
+
+    return final
 
 def _render_skills(anchor: Paragraph, lines: list[str]):
     """
@@ -3496,10 +3568,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     interests_source = [line.strip() for line in (payload.get("interests") or "").splitlines() if line.strip()]
 
     if interests_source:
-        interests_rewritten = enrich_activities_with_llm(
-            interests_source,
-            sector=payload.get("sector", "")
-        )
+        if is_finance_sector(payload.get("sector", "")):
+            interests_rewritten = enrich_activities_with_llm(
+                interests_source,
+                sector=payload.get("sector", "")
+            )
+        else:
+            interests_rewritten = interests_source
     else:
         interests_rewritten = []
 
@@ -3575,6 +3650,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 first_edu = True
 
                 source_courses_blocks = extract_source_courses_by_education_block(payload.get("education", ""))
+                extra_detail_blocks = extract_non_course_details_by_education_block(payload.get("education", ""))
 
                 for idx, edu in enumerate(programs):
                     degree = (edu.get("degree") or "").strip()
@@ -3585,16 +3661,34 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         location = ""
                     dates = (edu.get("dates") or "").strip()
                     details = edu.get("details") or []
+
                     source_courses = source_courses_blocks[idx] if idx < len(source_courses_blocks) else []
+                    extra_details = extra_detail_blocks[idx] if idx < len(extra_detail_blocks) else []
+
+                    details = filter_education_details(
+                        details,
+                        payload.get("education", ""),
+                        is_legal=is_legal
+                    )
+
+                    merged_details = []
+
+                    for d in extra_details:
+                        d = clean_punctuation_text((d or "").strip())
+                        if d and d not in merged_details:
+                            merged_details.append(d)
 
                     if source_courses:
-                        details = ["Matières fondamentales : " + ", ".join(source_courses) + "."]
-                    else:
-                        details = filter_education_details(
-                            details,
-                            payload.get("education", ""),
-                            is_legal=is_legal
-                        )
+                        course_line = "Matières fondamentales : " + ", ".join(source_courses) + "."
+                        if course_line not in merged_details:
+                            merged_details.append(course_line)
+
+                    for d in details:
+                        d = clean_punctuation_text((d or "").strip())
+                        if d and d not in merged_details:
+                            merged_details.append(d)
+
+                    details = merged_details
 
                     # 🚫 supprime les classements inventés
                     details = [
@@ -3757,7 +3851,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         r_loc.italic = True
                         r_loc.font.size = Pt(9)
 
-                    # ✅ spacer UNIQUEMENT entre deux formations
+                    # ✅ spacer entre deux formations
                     if idx < len(programs) - 1:
                         spacer_elt = OxmlElement("w:p")
                         table._tbl.addnext(spacer_elt)
@@ -3766,7 +3860,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         spacer.paragraph_format.space_after = ITEM_SPACING
                         anchor = spacer
                     else:
-                        anchor = None
+                        # ✅ espace après la DERNIÈRE formation avant le titre suivant
+                        spacer_elt = OxmlElement("w:p")
+                        table._tbl.addnext(spacer_elt)
+                        spacer = Paragraph(spacer_elt, p._parent)
+                        spacer.paragraph_format.space_before = Pt(0)
+                        spacer.paragraph_format.space_after = Pt(4)
+                        anchor = spacer
                 
                 _remove_paragraph(p)
                 continue
@@ -4004,7 +4104,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     anchor.paragraph_format.space_after = ITEM_SPACING
                     anchor.paragraph_format.space_before = Pt(0)
                 else:
-                    anchor = None
+                    # ✅ espace après la dernière formation
+                    new_p_elt = OxmlElement("w:p")
+                    table._tbl.addnext(new_p_elt)
+                    anchor = Paragraph(new_p_elt, p._parent)
+                    anchor.paragraph_format.space_after = Pt(4)
+                    anchor.paragraph_format.space_before = Pt(0)
 
             # ⚠️ NE PAS supprimer anchor : c’est lui qui porte le space_after !
             _remove_paragraph(p)
@@ -4052,6 +4157,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             for idx, exp in enumerate(exps):
                 raw_role = (exp.get("role") or "").strip()
                 role = normalize_role_text(raw_role)
+
+                if is_legal and raw_role:
+                    raw_role_low = raw_role.lower()
+                    if "stagiaire" in raw_role_low and "jurid" in raw_role_low:
+                        role = raw_role
                 
                 raw_experiences_input = payload.get("experiences", "").lower()
                 if role and role.lower() not in raw_experiences_input:
@@ -4437,21 +4547,34 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
         if pages == 1 and fill < 0.90:
             sector = payload.get("sector", "")
 
-            if not (
-                is_finance_sector(sector)
-                or is_audit_sector(sector)
-                or is_management_sector(sector)
-            ):
+            # DROIT : on tente une expansion mais avec prompt dédié plus sûr
+            if is_legal_sector(sector):
+                max_expand = 1
+                if expand_count >= max_expand:
+                    break
+
+                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_droit(cv_text))
+                last_action = "expand"
+                expand_count += 1
+                continue
+
+            # AUDIT / MANAGEMENT : on n'utilise plus l'expansion générique
+            # car elle invente trop de valeur implicite
+            if is_audit_sector(sector) or is_management_sector(sector):
                 break
 
-            max_expand = 1
-            if expand_count >= max_expand:
-                break
+            # FINANCE : on garde l'expansion générique
+            if is_finance_sector(sector):
+                max_expand = 1
+                if expand_count >= max_expand:
+                    break
 
-            cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
-            last_action = "expand"
-            expand_count += 1
-            continue
+                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
+                last_action = "expand"
+                expand_count += 1
+                continue
+
+            break
             
         # 3) OK
         break
