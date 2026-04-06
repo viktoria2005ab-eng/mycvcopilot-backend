@@ -612,7 +612,8 @@ Ces règles priment sur toutes les autres instructions.
 - Privilégie des verbes orientés impact et responsabilité.
 - Chaque bullet doit refléter une contribution concrète.
 - Tu peux reformuler une expérience existante pour la rendre plus claire et plus professionnelle.
-- Tu ne dois jamais déduire un impact, une recommandation, une amélioration, une optimisation, une opportunité identifiée, une qualité de rapport, une relation stratégique ou une finalité business si ce n’est pas explicitement fourni.
+- Tu ne dois jamais inventer un impact chiffré, un résultat business précis, une recommandation formelle ou une finalité stratégique lourde si ce n’est pas explicitement fourni.
+- En revanche, tu peux reformuler une mission existante de manière légèrement plus valorisante et plus professionnelle si cela reste directement crédible au regard du texte source.
 - Tu ne dois jamais inventer une activité, un projet, un événement, un impact, une recommandation ou un bénéfice business.
 - Tu peux améliorer la formulation pour la rendre plus professionnelle, plus concise et plus crédible.
 - Tu peux faire ressortir une qualité transférable ou une compétence utile au poste uniquement si elle découle directement d’un fait fourni.
@@ -872,7 +873,8 @@ RÈGLES STRICTES :
 - Tu n’inventes AUCUN outil.
 - Tu n’utilises que les informations fournies.
 - Si une expérience contient peu d’informations, tu la reformules proprement sans extrapoler.
-- Tu peux professionnaliser une expérience existante, mais sans inventer de projet, événement, impact ou mission.
+- Tu peux professionnaliser une expérience existante et légèrement enrichir sa formulation si cela reste directement cohérent avec le texte source.
+- Tu n’inventes jamais de nouveau projet, de nouvel événement, de mission entièrement nouvelle ni de résultat chiffré.
 
 HALLUCINATIONS (INTERDICTION ABSOLUE) :
 - Dans EDUCATION : interdiction d’ajouter séminaires, classements, GPA, prix, bourses, projets, matières, cours, spécialisations, options ou modules non fournis.
@@ -1008,7 +1010,8 @@ RÈGLES STRICTES :
 - Tu n’inventes AUCUN outil.
 - Tu n’utilises que les informations fournies.
 - Si une expérience est peu détaillée, tu la professionnalises sans extrapoler.
-- Tu peux reformuler une expérience existante mais jamais inventer un projet, un événement ou un impact.
+- Tu peux reformuler une expérience existante de manière plus structurée, plus professionnelle et légèrement plus valorisante si cela reste crédible.
+- Tu n’inventes jamais de projet, d’événement, de recommandation stratégique formelle ni d’impact chiffré.
 
 HALLUCINATIONS (INTERDICTION ABSOLUE) :
 - Dans EDUCATION : interdiction d’ajouter classements, GPA, distinctions, projets, matières, cours, spécialisations, options ou modules non fournis.
@@ -1330,6 +1333,23 @@ def count_education_blocks(raw_education: str) -> int:
         blocks.append(current)
     return len(blocks)
 
+def count_experience_blocks(raw_experiences: str) -> int:
+    blocks = []
+    current = []
+
+    for line in (raw_experiences or "").splitlines():
+        if line.strip():
+            current.append(line.strip())
+        else:
+            if current:
+                blocks.append(current)
+                current = []
+
+    if current:
+        blocks.append(current)
+
+    return len(blocks)
+
 def rebuild_education_from_input(raw_education: str) -> list[str]:
     """
     Reconvertit l'input brut formation en pseudo-format structuré minimal.
@@ -1456,7 +1476,13 @@ def ensure_required_sections(cv_text: str, payload: Dict[str, Any]) -> str:
     ):
         education_lines = rebuild_education_from_input(payload.get("education", ""))
 
-    if not experience_lines:
+    expected_exp_blocks = count_experience_blocks(payload.get("experiences", ""))
+    actual_exp_blocks = sum(
+        1 for line in experience_lines
+        if (line or "").strip().startswith("ROLE:")
+    )
+    
+    if not experience_lines or actual_exp_blocks < expected_exp_blocks:
         experience_lines = rebuild_experiences_from_input(payload.get("experiences", ""))
 
     if not skills_lines:
@@ -1624,7 +1650,10 @@ def filter_education_details(details: list[str], raw_education_input: str, is_le
         banned_keywords = [
             "séminaire", "seminar", "conférence", "conference", "atelier", "workshop",
             "étude de cas", "case study", "participation à", "projets", "classement",
-            "rank", "gpa", "moyenne", "bourse", "award", "prix"
+            "rank", "gpa", "moyenne", "bourse", "award", "prix",
+            "spécialité", "specialite", "option", "mineure", "majeure",
+            "formation spécialisée", "formation specialisee",
+            "formation en gestion générale", "formation en gestion generale"
         ]
 
         if any(k in low for k in banned_keywords):
@@ -2314,7 +2343,7 @@ def apply_density_to_experiences(
         bullets = [b.strip() for b in (exp.get("bullets") or []) if (b or "").strip()]
 
         if is_cv_short:
-            limit = 3 if i < keep_three_for_short else 2
+            limit = 3
         elif is_cv_long:
             limit = 3 if i < keep_three_for_long else 2
         else:
@@ -2794,6 +2823,13 @@ def clean_skills_lines(lines: list[str]) -> list[str]:
         "leadership",
         "esprit stratégique",
         "sens stratégique",
+        "avec une utilisation avancée",
+        "utilisation avancée des fonctionnalités",
+        "communication efficace",
+        "coordination de projets",
+        "outils de gestion de projet",
+        "analyse financière",
+        "immersion locale",
     ]
 
     cleaned = []
@@ -3070,6 +3106,16 @@ def dedupe_language_items(items: list[str]) -> list[str]:
 
     return normalized
 
+def build_software_line_from_payload(payload: dict) -> str:
+    raw_skills = payload.get("skills") or ""
+    items = [clean_punctuation_text(x.strip()) for x in re.split(r",|;", raw_skills) if x.strip()]
+    items = dedupe_preserve_order(items)
+
+    if not items:
+        items = ["Pack Office"]
+
+    return "Maîtrise des logiciels : " + ", ".join(items)
+
 def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
     raw = " ".join((x or "").strip() for x in (lines or []) if (x or "").strip())
     raw = re.sub(r"\s+", " ", raw).strip()
@@ -3179,11 +3225,8 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
             if item not in certifications_items:
                 certifications_items.append(item)
 
-    if not any(x.lower().startswith("maîtrise des logiciels") for x in cleaned):
-        if payload_skills:
-            cleaned.insert(0, f"Maîtrise des logiciels : {payload_skills}")
-        else:
-            cleaned.insert(0, "Maîtrise des logiciels : Pack Office")
+    cleaned = [x for x in cleaned if not x.lower().startswith("maîtrise des logiciels")]
+    cleaned.insert(0, build_software_line_from_payload(payload))
 
     certifications_items = dedupe_preserve_order(certifications_items)
 
@@ -3883,7 +3926,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                     merged_details = []
 
-                    # 1) on garde d'abord les extra details utilisateur SAUF les lignes de cours
+                    # 1) priorité absolue aux détails utilisateur
                     for d in extra_details:
                         d = clean_punctuation_text((d or "").strip())
                         if not d:
@@ -3892,20 +3935,20 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                             continue
                         merged_details.append(d)
                     
-                    # 2) on garde ensuite les détails LLM SAUF les lignes de cours
-                    #    car les matières doivent venir d'une seule source de vérité
-                    for d in details:
-                        d = clean_punctuation_text((d or "").strip())
-                        if not d:
-                            continue
-                        if is_course_detail_line(d):
-                            continue
-                        merged_details.append(d)
-                    
-                    # 3) on ajoute UNE SEULE ligne matières si l'utilisateur a fourni des cours
+                    # 2) on ajoute UNE SEULE ligne matières depuis l'input utilisateur
                     if source_courses:
                         course_line = "Matières fondamentales : " + ", ".join(source_courses) + "."
                         merged_details.append(course_line)
+                    
+                    # 3) on ne prend les détails LLM QUE s'il n'y a rien côté utilisateur
+                    if not merged_details:
+                        for d in details:
+                            d = clean_punctuation_text((d or "").strip())
+                            if not d:
+                                continue
+                            if is_course_detail_line(d):
+                                continue
+                            merged_details.append(d)
                     
                     details = dedupe_preserve_order(merged_details)
 
@@ -4085,7 +4128,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         table._tbl.addnext(spacer_elt)
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
-                        spacer.paragraph_format.space_after = Pt(4)
+                        spacer.paragraph_format.space_after = Pt(2)
                         anchor = spacer
                 
                 _remove_paragraph(p)
@@ -4328,7 +4371,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     new_p_elt = OxmlElement("w:p")
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
-                    anchor.paragraph_format.space_after = Pt(4)
+                    anchor.paragraph_format.space_after = Pt(2)
                     anchor.paragraph_format.space_before = Pt(0)
 
             # ⚠️ NE PAS supprimer anchor : c’est lui qui porte le space_after !
@@ -4395,6 +4438,16 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                             if original_company and current_company and original_company == current_company:
                                 role = normalize_role_text((original_exp.get("role") or "").strip())
                                 break
+
+                if len(role.strip()) <= 3:
+                    parsed_original_exps = parse_raw_experiences_input(payload.get("experiences", ""))
+                    for original_exp in parsed_original_exps:
+                        original_company = (original_exp.get("company") or "").strip().lower()
+                        current_company = (exp.get("company") or "").strip().lower()
+                        original_role = (original_exp.get("role") or "").strip()
+                        if original_company and current_company and original_company == current_company and original_role:
+                            role = normalize_role_text(original_role)
+                            break
 
                 # 1) Cas du type "Stage en audit financier" -> on vire "Stage + en/dans/au/aux"
                 if not is_legal:
@@ -4764,9 +4817,9 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
             continue
     
         # 2) 1 page mais trop vide => expand
-        if pages == 1 and fill < 0.90:
+        if pages == 1 and fill < 0.93:
             sector = payload.get("sector", "")
-            max_expand = 1
+            max_expand = 2
         
             if expand_count >= max_expand:
                 break
