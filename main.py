@@ -1659,6 +1659,21 @@ def soften_overclaiming(text: str) -> str:
         (r"(?i)\btransparence financière\b", ""),
         (r"(?i)\bpour une efficacité accrue\b", ""),
         (r"(?i)\boptimisation des ressources\b", ""),
+        (r"(?i)\bsoutenant la clarté analytique\b", ""),
+        (r"(?i)\bfacilitant ainsi une prise de décision éclairée\b", ""),
+        (r"(?i)\brenforçant l[''](expertise|engagement|impact|visibilité)\b", ""),
+        (r"(?i)\bfavorisant (leur |la |ainsi )(réussite|progression|dynamique)\b", "dans leur apprentissage"),
+        (r"(?i)\bstimulant ainsi leur progression\b", ""),
+        (r"(?i)\bcontribuant ainsi à (garantir|assurer|maintenir)\b", ""),
+        (r"(?i)\bœuvrant à garantir\b", "assurant"),
+        (r"(?i)\bassurant la qualité et la (précision|fiabilité)\b", "avec rigueur"),
+        (r"(?i)\bdans le cadre du suivi\b", ""),
+        (r"(?i)\bune expérience (positive|mémorable|enrichissante)\b", ""),
+        (r"(?i)\bexpérience client (positive et mémorable|positive)\b", "accueil des clients"),
+        (r"(?i)\brenforçant ainsi la visibilité\b", ""),
+        (r"(?i)\bsoutenant l[''](expérience client)\b", ""),
+        (r"(?i)\bune visibilité accrue\b", ""),
+        (r"(?i)\bainsi\b", ""),
     ]
 
     for pattern, repl in replacements:
@@ -1736,6 +1751,12 @@ def filter_education_details(details: list[str], raw_education_input: str, is_le
             "compétences fondamentales", "large éventail", "travaux de recherche",
             "exercices de débat", "mémoire à rédiger", "concours professionnels",
             "solide capacité", "méthodologique", "analytique",
+            "travaux pratiques", "analyses approfondies", "jurisprudence",
+            "mémoire de recherche", "mémoire de",
+            "formation approfondie", "formation complète",
+            "formation théorique", "approfondissement",
+            "plusieurs matières", "matières juridiques fondamentales",
+            "concours de plaidoirie", "moot court",
         ]
 
         if any(k in low for k in banned_keywords):
@@ -3351,8 +3372,14 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
         if not any(x.lower().startswith("certifications :") for x in cleaned):
             cleaned.insert(0, cert_line)
 
+    def _clean_lang_item(item: str) -> str:
+        item = re.sub(r",?\s+avec\s+capacité.*$", "", item, flags=re.IGNORECASE)
+        item = re.sub(r",?\s+permettant\s+de.*$", "", item, flags=re.IGNORECASE)
+        item = re.sub(r",?\s+et\s+(une\s+)?compréhension.*$", "", item, flags=re.IGNORECASE)
+        return item.strip()
+
     if payload_languages:
-        base_langs = [x.strip() for x in payload_languages.split(",") if x.strip()]
+        base_langs = [_clean_lang_item(x.strip()) for x in payload_languages.split(",") if x.strip()]
         for lang in base_langs:
             if lang not in language_tests:
                 language_tests.insert(0, lang)
