@@ -753,7 +753,8 @@ RÈGLES STRICTES :
 HALLUCINATIONS (INTERDICTION ABSOLUE) :
 - Dans EDUCATION : interdiction d’ajouter séminaires, classements, GPA, prix, bourses, projets, matières, cours, spécialisations, options ou modules non fournis.
 - Interdiction absolue d’ajouter une matière ou un cours simplement parce qu’il paraît cohérent avec l’audit.
-- Dans EXPERIENCES : interdiction d’ajouter des impacts, finalités ou bénéfices inventés ("améliorant", "optimisant", "renforçant", "garantissant", "assurant", "fiabilisant", "mettant en évidence", etc.) si ce n’est pas explicitement fourni.
+- Dans EXPERIENCES : interdiction d’ajouter des impacts, finalités ou bénéfices inventés ("améliorant", "optimisant", "renforçant", "garantissant", "assurant", "fiabilisant", "facilitant", "permettant", "sécurisant", "mettant en évidence", etc.) si ce n’est pas explicitement fourni.
+- Tu n’ajoutes jamais "conformité", "normes", "contrôle interne", "procédures d'audit", "travaux d'audit" ou "états financiers" si ces notions ne figurent pas déjà dans l’expérience source.
 - Dans ACTIVITIES : interdiction d’ajouter compétition, club, fréquence ou niveau non fourni.
 
 SECTION SKILLS (COMPÉTENCES & OUTILS) :
@@ -889,6 +890,7 @@ HALLUCINATIONS (INTERDICTION ABSOLUE) :
 - Dans EDUCATION : interdiction d’ajouter classements, GPA, distinctions, projets, matières, cours, spécialisations, options ou modules non fournis.
 - Interdiction absolue d’ajouter une matière ou un cours simplement parce qu’il paraît cohérent avec la stratégie ou le management.
 - Dans EXPERIENCES : interdiction d’ajouter des impacts, recommandations, diagnostics, optimisations, opportunités identifiées ou bénéfices inventés.
+- Tu n’ajoutes jamais "recommandations stratégiques", "diagnostic", "benchmark", "pilotage", "coordination de projet", "parties prenantes", "roadmap", "CRM", "visibilité", "efficacité", "traçabilité" ou "performance" si ces notions ne figurent pas déjà dans le texte source.
 - Dans ACTIVITIES : interdiction d’ajouter un niveau, une fréquence ou un engagement non fourni.
 
 SECTION SKILLS (COMPÉTENCES & OUTILS) :
@@ -1045,7 +1047,12 @@ SECTION SKILLS :
   3) "Capacités professionnelles : ..."
   4) "Langues : ..."
 - La ligne "Certifications :" peut inclure, si explicitement fournis :
-  tests de langue, PIX, certifications numériques, concours de plaidoirie, moot courts, mock trials, certifications ou examens utiles au poste.
+  PIX, certifications numériques, concours de plaidoirie, moot courts, mock trials, certifications ou examens utiles au poste.
+- Tu n’ajoutes jamais Dalloz, LexisNexis, Doctrine, Légifrance, Word avancé, Excel basique, ni aucun autre outil juridique ou bureautique s’ils ne sont pas explicitement fournis.
+- Tu n’ajoutes jamais de domaine du droit maîtrisé s’il n’est pas explicitement présent dans la formation, les expériences ou les compétences fournies.
+- Tu peux reprendre un moot court, mock trial ou concours de plaidoirie dans "Certifications :" seulement s’il est explicitement fourni comme élément distinct de la formation.
+- Les tests et scores de langue (TOEIC, TOEFL, IELTS, Cambridge, etc.) ne doivent JAMAIS apparaître dans "Certifications :".
+- Les tests et scores de langue doivent toujours être intégrés dans la ligne "Langues :".
 - Tu n’inventes jamais une certification, un concours ou un examen.
 - Si rien n’est fourni, tu n’écris pas la ligne "Certifications :".
 - Les éléments sont séparés par des virgules.
@@ -2468,6 +2475,8 @@ def trim_activities(
         "forme physique et mentale",
         "culture générale",
         "vision du monde",
+        "cinéma",
+        "shopping",
     ]
 
     for line in cleaned:
@@ -2508,6 +2517,8 @@ def trim_activities_droit(
         "forme physique et mentale",
         "culture générale",
         "vision du monde",
+        "cinéma",
+        "shopping",
     ]
 
     for line in cleaned:
@@ -2517,6 +2528,20 @@ def trim_activities_droit(
             continue
 
         line = clean_punctuation_text(line)
+        low_after = line.lower()
+
+        # En droit, on évite les activités trop floues si elles ne sont pas contextualisées
+        weak_legal_hobbies = ["musique", "cinéma", "shopping"]
+        if any(h in low_after for h in weak_legal_hobbies):
+            has_precision = any(
+                marker in low_after
+                for marker in [
+                    "fois", "km", "pays", "bénévol", "lecture", "philosophie",
+                    "histoire", "club", "ans", "élèves", "eleves", "course"
+                ]
+            )
+            if not has_precision:
+                continue
 
         if line and ":" in line:
             head, tail = line.split(":", 1)
@@ -3392,15 +3417,19 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     if not sections.get("SKILLS"):
         fallback_skills = []
 
+        raw_certifications = (payload.get("certifications") or "").strip()
         raw_skills = (payload.get("skills") or "").strip()
         raw_languages = (payload.get("languages") or "").strip()
-    
+
+        if raw_certifications:
+            fallback_skills.append(f"Certifications : {raw_certifications}")
+
         if raw_skills:
             fallback_skills.append(f"Maîtrise des logiciels : {raw_skills}")
-    
+
         if raw_languages:
             fallback_skills.append(f"Langues : {raw_languages}")
-    
+
         sections["SKILLS"] = fallback_skills
 
     # SKILLS : on garde plusieurs lignes, mais on filtre ce qui n'est pas dans l'input user
