@@ -2287,14 +2287,7 @@ def trim_experiences_audit(
 
     cleaned.sort(key=audit_score, reverse=True)
     cleaned = cleaned[:4]
-    cleaned = apply_density_to_experiences(
-        cleaned,
-        is_cv_long=is_cv_long,
-        is_cv_short=is_cv_short,
-        keep_three_for_short=2,
-        keep_three_for_normal=2,
-        keep_three_for_long=1,
-    )
+    cleaned = trim_finance_experiences(cleaned, is_cv_long=is_cv_long)
     return cleaned
 
 def trim_experiences_management(
@@ -2360,14 +2353,7 @@ def trim_experiences_management(
 
     cleaned.sort(key=management_score, reverse=True)
     cleaned = cleaned[:4]
-    cleaned = apply_density_to_experiences(
-        cleaned,
-        is_cv_long=is_cv_long,
-        is_cv_short=is_cv_short,
-        keep_three_for_short=2,
-        keep_three_for_normal=2,
-        keep_three_for_long=1,
-    )
+    cleaned = trim_finance_experiences(cleaned, is_cv_long=is_cv_long)
     return cleaned
 
 def shorten_activities_with_llm(
@@ -2785,6 +2771,9 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
     - Capacités professionnelles : ...
     - Langues : ...
     """
+    raw = " ".join((x or "").strip() for x in (lines or []) if (x or "").strip())
+    raw = re.sub(r"\s+", " ", raw).strip()
+
     raw = re.sub(r"(?i)\bcertifications\s*:", "Certifications :", raw)
     raw = re.sub(r"(?i)\bma[iî]trise des logiciels\s*:", "Maîtrise des logiciels :", raw)
     raw = re.sub(r"(?i)\bcapacités professionnelles\s*:", "Capacités professionnelles :", raw)
@@ -3286,7 +3275,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     is_legal = is_legal_sector(payload.get("sector", ""))
     is_audit = is_audit_sector(payload.get("sector", ""))
     is_finance = is_finance_sector(payload.get("sector", ""))
-    if is_finance:
+    if is_finance or is_audit or is_management_sector(payload.get("sector", "")):
         normalize_section_titles_spacing(doc, SECTION_SPACING, ITEM_SPACING)
     else:
         normalize_section_titles_spacing(doc, Pt(0), Pt(0))
@@ -4354,7 +4343,13 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
     
         # 2) 1 page mais trop vide => expand
         if pages == 1 and fill < 0.90:
-            if not is_finance_sector(payload.get("sector", "")):
+            sector = payload.get("sector", "")
+
+            if not (
+                is_finance_sector(sector)
+                or is_audit_sector(sector)
+                or is_management_sector(sector)
+            ):
                 break
 
             max_expand = 1
@@ -4365,6 +4360,7 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
             last_action = "expand"
             expand_count += 1
             continue
+            
         # 3) OK
         break
 
