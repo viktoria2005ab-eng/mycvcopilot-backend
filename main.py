@@ -363,7 +363,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # MVP: ouvrir, plus tard restreindre à ton domaine Netlify
+    allow_origins=[os.getenv("ALLOWED_ORIGIN", "https://mycvcopilote.netlify.app")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -379,44 +379,6 @@ def month_key(now: Optional[dt.datetime] = None) -> str:
     now = now or dt.datetime.utcnow()
     return f"{now.year:04d}-{now.month:02d}"
 
-def has_free_left(email: str) -> bool:
-    import os
-    import psycopg2
-
-    try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-        cur = conn.cursor()
-        cur.execute("SELECT month FROM quota WHERE email = %s", (email,))
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        raise HTTPException(status_code=503, detail="DB unavailable")
-
-    if not row:
-        return True
-    return row[0] != month_key()
-
-def consume_free(email: str) -> None:
-    import os
-    import psycopg2
-
-    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        INSERT INTO quota (email, month)
-        VALUES (%s, %s)
-        ON CONFLICT (email)
-        DO UPDATE SET month = EXCLUDED.month
-        """,
-        (email, month_key())
-    )
-
-    conn.commit()
-    cur.close()
-    conn.close()
 
 def sector_to_template(sector: str) -> str:
     s = sector.lower()
@@ -4724,8 +4686,6 @@ def quota_check(email: str):
     email = email.strip().lower()
     if not email:
         raise HTTPException(status_code=400, detail="Email manquant.")
-    if has_free_left(email):
-        return {"ok": True, "message": "✅ Tu as encore ton CV gratuit ce mois-ci."}
     return {"ok": True, "message": "ℹ️ Ton CV gratuit du mois est déjà utilisé. Le prochain sera payant."}
 
 @app.post("/start")
@@ -4740,22 +4700,28 @@ async def start(payload: Dict[str, Any]):
     email = payload["email"].strip().lower()
     current_month = month_key()
 
-    # Vérifie si CV gratuit disponible
-    if has_free_left(email):
+    # Vérifie et consomme le quota de façon atomique
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO quota (email, month)
+                   VALUES (%s, %s)
+                   ON CONFLICT (email)
+                   DO UPDATE SET month = EXCLUDED.month
+                   WHERE quota.month != EXCLUDED.month
+                   RETURNING email""",
+                (email, current_month)
+            )
+            inserted = cur.fetchone()
 
-        with db_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """INSERT INTO quota (email, month)
-                       VALUES (%s, %s)
-                       ON CONFLICT (email)
-                       DO UPDATE SET month = EXCLUDED.month""",
-                    (email, current_month)
-                )
-            conn.commit()
+    if inserted is None:
+        raise HTTPException(
+            status_code=402,
+            detail="CV gratuit déjà utilisé. Paiement requis."
+        )
 
-        job_id = await generate_and_store(payload)
-        return {"mode": "free", "downloads": make_download_urls(job_id)}
+    job_id = await generate_and_store(payload)
+    return {"mode": "free", "downloads": make_download_urls(job_id)}
 
     # Sinon paiement obligatoire
     raise HTTPException(
@@ -4822,8 +4788,9 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
 
     # 2) boucle max 5 essais (baseline + 2 corrections)
     for attempt in range(5):
-        write_docx_from_template(tpl, cv_text, docx_path, payload=payload, compact_mode=compact_mode)
-        convert_docx_to_pdf(docx_path, pdf_path)
+        import asyncio
+        await asyncio.to_thread(write_docx_from_template, tpl, cv_text, docx_path, payload=payload, compact_mode=compact_mode)
+        await asyncio.to_thread(convert_docx_to_pdf, docx_path, pdf_path)
 
         pages = pdf_page_count(pdf_path)
         fill = pdf_fill_ratio_first_page(pdf_path) if pages == 1 else 0.0
@@ -4922,10 +4889,30 @@ from fastapi import HTTPException
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
+import psycopg2.pool as _pg_pool
+
+_db_pool = None
+
+def _get_pool():
+    global _db_pool
+    if _db_pool is None:
+        _db_pool = _pg_pool.SimpleConnectionPool(1, 10, dsn=DATABASE_URL)
+    return _db_pool
+
+from contextlib import contextmanager
+
+@contextmanager
 def db_conn():
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL manquant")
-    return psycopg2.connect(DATABASE_URL)
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        pool.putconn(conn)
 
 @app.get("/_debug_quota_columns")
 def debug_quota_columns():
