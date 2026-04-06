@@ -176,47 +176,38 @@ def llm_expand_cv(cv_text: str) -> str:
         return cv_text
 
     prompt = f"""
-Tu dois rendre ce CV PLUS DENSE pour remplir correctement 1 page Word, sans le rendre faux.
+Tu dois rendre ce CV légèrement plus dense pour mieux remplir une page Word, sans le rendre faux ni artificiel.
 
 Règles ABSOLUES :
 - Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, ACTIVITIES:
-- Tu ne rajoutes AUCUN commentaire ni phrase méta.
-- Tu ne coupes JAMAIS une phrase.
-- Tu n'utilises JAMAIS "..." ni de guillemets triples.
-- Tu n'inventes rien : pas de nouvelles missions, chiffres, outils, matières, activités, résultats ou événements.
-- Tu peux uniquement :
-  1) ajouter 1 bullet à chacune des 1 ou 2 expériences les plus pertinentes si elles n'ont que 2 bullets,
-  2) rendre plus précises 1 à 2 bullets existantes sans ajouter de bénéfice, d'impact ou de finalité non présents,
-  3) préciser légèrement UNE ligne existante dans EDUCATION sans ajouter de nouvelle matière,
-  4) enrichir au maximum 1 activité existante sur une seule ligne, uniquement si le texte source contient déjà assez d’éléments factuels,
-  5) reformuler une expérience existante de manière plus professionnelle sans ajouter de fait nouveau.
+- Tu ne rajoutes aucun commentaire ni phrase méta.
+- Tu n’inventes pas de nouvelle expérience, de nouvel outil, de nouveau chiffre, de nouveau pays, de nouvelle fréquence, de nouvelle activité ou de nouveau résultat.
+- Tu peux valoriser légèrement une activité ou une mission existante si cela reste directement crédible.
+- Tu peux ajouter une qualité transférable simple et logique.
+- Tu n’ajoutes jamais de fait précis non fourni.
+
+Tu peux uniquement :
+1) passer à 3 bullets pour les 1 ou 2 expériences les plus pertinentes si elles n’en ont que 2,
+2) reformuler des bullets existantes de manière plus professionnelle et plus vendeuse,
+3) enrichir légèrement une ligne de formation déjà présente,
+4) enrichir légèrement une activité existante avec 1 ou 2 qualités simples et crédibles.
 
 Interdictions absolues :
-- Tu n'ajoutes jamais :
-  "améliorant", "optimisant", "renforçant", "garantissant", "assurant", "fiabilisant",
-  "augmentant", "développant le portefeuille", "taux de réponse", "pipeline",
-  "conformité réglementaire", "rentabilité", "flux de trésorerie", "partenariat durable",
-  "engagement des parties prenantes", "plan d'action", "performance globale"
-  sauf si ces mots ou ces idées sont explicitement déjà présents dans le CV source.
-- Tu n'ajoutes jamais de bénéfice implicite.
-- Tu n'ajoutes jamais de qualité de service, de satisfaction client, de résultat commercial ou de résultat opérationnel implicite.
-- Tu n'ajoutes jamais de vocabulaire cabinet / conseil / audit si le texte source ne le contient pas déjà.
-- Tu n'ajoutes jamais de compétition, de niveau, de fréquence, de club, de championnat, de contexte local ou régional dans ACTIVITIES si ce n'est pas explicitement présent.
-- Tu n'ajoutes jamais "juridique", "juridiques", "réglementaire", "stratégique", "commercial", "spécifiques", "sur mesure" si ces termes ne figurent pas déjà dans le texte source.
-- Tu n'ajoutes jamais de rôle métier fictif dans EXPERIENCES.
-
-Priorité absolue :
-- densifier d'abord EXPERIENCES,
-- puis EDUCATION,
-- éviter de densifier SKILLS,
-- densifier ACTIVITIES seulement en dernier recours et de manière minimale.
+- ne jamais ajouter de chiffre,
+- ne jamais ajouter d’impact business précis,
+- ne jamais ajouter de recommandation formelle,
+- ne jamais ajouter un outil non fourni,
+- ne jamais ajouter un contexte inventé,
+- ne jamais ajouter “optimisant”, “maximisant”, “garantissant”, “assurant”, “renforçant”, “améliorant” si cela crée un faux résultat,
+- ne jamais ajouter de pays, compétitions, événements, fréquence ou niveau s’ils ne sont pas déjà présents.
 
 Style attendu :
-- sobre
-- crédible
-- factuel
 - professionnel
-- aucun ton marketing
+- crédible
+- légèrement valorisant
+- factuel
+- fluide
+- pas de jargon cabinet
 
 Sortie : UNIQUEMENT le CV complet.
 
@@ -276,30 +267,33 @@ def llm_expand_cv_audit(cv_text: str) -> str:
         return cv_text
 
     prompt = f"""
-Tu dois rendre ce CV AUDIT légèrement plus dense pour mieux remplir une page Word,
-sans inventer la moindre information.
+Tu dois rendre ce CV AUDIT légèrement plus dense pour mieux remplir une page Word, sans inventer d’information précise.
 
 Règles ABSOLUES :
 - Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, ACTIVITIES:
 - Tu ne rajoutes aucun commentaire.
-- Tu n’inventes rien.
-- Tu n’ajoutes aucune mission, aucun chiffre, aucun outil, aucune matière, aucune activité.
-- Tu ne rajoutes jamais d’impact implicite, de gain, d’optimisation ou de bénéfice.
-- Tu ne rajoutes jamais "conformité", "contrôle interne", "procédures d'audit", "états financiers"
-  si ces notions ne sont pas déjà présentes.
+- Tu n’inventes aucun outil, aucun chiffre, aucune matière, aucune mission nouvelle, aucun pays, aucune compétition, aucun événement.
+- Tu peux rendre une mission plus professionnelle et plus valorisante si cela reste très crédible.
+- Tu peux faire ressortir une qualité simple comme rigueur, précision, organisation ou fiabilité si elle découle logiquement du texte source.
 
 Tu peux uniquement :
 1) ajouter 1 bullet à l’expérience la plus pertinente si elle n’en a que 2,
-2) reformuler légèrement 1 ou 2 bullets pour les rendre un peu plus précises,
+2) reformuler légèrement les bullets pour les rendre plus professionnelles,
 3) conserver davantage de détails académiques déjà présents,
-4) enrichir très légèrement une activité existante sans ajouter de fait nouveau.
+4) enrichir légèrement une activité existante sans ajouter de fait précis.
+
+Interdictions :
+- pas de “travaux d’audit”, “contrôle interne”, “conformité”, “états financiers”, “procédures d’audit” si ce n’est pas déjà présent,
+- pas de faux bénéfice,
+- pas d’optimisation inventée,
+- pas de précision artificielle.
 
 Style :
 - sobre
 - rigoureux
 - crédible
-- factuel
 - professionnel
+- légèrement valorisant
 
 Sortie : UNIQUEMENT le CV complet.
 
@@ -318,29 +312,35 @@ def llm_expand_cv_management(cv_text: str) -> str:
         return cv_text
 
     prompt = f"""
-Tu dois rendre ce CV MANAGEMENT légèrement plus dense pour mieux remplir une page Word,
-sans inventer la moindre information.
+Tu dois rendre ce CV MANAGEMENT légèrement plus dense pour mieux remplir une page Word, sans tomber dans un style artificiel ou exagéré.
 
 Règles ABSOLUES :
 - Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, ACTIVITIES:
 - Tu ne rajoutes aucun commentaire.
-- Tu n’inventes rien.
-- Tu n’ajoutes aucune mission, aucun chiffre, aucun outil, aucune matière, aucune activité.
-- Tu ne rajoutes jamais de recommandation, de diagnostic, de benchmark, de pilotage ou de bénéfice
-  si cela n'est pas déjà présent dans le texte source.
+- Tu n’inventes aucun chiffre, aucun outil, aucune mission nouvelle, aucun pays, aucune fréquence, aucun événement.
+- Tu peux rendre une mission plus claire, plus structurée et légèrement plus valorisante.
+- Tu peux ajouter une qualité transférable simple et crédible.
 
 Tu peux uniquement :
 1) ajouter 1 bullet à l’expérience la plus pertinente si elle n’en a que 2,
-2) reformuler légèrement 1 ou 2 bullets pour les rendre un peu plus précises,
+2) reformuler légèrement les bullets pour les rendre plus professionnelles,
 3) conserver davantage de détails académiques déjà présents,
-4) enrichir très légèrement une activité existante sans ajouter de fait nouveau.
+4) enrichir légèrement une activité existante sans ajouter de fait précis.
+
+Interdictions :
+- pas de recommandation stratégique formelle inventée,
+- pas de benchmark inventé,
+- pas de pilotage inventé,
+- pas de jargon type “impact”, “efficacité”, “maximiser”, “haute qualité”, “coordination efficace” si cela sonne artificiel,
+- pas de précision fictive.
 
 Style :
-- sobre
 - structuré
 - crédible
-- factuel
 - professionnel
+- légèrement valorisant
+- simple
+- pas de bullshit consulting
 
 Sortie : UNIQUEMENT le CV complet.
 
@@ -1314,8 +1314,8 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
-ITEM_SPACING = Pt(1)   # espace entre 2 formations / 2 expériences
-SECTION_SPACING = Pt(3) # espace entre sections (Formation -> Exp, Exp -> Skills)
+ITEM_SPACING = Pt(0.5)   # espace entre 2 formations / 2 expériences
+SECTION_SPACING = Pt(1.5) # espace entre sections (Formation -> Exp, Exp -> Skills)
 
 from docx.oxml.ns import qn
 
@@ -1605,18 +1605,31 @@ def soften_overclaiming(text: str) -> str:
     t = text.strip()
 
     replacements = [
-        (r"(?i)\bgénérant de nombreuses opportunités\b", "favorisant des opportunités"),
-        (r"(?i)\boptimisant la performance\b", "soutenant l'activité"),
-        (r"(?i)\brenforçant le réseau stratégique\b", "développant les échanges"),
+        (r"(?i)\bfavorisant la décision et le reporting\b", "pour l'équipe"),
+        (r"(?i)\bpour recommandations précises\b", "pour analyse"),
+        (r"(?i)\bassurant une expérience agréable pour les clients\b", "dans le respect du flux en caisse"),
+        (r"(?i)\bgarantir leur participation\b", "assurer le suivi des échanges"),
+        (r"(?i)\bbon déroulement annuel\b", "bon déroulement des événements"),
+        (r"(?i)\bet vérification des documents pertinents\b", "et vérification des documents"),
+        (r"(?i)\bde manière structurée\b", ""),
+        (r"(?i)\ben utilisant des outils de gestion\b", ""),
+        (r"(?i)\bdétaillé\b", ""),
+        (r"(?i)\borganisation de réunions budgétaires avec les membres\b", "présentation aux membres"),
+        (r"(?i)\bavec un service attentionné\b", ""),
+        (r"(?i)\bet optimisation de l'espace\b", ""),
+        (r"(?i)\boptimisant\b", "soutenant"),
+        (r"(?i)\bmaximisant\b", "renforçant"),
         (r"(?i)\bgarantissant\b", "assurant"),
-        (r"(?i)\bmaximisant\b", "soutenant"),
-        (r"(?i)\btransformant\b", "accompagnant"),
+        (r"(?i)\baméliorant\b", "soutenant"),
+        (r"(?i)\bperformance\b", "activité"),
+        (r"(?i)\bopportunités\b", "pistes"),
     ]
 
     for pattern, repl in replacements:
         t = re.sub(pattern, repl, t)
 
-    return t
+    t = re.sub(r"\s+", " ", t).strip()
+    return clean_punctuation_text(t)
 
 def filter_education_details(details: list[str], raw_education_input: str, is_legal: bool = False) -> list[str]:
     out = []
@@ -2387,12 +2400,10 @@ def trim_finance_experiences(
     if not is_cv_long:
         for i, e in enumerate(cleaned):
             bullets = [b for b in (e.get("bullets") or []) if (b or "").strip()]
-            if i < 2 and len(bullets) >= 3:
+            if len(bullets) >= 3:
                 e["bullets"] = bullets[:3]
-            elif i < 2 and len(bullets) == 2:
-                e["bullets"] = bullets
             else:
-                e["bullets"] = bullets[:2]
+                e["bullets"] = bullets
         return cleaned
 
     # 3) Si le CV est long -> on raccourcit PAR RÉÉCRITURE (pas par suppression)
@@ -2719,6 +2730,11 @@ def trim_activities(
             continue
 
         line = clean_punctuation_text(line)
+        line = re.sub(r"(?i), impliquant .*?$", ".", line)
+        line = re.sub(r"(?i), avec une préférence marquée .*?$", ".", line)
+        line = re.sub(r"(?i), enrichissant .*?$", ".", line)
+        line = re.sub(r"(?i), favorisant .*?$", ".", line)
+        line = re.sub(r"(?i), développant .*? grâce à .*?$", ".", line)
 
         if line and ":" in line:
             head, tail = line.split(":", 1)
@@ -2736,7 +2752,7 @@ def trim_activities(
         return out[:4]
 
     if cv_is_long:
-        return out[:3]
+        return out[:4] if len(out) <= 4 else out[:3]
 
     return out[:4]
 
@@ -2768,6 +2784,10 @@ def trim_activities_droit(
             continue
 
         line = clean_punctuation_text(line)
+        line = re.sub(r"(?i), impliquant .*?$", ".", line)
+        line = re.sub(r"(?i), avec une préférence marquée .*?$", ".", line)
+        line = re.sub(r"(?i), enrichissant .*?$", ".", line)
+        line = re.sub(r"(?i), favorisant .*?$", ".", line)
         low_after = line.lower()
 
         weak_legal_hobbies = ["musique", "cinéma", "cinema", "shopping"]
@@ -2800,7 +2820,7 @@ def trim_activities_droit(
         return out[:4]
 
     if cv_is_long:
-        return out[:3]
+        return out[:4] if len(out) <= 4 else out[:3]
 
     return out[:4]
         
@@ -3820,8 +3840,14 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
     else:
         interests_source = payload_activities
     
-    # pour stabiliser avant lancement, on désactive l'enrichissement LLM des activités
-    interests_rewritten = interests_source
+    # on garde l'enrichissement produit des activités
+    if interests_source:
+        interests_rewritten = enrich_activities_with_llm(
+            interests_source,
+            sector=payload.get("sector", "")
+        )
+    else:
+        interests_rewritten = []
     
     if isinstance(interests_rewritten, list):
         if is_legal:
@@ -3857,7 +3883,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         if not p:
             continue
 
-        _strip_blank_neighbors(doc, p, before=1, after=1)
+        _strip_blank_neighbors(doc, p, before=2, after=2)
         _clear_paragraph(p)
 
         # ------- COMPÉTENCES & OUTILS -------
@@ -4128,7 +4154,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         table._tbl.addnext(spacer_elt)
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
-                        spacer.paragraph_format.space_after = Pt(2)
+                        spacer.paragraph_format.space_after = Pt(0.5)
                         anchor = spacer
                 
                 _remove_paragraph(p)
@@ -4371,7 +4397,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     new_p_elt = OxmlElement("w:p")
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
-                    anchor.paragraph_format.space_after = Pt(2)
+                    anchor.paragraph_format.space_after = Pt(0.5)
                     anchor.paragraph_format.space_before = Pt(0)
 
             # ⚠️ NE PAS supprimer anchor : c’est lui qui porte le space_after !
@@ -4819,7 +4845,7 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
         # 2) 1 page mais trop vide => expand
         if pages == 1 and fill < 0.93:
             sector = payload.get("sector", "")
-            max_expand = 2
+            max_expand = 3
         
             if expand_count >= max_expand:
                 break
@@ -4843,6 +4869,9 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
                 continue
         
             if is_finance_sector(sector):
+                finance_max_expand = 2
+                if expand_count >= finance_max_expand:
+                    break
                 cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
                 last_action = "expand"
                 expand_count += 1
