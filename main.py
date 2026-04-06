@@ -1003,7 +1003,8 @@ SECTION EDUCATION :
   - le lieu
   - les dates
   - les matières uniquement si elles sont explicitement fournies
-  - mémoire / concours / projet / moot court uniquement si explicitement fournis
+  - mémoire / concours / moot court / mock trial / projet académique uniquement si explicitement fournis
+  - Si un moot court, mock trial ou concours de plaidoirie est fourni, tu peux le placer soit dans EDUCATION s’il est académique, soit dans SKILLS sur la ligne "Certifications :" s’il est présenté comme distinction, concours ou validation utile au poste.
   - mention / classement uniquement si explicitement fournis
 - Interdiction absolue d’ajouter des matières juridiques “logiques” si elles ne sont pas données.
 - Chaque bloc EDUCATION doit contenir DETAILS:.
@@ -1018,7 +1019,9 @@ SECTION EXPERIENCES :
 - Chaque bullet doit être court, factuel, professionnel.
 - Chaque bullet doit reprendre STRICTEMENT l’idée présente dans l’expérience brute, sans ajouter de finalité, de bénéfice, de conformité, d’efficacité, d’optimisation ou d’impact implicite.
 - Verbes à privilégier seulement s’ils correspondent réellement au contenu :
-  rédiger, analyser, rechercher, synthétiser, préparer, constituer, qualifier, assister, interpréter, mettre en conformité
+  rédiger, analyser, rechercher, synthétiser, préparer, constituer, qualifier, assister, interpréter, mettre en conformité, assurer la veille, préparer des dossiers, participer à la rédaction
+- Si le texte source contient un volume, une fréquence, un nombre de dossiers, de notes, de contrats, d’audiences, de pièces ou un délai, tu le conserves car ce sont de très bons signaux en droit.
+- Si aucun chiffre n’est fourni, tu n’en inventes pas.
 - Interdiction d’inventer :
   - audiences
   - contrats
@@ -1041,6 +1044,10 @@ SECTION SKILLS :
   2) "Maîtrise des logiciels : ..."
   3) "Capacités professionnelles : ..."
   4) "Langues : ..."
+- La ligne "Certifications :" peut inclure, si explicitement fournis :
+  tests de langue, PIX, certifications numériques, concours de plaidoirie, moot courts, mock trials, certifications ou examens utiles au poste.
+- Tu n’inventes jamais une certification, un concours ou un examen.
+- Si rien n’est fourni, tu n’écris pas la ligne "Certifications :".
 - Les éléments sont séparés par des virgules.
 - Tu n’ajoutes aucun outil juridique non fourni.
 - Les langues doivent être intégrées dans "Langues : ...".
@@ -1276,8 +1283,12 @@ def rebuild_activities_from_input(raw_interests: str) -> list[str]:
 def build_skills_from_payload(payload: Dict[str, Any]) -> list[str]:
     lines = []
 
+    raw_certifications = clean_punctuation_text((payload.get("certifications") or "").strip())
     raw_skills = clean_punctuation_text((payload.get("skills") or "").strip())
     raw_languages = clean_punctuation_text((payload.get("languages") or "").strip())
+
+    if raw_certifications:
+        lines.append(f"Certifications : {raw_certifications}")
 
     if raw_skills:
         lines.append(f"Maîtrise des logiciels : {raw_skills}")
@@ -2847,10 +2858,39 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
     cleaned = []
     seen = set()
 
+    language_tests = []
+    final_chunks = []
+
     for chunk in chunks:
         chunk = clean_punctuation_text(chunk)
         if not chunk:
             continue
+
+        low = chunk.lower()
+
+        # Si le LLM a mis un test de langue dans Certifications,
+        # on le bascule vers Langues pour éviter les doublons
+        if low.startswith("certifications :"):
+            cert_content = chunk.split(":", 1)[1].strip() if ":" in chunk else ""
+            cert_items = [x.strip() for x in cert_content.split(",") if x.strip()]
+
+            kept_certs = []
+            for item in cert_items:
+                item_low = item.lower()
+                if any(k in item_low for k in ["toeic", "toefl", "ielts", "cambridge"]):
+                    language_tests.append(item)
+                else:
+                    kept_certs.append(item)
+
+            if kept_certs:
+                chunk = "Certifications : " + ", ".join(kept_certs)
+            else:
+                chunk = ""
+
+        if chunk:
+            final_chunks.append(chunk)
+
+    for chunk in final_chunks:
         key = chunk.lower()
         if key in seen:
             continue
@@ -2861,9 +2901,24 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
         if payload.get("skills"):
             cleaned.insert(0, f"Maîtrise des logiciels : {payload['skills'].strip()}")
 
-    if not any(x.lower().startswith("langues") for x in cleaned):
-        if payload.get("languages"):
-            cleaned.append(f"Langues : {payload['languages'].strip()}")
+    has_languages_line = any(x.lower().startswith("langues") for x in cleaned)
+
+    if has_languages_line and language_tests:
+        updated = []
+        for line in cleaned:
+            if line.lower().startswith("langues"):
+                content = line.split(":", 1)[1].strip() if ":" in line else ""
+                parts = [content] if content else []
+                parts.extend(language_tests)
+                line = "Langues : " + ", ".join([p for p in parts if p])
+            updated.append(line)
+        cleaned = updated
+    else:
+        if not has_languages_line and payload.get("languages"):
+            lang_line = payload["languages"].strip()
+            if language_tests:
+                lang_line = f"{lang_line}, " + ", ".join(language_tests)
+            cleaned.append(f"Langues : {lang_line}")
 
     return cleaned
 
@@ -2882,8 +2937,13 @@ def _render_skills(anchor: Paragraph, lines: list[str]):
         txt = line.strip()
         
         if txt.lower().startswith("certifications"):
-            # on vérifie s'il y a une vraie certification
-            if not any(k in txt.lower() for k in ["cfa", "toefl", "toefic", "ielts", "pix"]):
+            allowed_keywords = [
+                "cfa", "amf", "toefl", "toefic", "toeic", "ielts", "pix",
+                "python", "sql", "excel", "bloomberg", "refinitiv",
+                "dscg", "dcg", "caseware",
+                "moot", "mock trial", "plaidoirie", "concours"
+            ]
+            if not any(k in txt.lower() for k in allowed_keywords):
                 continue
     
         cleaned.append(txt)
@@ -3305,9 +3365,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
     # fallback minimal si le LLM n'a rien mis
     if not llm_skills:
+        raw_certifications = (payload.get("certifications") or "").strip()
         raw_skills = (payload.get("skills") or "").strip()
         raw_languages = (payload.get("languages") or "").strip()
 
+        if raw_certifications:
+            llm_skills.append(f"Certifications : {raw_certifications}")
         if raw_skills:
             llm_skills.append(f"Maîtrise des logiciels : {raw_skills}")
         if raw_languages:
