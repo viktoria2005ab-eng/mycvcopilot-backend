@@ -1674,6 +1674,14 @@ def soften_overclaiming(text: str) -> str:
         (r"(?i)\bsoutenant l[''](expérience client)\b", ""),
         (r"(?i)\bune visibilité accrue\b", ""),
         (r"(?i)\bainsi\b", ""),
+        (r"(?i)\bdémontrant un engagement\b", ""),
+        (r"(?i)\bvisant à (favoriser|améliorer|renforcer)\b", ""),
+        (r"(?i)\bpour la réussite scolaire\b", ""),
+        (r"(?i)\bau travers de\b", "à travers"),
+        (r"(?i)\bencourageant le développement personnel\b", ""),
+        (r"(?i)\bfavorisant l[''](épanouissement|excellence)\b", ""),
+        (r"(?i)\bpour leur bien-être\b", ""),
+        (r"(?i)\bdans un cadre familial\b", ""),
     ]
 
     for pattern, repl in replacements:
@@ -4274,7 +4282,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         table._tbl.addnext(spacer_elt)
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
-                        spacer.paragraph_format.space_after = Pt(0)
+                        spacer.paragraph_format.space_after = SECTION_SPACING
                         anchor = spacer
                 
                 _remove_paragraph(p)
@@ -4523,7 +4531,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     new_p_elt = OxmlElement("w:p")
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
-                    anchor.paragraph_format.space_after = Pt(0)
+                    anchor.paragraph_format.space_after = SECTION_SPACING
                     anchor.paragraph_format.space_before = Pt(0)
 
             # ⚠️ NE PAS supprimer anchor : c’est lui qui porte le space_after !
