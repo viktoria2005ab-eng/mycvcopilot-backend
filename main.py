@@ -4975,9 +4975,15 @@ async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = No
     # 2) boucle max 5 essais (baseline + 2 corrections)
     for attempt in range(5):
         import asyncio
-        await asyncio.to_thread(write_docx_from_template, tpl, cv_text, docx_path, payload=payload, compact_mode=compact_mode)
-        await asyncio.to_thread(convert_docx_to_pdf, docx_path, pdf_path)
-
+        try:
+            await asyncio.to_thread(write_docx_from_template, tpl, cv_text, docx_path, payload=payload, compact_mode=compact_mode)
+            await asyncio.to_thread(convert_docx_to_pdf, docx_path, pdf_path)
+        except Exception as e:
+            print(f"=== ERREUR GÉNÉRATION attempt {attempt}: {e} ===")
+            if attempt >= 3:
+                raise HTTPException(status_code=500, detail="Erreur lors de la génération du CV. Réessaie dans quelques secondes.")
+            continue
+            
         pages = pdf_page_count(pdf_path)
         fill = pdf_fill_ratio_first_page(pdf_path) if pages == 1 else 0.0
         print("attempt", attempt, "pages", pages, "fill", round(fill, 2))
