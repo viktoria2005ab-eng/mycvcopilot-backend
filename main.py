@@ -393,7 +393,7 @@ quota: Dict[str, str] = {}
 # jobs[job_id] = {"docx_path":..., "pdf_path":...}
 jobs: Dict[str, Dict[str, str]] = {}
 
-app = FastAPI()
+
 app = FastAPI()
 
 # Limite à 3 générations simultanées pour éviter les crashes mémoire
