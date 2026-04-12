@@ -393,6 +393,10 @@ quota: Dict[str, str] = {}
 jobs: Dict[str, Dict[str, str]] = {}
 
 app = FastAPI()
+app = FastAPI()
+
+# Limite à 3 générations simultanées pour éviter les crashes mémoire
+_cv_semaphore = asyncio.Semaphore(3)
 
 app.add_middleware(
     CORSMiddleware,
@@ -4955,6 +4959,10 @@ def download(job_id: str, filename: str):
     return FileResponse(path, filename=download_name)
 
 async def generate_and_store(payload: Dict[str, Any], job_id: Optional[str] = None) -> str:
+    async with _cv_semaphore:
+        return await _generate_and_store_inner(payload, job_id)
+
+async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[str] = None) -> str:
     job_id = job_id or str(uuid.uuid4())
     os.makedirs("out", exist_ok=True)
 
