@@ -5059,6 +5059,18 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         break
 
     jobs[job_id] = {"docx_path": docx_path, "pdf_path": pdf_path, "payload": payload}
+
+    # Nettoyage des fichiers vieux de plus de 2 heures
+    try:
+        import time
+        cutoff = time.time() - 7200
+        for f in os.listdir("out"):
+            fp = os.path.join("out", f)
+            if os.path.isfile(fp) and os.path.getmtime(fp) < cutoff:
+                os.remove(fp)
+    except Exception:
+        pass
+
     return job_id
     
 import psycopg2
@@ -5121,19 +5133,3 @@ def db_conn():
         raise
     finally:
         pool.putconn(conn)
-
-@app.get("/_debug_quota_columns")
-def debug_quota_columns():
-    try:
-        with db_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT column_name, data_type
-                    FROM information_schema.columns
-                    WHERE table_name = 'quota'
-                    ORDER BY ordinal_position;
-                """)
-                rows = cur.fetchall()
-        return {"columns": [{"name": r[0], "type": r[1]} for r in rows]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
