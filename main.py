@@ -393,6 +393,13 @@ quota: Dict[str, str] = {}
 # jobs[job_id] = {"docx_path":..., "pdf_path":...}
 jobs: Dict[str, Dict[str, str]] = {}
 
+# Sessions Stripe en attente : stripe_session_id -> payload utilisateur
+pending_stripe_sessions: Dict[str, Dict[str, Any]] = {}
+
+# Price IDs Stripe
+STRIPE_PRICE_UNITE = "price_1TLpcpRu6mRf1USHtReed4Xa"
+STRIPE_PRICE_MENSUEL = "price_1TLph6Ru6mRf1USHRdaeUpiR"
+
 
 app = FastAPI()
 
@@ -4894,7 +4901,20 @@ async def start(payload: Dict[str, Any]):
         if not payload.get(k):
             raise HTTPException(status_code=400, detail=f"Champ manquant: {k}")
 
+    # Limite anti-abus et anti-prompt injection
+    if len(payload.get("job_posting", "")) > 8000:
+        raise HTTPException(status_code=400, detail="Offre d'emploi trop longue.")
+    if len(payload.get("experiences", "")) > 5000:
+        raise HTTPException(status_code=400, detail="Expériences trop longues.")
+    if len(payload.get("education", "")) > 3000:
+        raise HTTPException(status_code=400, detail="Formation trop longue.")
+
     email = payload["email"].strip().lower()
+
+    # Validation email basique anti-bot
+    if len(email) > 200 or "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Email invalide.")
+
     current_month = month_key()
 
     # Vérifie et consomme le quota de façon atomique
@@ -4920,20 +4940,107 @@ async def start(payload: Dict[str, Any]):
     job_id = await generate_and_store(payload)
     return {"mode": "free", "downloads": make_download_urls(job_id)}
 
-@app.post("/confirm_paid")
-async def confirm_paid(payload: Dict[str, Any]):
-    # appelé par le front après retour Stripe success
-    job_id = payload.get("job_id")
-    if not job_id or job_id not in jobs:
-        raise HTTPException(status_code=400, detail="job_id invalide.")
-    if jobs[job_id].get("pdf_path"):
-        return {"ok": True, "downloads": make_download_urls(job_id)}
+@app.post("/create-checkout")
+async def create_checkout(payload: Dict[str, Any]):
+    """
+    Crée une session Stripe Checkout sécurisée.
+    Le payload CV est stocké en mémoire côté serveur.
+    Le frontend reçoit uniquement l'URL de paiement.
+    """
+    if not STRIPE_SECRET:
+        raise HTTPException(status_code=500, detail="Stripe non configuré.")
 
-    stored = jobs[job_id].get("payload")
-    if not stored:
-        raise HTTPException(status_code=400, detail="Payload introuvable.")
-    job_id = await generate_and_store(stored, job_id=job_id)
-    return {"ok": True, "downloads": make_download_urls(job_id)}
+    plan = payload.pop("plan", "unite")  # "unite" ou "mensuel"
+    price_id = STRIPE_PRICE_MENSUEL if plan == "mensuel" else STRIPE_PRICE_UNITE
+
+    # Validation minimale du payload
+    required = ["email", "sector", "company", "role", "job_posting", "full_name", "city", "phone"]
+    for k in required:
+        if not payload.get(k):
+            raise HTTPException(status_code=400, detail=f"Champ manquant: {k}")
+
+    email = payload["email"].strip().lower()
+    app_url = os.getenv("APP_URL", "https://mycvcopilote.com")
+
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            mode="payment" if plan == "unite" else "subscription",
+            line_items=[{"price": price_id, "quantity": 1}],
+            customer_email=email,
+            success_url=f"{app_url}/success.html?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{app_url}/app.html",
+            metadata={"email": email, "plan": plan},
+        )
+    except stripe.error.StripeError as e:
+        raise HTTPException(status_code=500, detail=f"Erreur Stripe : {str(e)}")
+
+    # Stocker le payload côté serveur, associé à la session Stripe
+    pending_stripe_sessions[session.id] = payload
+
+    return {"checkout_url": session.url}
+
+
+@app.post("/stripe-webhook")
+async def stripe_webhook(request: Request):
+    """
+    Webhook Stripe — seul endroit où le paiement est confirmé.
+    On vérifie la signature cryptographique pour être sûr que
+    c'est bien Stripe qui envoie l'événement.
+    """
+    payload_bytes = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+    webhook_secret = STRIPE_WEBHOOK_SECRET
+
+    if not webhook_secret:
+        raise HTTPException(status_code=500, detail="Webhook secret non configuré.")
+
+    try:
+        event = stripe.Webhook.construct_event(
+            payload_bytes, sig_header, webhook_secret
+        )
+    except stripe.error.SignatureVerificationError:
+        # Signature invalide = tentative de fraude
+        raise HTTPException(status_code=400, detail="Signature invalide.")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Webhook invalide.")
+
+    # Paiement unique confirmé
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        session_id = session["id"]
+
+        cv_payload = pending_stripe_sessions.pop(session_id, None)
+        if cv_payload:
+            try:
+                job_id = await generate_and_store(cv_payload)
+                jobs[session_id] = jobs.get(job_id, {})
+                jobs[session_id]["job_id"] = job_id
+                jobs[session_id]["ready"] = True
+            except Exception as e:
+                print(f"=== ERREUR GÉNÉRATION après paiement {session_id}: {e} ===")
+
+    return {"ok": True}
+
+
+@app.get("/payment-status/{session_id}")
+async def payment_status(session_id: str):
+    """
+    Appelé par le frontend sur la page de succès.
+    Renvoie les liens de téléchargement quand le CV est prêt.
+    """
+    if session_id not in jobs:
+        return {"ready": False}
+
+    entry = jobs[session_id]
+    if not entry.get("ready"):
+        return {"ready": False}
+
+    job_id = entry.get("job_id")
+    if not job_id:
+        return {"ready": False}
+
+    return {"ready": True, "downloads": make_download_urls(job_id)}
 
 @app.get("/download/{job_id}/{filename}")
 def download(job_id: str, filename: str):
