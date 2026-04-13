@@ -19,8 +19,6 @@ from openai import OpenAI
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.text.paragraph import Paragraph
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
 
 APP_URL = os.getenv("APP_URL", "")  # ex: https://mycvcopilote.netlify.app
 STRIPE_SECRET = os.getenv("STRIPE_SECRET") or os.getenv("STRIPE_SECRET_KEY", "")
@@ -4803,23 +4801,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         pass
     collapse_blank_paragraphs(doc, max_consecutive=1)
     doc.save(out_path)
-
-def write_pdf_simple(cv_text: str, out_path: str) -> None:
-    c = canvas.Canvas(out_path, pagesize=A4)
-    width, height = A4
-    x = 45
-    y = height - 55
-    line_height = 14
-
-    for raw in cv_text.splitlines():
-        line = raw.strip("\n")
-        if y < 60:
-            c.showPage()
-            y = height - 55
-        c.drawString(x, y, line[:120])  # coupe sécurité
-        y -= line_height
-
-    c.save()
 
 def convert_docx_to_pdf(docx_path: str, pdf_path: str) -> None:
     """
