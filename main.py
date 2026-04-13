@@ -2349,6 +2349,7 @@ IMPORTANT :
 - Exemple interdit :
   "Football : compétitions régionales"
   si ce n'est pas dans l'entrée.
+- IMPORTANT : si un chiffre est présent dans l'entrée (ex : "13 pays", "15 ans", "500 personnes"), tu DOIS le conserver dans la sortie.
 
 INDICATION SECTEUR :
 {sector_hint}
@@ -2861,9 +2862,6 @@ def trim_activities(
         line = clean_punctuation_text(line)
         line = re.sub(r"(?i), impliquant .*?$", ".", line)
         line = re.sub(r"(?i), avec une préférence marquée .*?$", ".", line)
-        line = re.sub(r"(?i), enrichissant .*?$", ".", line)
-        line = re.sub(r"(?i), favorisant .*?$", ".", line)
-        line = re.sub(r"(?i), développant .*? grâce à .*?$", ".", line)
 
         if line and ":" in line:
             head, tail = line.split(":", 1)
@@ -2918,8 +2916,6 @@ def trim_activities_droit(
         line = clean_punctuation_text(line)
         line = re.sub(r"(?i), impliquant .*?$", ".", line)
         line = re.sub(r"(?i), avec une préférence marquée .*?$", ".", line)
-        line = re.sub(r"(?i), enrichissant .*?$", ".", line)
-        line = re.sub(r"(?i), favorisant .*?$", ".", line)
         low_after = line.lower()
 
         weak_legal_hobbies = ["musique", "cinéma", "cinema", "shopping"]
@@ -5040,7 +5036,13 @@ async def payment_status(session_id: str):
     if not job_id:
         return {"ready": False}
 
-    return {"ready": True, "downloads": make_download_urls(job_id)}
+    cv_payload = jobs[session_id].get("payload") or {}
+    suggested_filename = build_cv_filename(cv_payload)
+    return {
+        "ready": True,
+        "downloads": make_download_urls(job_id),
+        "filename": suggested_filename
+    }
 
 @app.get("/download/{job_id}/{filename}")
 def download(job_id: str, filename: str):
