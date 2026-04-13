@@ -4290,7 +4290,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         table._tbl.addnext(spacer_elt)
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
-                        spacer.paragraph_format.space_after = SECTION_SPACING
+                        spacer.paragraph_format.space_after = Pt(0)
                         anchor = spacer
                 
                 _remove_paragraph(p)
@@ -4539,10 +4539,10 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     new_p_elt = OxmlElement("w:p")
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
-                    anchor.paragraph_format.space_after = SECTION_SPACING
+                    anchor.paragraph_format.space_after = Pt(0)
                     anchor.paragraph_format.space_before = Pt(0)
 
-            # ⚠️ NE PAS supprimer anchor : c’est lui qui porte le space_after !
+            # ⚠️ NE PAS supprimer anchor
             _remove_paragraph(p)
             continue
 
