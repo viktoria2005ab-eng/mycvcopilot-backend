@@ -32,8 +32,7 @@ def _check_ip_rate_limit(ip: str):
         )
     history.append(now)
     _ip_attempts[ip] = history
-class EmailRequest(BaseModel):
-    email: str
+from pydantic import BaseModel
 
 class EmailRequest(BaseModel):
     email: str
