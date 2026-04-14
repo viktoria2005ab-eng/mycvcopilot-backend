@@ -5235,3 +5235,140 @@ def db_conn():
         raise
     finally:
         pool.putconn(conn)
+
+# ============================================================
+# VÉRIFICATION EMAIL PAR CODE — ZOHO SMTP
+# ============================================================
+
+# Anti-abus : nb de tentatives d'envoi par email
+_send_attempts: Dict[str, list] = {}   # email -> liste de datetimes
+_verify_attempts: Dict[str, int] = {}  # email -> nb de mauvais codes
+
+def _check_send_rate_limit(email: str):
+    """Bloque si l'email a demandé plus de 3 codes en 1 heure."""
+    now = dt.datetime.utcnow()
+    history = _send_attempts.get(email, [])
+    # On garde seulement les demandes des 60 dernières minutes
+    history = [t for t in history if (now - t).seconds < 3600]
+    if len(history) >= 3:
+        raise HTTPException(
+            status_code=429,
+            detail="Trop de tentatives. Attends 1 heure avant de redemander un code."
+        )
+    history.append(now)
+    _send_attempts[email] = history
+
+
+def send_verification_email(to_email: str, code: str):
+    """Envoie le code par email via SMTP Zoho."""
+    if not ZOHO_EMAIL or not ZOHO_PASSWORD:
+        raise HTTPException(status_code=500, detail="Serveur mail non configuré.")
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Ton code de vérification MyCVCopilote"
+    msg["From"] = ZOHO_EMAIL
+    msg["To"] = to_email
+
+    html = f"""
+    <html><body style="font-family:Arial,sans-serif;max-width:480px;margin:auto">
+      <h2 style="color:#2563eb;">MyCVCopilote 👋</h2>
+      <p>Voici ton code de vérification :</p>
+      <div style="font-size:36px;font-weight:bold;letter-spacing:10px;
+                  color:#1e293b;background:#f1f5f9;padding:20px;
+                  border-radius:8px;text-align:center;">{code}</div>
+      <p style="color:#64748b;font-size:13px;">
+        Ce code est valable <strong>10 minutes</strong>.<br>
+        Si tu n'as pas demandé ce code, ignore cet email.
+      </p>
+    </body></html>
+    """
+    msg.attach(MIMEText(html, "html"))
+
+    try:
+        with smtplib.SMTP("smtp.zoho.eu", 587, timeout=10) as server:
+            server.starttls()
+            server.login(ZOHO_EMAIL, ZOHO_PASSWORD)
+            server.sendmail(ZOHO_EMAIL, to_email, msg.as_string())
+    except smtplib.SMTPAuthenticationError:
+        raise HTTPException(status_code=500, detail="Erreur d'authentification mail.")
+    except Exception as e:
+        print(f"[MAIL ERROR] {e}")
+        raise HTTPException(status_code=500, detail="Impossible d'envoyer l'email.")
+
+
+@app.post("/send-verification-code")
+async def send_verification_code(request: Request):
+    """
+    Envoie un code à 6 chiffres par email.
+    Sécurité : max 3 envois/heure, code expire en 10 min.
+    """
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+
+    # Validation basique
+    if not email or "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Email invalide.")
+    if len(email) > 200:
+        raise HTTPException(status_code=400, detail="Email invalide.")
+
+    # Anti-abus
+    _check_send_rate_limit(email)
+
+    # Génère un code à 6 chiffres
+    code = str(random.randint(100000, 999999))
+    expires = dt.datetime.utcnow() + dt.timedelta(minutes=10)
+
+    # Stocke le code (écrase l'ancien si existant)
+    email_verification_codes[email] = {
+        "code": code,
+        "expires": expires,
+    }
+    # Remet le compteur de mauvais codes à 0
+    _verify_attempts[email] = 0
+
+    # Envoie l'email
+    send_verification_email(email, code)
+
+    return {"ok": True, "message": "Code envoyé !"}
+
+
+@app.post("/verify-code")
+async def verify_code(request: Request):
+    """
+    Vérifie le code saisi par l'utilisateur.
+    Sécurité : max 5 mauvais essais, code expire en 10 min.
+    """
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    code = (body.get("code") or "").strip()
+
+    if not email or not code:
+        raise HTTPException(status_code=400, detail="Email ou code manquant.")
+
+    # Trop de mauvais essais ?
+    if _verify_attempts.get(email, 0) >= 5:
+        raise HTTPException(
+            status_code=429,
+            detail="Trop de mauvaises tentatives. Redemande un nouveau code."
+        )
+
+    entry = email_verification_codes.get(email)
+    if not entry:
+        raise HTTPException(status_code=400, detail="Aucun code pour cet email. Redemande un code.")
+
+    # Code expiré ?
+    if dt.datetime.utcnow() > entry["expires"]:
+        del email_verification_codes[email]
+        raise HTTPException(status_code=400, detail="Code expiré. Redemande un nouveau code.")
+
+    # Mauvais code ?
+    if entry["code"] != code:
+        _verify_attempts[email] = _verify_attempts.get(email, 0) + 1
+        raise HTTPException(status_code=400, detail="Code incorrect.")
+
+    # ✅ Code valide → on nettoie tout
+    del email_verification_codes[email]
+    _verify_attempts.pop(email, None)
+    _send_attempts.pop(email, None)
+
+    return {"ok": True, "verified": True}
