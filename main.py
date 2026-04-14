@@ -6,6 +6,18 @@ import datetime as dt
 from typing import Optional, Dict, Any
 import glob 
 import json
+import smtplib
+import random
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+# Config Zoho
+ZOHO_EMAIL = os.getenv("ZOHO_EMAIL", "")
+ZOHO_PASSWORD = os.getenv("ZOHO_PASSWORD", "")
+
+# Stockage temporaire des codes de vérification
+# format : { "email@ex.com": {"code": "123456", "expires": datetime} }
+email_verification_codes: Dict[str, Dict] = {}
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
