@@ -18,6 +18,14 @@ ZOHO_PASSWORD = os.getenv("ZOHO_PASSWORD", "")
 # Stockage temporaire des codes de vérification
 # format : { "email@ex.com": {"code": "123456", "expires": datetime} }
 email_verification_codes: Dict[str, Dict] = {}
+from pydantic import BaseModel, EmailStr
+
+class EmailRequest(BaseModel):
+    email: str
+
+class VerifyCodeRequest(BaseModel):
+    email: str
+    code: str
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
@@ -5297,13 +5305,8 @@ def send_verification_email(to_email: str, code: str):
 
 
 @app.post("/send-verification-code")
-async def send_verification_code(request: Request):
-    """
-    Envoie un code à 6 chiffres par email.
-    Sécurité : max 3 envois/heure, code expire en 10 min.
-    """
-    body = await request.json()
-    email = (body.get("email") or "").strip().lower()
+async def send_verification_code(body: EmailRequest):
+    email = (body.email or "").strip().lower()
 
     # Validation basique
     if not email or "@" not in email or "." not in email.split("@")[-1]:
@@ -5333,14 +5336,9 @@ async def send_verification_code(request: Request):
 
 
 @app.post("/verify-code")
-async def verify_code(request: Request):
-    """
-    Vérifie le code saisi par l'utilisateur.
-    Sécurité : max 5 mauvais essais, code expire en 10 min.
-    """
-    body = await request.json()
-    email = (body.get("email") or "").strip().lower()
-    code = (body.get("code") or "").strip()
+async def verify_code(body: VerifyCodeRequest):
+    email = (body.email or "").strip().lower()
+    code = (body.code or "").strip()
 
     if not email or not code:
         raise HTTPException(status_code=400, detail="Email ou code manquant.")
