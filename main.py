@@ -4956,7 +4956,10 @@ async def start(payload: Dict[str, Any], request: Request):
     return {"mode": "free", "downloads": make_download_urls(job_id)}
 
 @app.post("/create-checkout")
-async def create_checkout(payload: Dict[str, Any]):
+async def create_checkout(payload: Dict[str, Any], request: Request):
+    # Rate limiting par IP
+    client_ip = request.client.host
+    _check_ip_rate_limit(client_ip)
     """
     Crée une session Stripe Checkout sécurisée.
     Le payload CV est stocké en mémoire côté serveur.
