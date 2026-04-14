@@ -18,6 +18,20 @@ ZOHO_PASSWORD = os.getenv("ZOHO_PASSWORD", "")
 # Stockage temporaire des codes de vérification
 # format : { "email@ex.com": {"code": "123456", "expires": datetime} }
 email_verification_codes: Dict[str, Dict] = {}
+# Rate limiting par IP — max 5 tentatives/heure sur /start
+_ip_attempts: Dict[str, list] = {}
+
+def _check_ip_rate_limit(ip: str):
+    now = dt.datetime.utcnow()
+    history = _ip_attempts.get(ip, [])
+    history = [t for t in history if (now - t).seconds < 3600]
+    if len(history) >= 5:
+        raise HTTPException(
+            status_code=429,
+            detail="Trop de tentatives. Réessaie dans 1 heure."
+        )
+    history.append(now)
+    _ip_attempts[ip] = history
 from pydantic import BaseModel, EmailStr
 
 class EmailRequest(BaseModel):
@@ -4890,7 +4904,10 @@ def quota_check(email: str):
     return {"ok": True, "free": False, "message": "ℹ️ Ton CV gratuit du mois est déjà utilisé. Le prochain sera payant."}
 
 @app.post("/start")
-async def start(payload: Dict[str, Any]):
+async def start(payload: Dict[str, Any], request: Request):
+    # Rate limiting par IP
+    client_ip = request.client.host
+    _check_ip_rate_limit(client_ip)
 
     required = ["email", "sector", "company", "role", "job_posting", "full_name", "city", "phone"]
 
