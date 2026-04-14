@@ -415,8 +415,8 @@ jobs: Dict[str, Dict[str, str]] = {}
 pending_stripe_sessions: Dict[str, Dict[str, Any]] = {}
 
 # Price IDs Stripe
-STRIPE_PRICE_UNITE = "price_1TLpcpRu6mRf1USHtReed4Xa"
-STRIPE_PRICE_MENSUEL = "price_1TLph6Ru6mRf1USHRdaeUpiR"
+STRIPE_PRICE_UNITE = "price_1TMCoaRqCGwhB7YCBKew54tL"
+STRIPE_PRICE_MENSUEL = "price_1TMCpGRqCGwhB7YC9NFFc8yx"
 
 
 app = FastAPI()
