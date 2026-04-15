@@ -565,7 +565,7 @@ RÈGLES ABSOLUES :
 - Tu n’ajoutes ni chiffres, ni missions, ni outils, ni distinctions non fournis.
 - Tu restes crédible, professionnel et sobre.
 - Tu reformules intelligemment pour valoriser le profil sans mentir.
-- Chaque expérience contient 2 bullet points par défaut, et 3 uniquement pour les expériences les plus pertinentes.
+- Chaque expérience contient 3 bullet points si l'utilisateur en a fourni 3, et 2 uniquement si le profil est très chargé. Ne supprime jamais un bullet fourni par l'utilisateur.
 - Chaque bullet doit être concret, court et orienté action.
 - Si le CV semble trop vide, tu densifies d’abord les expériences, puis les activités, sans inventer.
 - Si une expérience est peu détaillée, tu la rends professionnelle sans extrapoler.
@@ -5146,10 +5146,10 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         chars_no_space_check = len(re.sub(r"\s+", "", cv_text))
         nb_lines_check = cv_text.count("\n") + 1
         _is_short = (chars_no_space_check < 1150) or (nb_lines_check < 42)
-        fill_threshold = 0.85 if _is_short else 0.93
+        fill_threshold = 0.80 if _is_short else 0.93
         if pages == 1 and fill < fill_threshold:
             sector = payload.get("sector", "")
-            max_expand = 3
+            max_expand = 5 if _is_short else 3
         
             if expand_count >= max_expand:
                 break
