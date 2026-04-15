@@ -1549,7 +1549,27 @@ def ensure_required_sections(cv_text: str, payload: Dict[str, Any]) -> str:
     )
     
     if not experience_lines or actual_exp_blocks < expected_exp_blocks:
-        experience_lines = rebuild_experiences_from_input(payload.get("experiences", ""))
+    experience_lines = rebuild_experiences_from_input(payload.get("experiences", ""))
+    else:
+        # Vérifie que les bullets utilisateur ne sont pas supprimés
+        user_exps = parse_raw_experiences_input(payload.get("experiences", ""))
+        for i, user_exp in enumerate(user_exps):
+            user_bullets = [b for b in (user_exp.get("bullets") or []) if b.strip()]
+            if len(user_bullets) >= 3:
+                # Cherche l'expérience correspondante dans le LLM output
+                role_key = (user_exp.get("role") or "").lower()[:20]
+                for j, line in enumerate(experience_lines):
+                    if role_key and role_key in (line or "").lower():
+                        # Compte les bullets après ce ROLE:
+                        bullet_count = 0
+                        k = j + 1
+                        while k < len(experience_lines) and not (experience_lines[k] or "").startswith("ROLE:"):
+                            if (experience_lines[k] or "").strip().startswith("-"):
+                                bullet_count += 1
+                            k += 1
+                        if bullet_count < len(user_bullets):
+                            print(f"=== WARNING: bullets supprimés pour {role_key}, reconstruction ===")
+                        break
 
     if not skills_lines:
         skills_lines = build_skills_from_payload(payload)
