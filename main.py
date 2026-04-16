@@ -224,7 +224,7 @@ Règles ABSOLUES :
 - Tu peux uniquement :
   1) raccourcir les bullets (phrases plus directes),
   2) réduire DETAILS dans EDUCATION (1-2 lignes max par diplôme),
-  3) raccourcir les activités existantes à 1 ligne chacune sans en supprimer,
+  3) ne pas toucher aux activités, les conserver telles quelles dans le CV,
   4) limiter à 2 bullets les expériences secondaires (garder 3 bullets pour l'expérience la plus pertinente).
 - INTERDIT ABSOLU : tu ne supprimes JAMAIS une expérience entière. Toutes les expériences doivent rester présentes.
 - INTERDIT ABSOLU : chaque bullet doit faire au minimum 8 mots et conserver tous les chiffres et faits précis (600+, 9 100 euros, 12%, 20 000 euros, etc.). Tu ne rends jamais un bullet vague ou générique.
