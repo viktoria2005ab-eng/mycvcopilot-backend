@@ -227,7 +227,9 @@ Règles ABSOLUES :
   3) raccourcir les activités existantes à 1 ligne chacune sans en supprimer,
   4) limiter à 2 bullets les expériences secondaires (garder 3 bullets pour l'expérience la plus pertinente).
 - INTERDIT ABSOLU : tu ne supprimes JAMAIS une expérience entière. Toutes les expériences doivent rester présentes.
-- INTERDIT ABSOLU : chaque bullet doit faire au minimum 6 mots. Tu ne coupes jamais un bullet à moins de 6 mots.
+- INTERDIT ABSOLU : chaque bullet doit faire au minimum 8 mots et conserver tous les chiffres et faits précis (600+, 9 100 euros, 12%, 20 000 euros, etc.). Tu ne rends jamais un bullet vague ou générique.
+- INTERDIT ABSOLU : dans les activités, tu conserves TOUS les faits précis : années (depuis 10 ans), nombres de pays (13 pays), noms d'événements, fréquences. Tu ne supprimes jamais ces informations.
+- INTERDIT ABSOLU : tu ne fusionnes JAMAIS deux bullets en un seul. Chaque bullet reste séparé.
 - INTERDIT ABSOLU : chaque activité doit faire au minimum 8 mots. Tu ne coupes jamais une activité à moins de 8 mots.
 - INTERDIT ABSOLU : tu ne supprimes JAMAIS une activité si elle est déjà en 1 ligne.
 - Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
