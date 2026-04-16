@@ -216,6 +216,7 @@ Tu dois rendre ce CV PLUS COURT pour tenir sur 1 page Word, SANS le casser.
 
 Règles ABSOLUES :
 - Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, ACTIVITIES:
+- Tu conserves EXACTEMENT le format structuré de chaque expérience : ROLE:, COMPANY:, DATES:, LOCATION:, TYPE:, BULLETS: sur des lignes séparées. Tu ne fusionnes JAMAIS ces champs en une seule ligne.
 - Tu ne rajoutes AUCUN commentaire ni phrase méta.
 - Tu ne coupes JAMAIS une phrase.
 - Tu n'utilises JAMAIS "..." ni de guillemets triples.
@@ -223,7 +224,7 @@ Règles ABSOLUES :
 - Tu peux uniquement :
   1) raccourcir les bullets (phrases plus directes),
   2) réduire DETAILS dans EDUCATION (1-2 lignes max par diplôme),
-  3) réduire ACTIVITIES (max 2 activités, une ligne chacune),
+  3) raccourcir les activités existantes à 1 ligne chacune sans en supprimer,
   4) limiter à 2 bullets les expériences secondaires (garder 3 bullets pour l'expérience la plus pertinente).
 - INTERDIT ABSOLU : tu ne supprimes JAMAIS une expérience entière. Toutes les expériences du CV doivent rester présentes.
 - INTERDIT ABSOLU : tu ne supprimes JAMAIS une activité si elle est déjà en 1 ligne.
