@@ -4165,10 +4165,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     
                     details = dedupe_preserve_order(merged_details)
 
-                    # 🚫 supprime les classements inventés
+                    # ✅ garde les classements fournis par l'utilisateur
+                    user_edu_text = (payload.get("education") or "").lower()
+                    has_user_ranking = any(word in user_edu_text for word in ["classement", "top", "rank", "mention", "major"])
                     details = [
                         d for d in details
                         if not re.search(r"(?i)classement|rank|top\s*\d+", d)
+                        or has_user_ranking
                     ]
                     details = dedupe_preserve_order(details)
 
