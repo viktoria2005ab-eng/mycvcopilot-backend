@@ -225,6 +225,8 @@ Règles ABSOLUES :
   2) réduire DETAILS dans EDUCATION (1-2 lignes max par diplôme),
   3) réduire ACTIVITIES (max 2 activités, une ligne chacune),
   4) limiter à 2 bullets les expériences secondaires (garder 3 bullets pour l'expérience la plus pertinente).
+- INTERDIT ABSOLU : tu ne supprimes JAMAIS une expérience entière. Toutes les expériences du CV doivent rester présentes.
+- INTERDIT ABSOLU : tu ne supprimes JAMAIS une activité si elle est déjà en 1 ligne.
 - Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
 
 Sortie : UNIQUEMENT le CV complet.
