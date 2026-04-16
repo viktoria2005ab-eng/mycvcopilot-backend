@@ -226,7 +226,9 @@ Règles ABSOLUES :
   2) réduire DETAILS dans EDUCATION (1-2 lignes max par diplôme),
   3) raccourcir les activités existantes à 1 ligne chacune sans en supprimer,
   4) limiter à 2 bullets les expériences secondaires (garder 3 bullets pour l'expérience la plus pertinente).
-- INTERDIT ABSOLU : tu ne supprimes JAMAIS une expérience entière. Toutes les expériences du CV doivent rester présentes.
+- INTERDIT ABSOLU : tu ne supprimes JAMAIS une expérience entière. Toutes les expériences doivent rester présentes.
+- INTERDIT ABSOLU : chaque bullet doit faire au minimum 6 mots. Tu ne coupes jamais un bullet à moins de 6 mots.
+- INTERDIT ABSOLU : chaque activité doit faire au minimum 8 mots. Tu ne coupes jamais une activité à moins de 8 mots.
 - INTERDIT ABSOLU : tu ne supprimes JAMAIS une activité si elle est déjà en 1 ligne.
 - Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
 
@@ -5211,6 +5213,14 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         break
 
     jobs[job_id] = {"docx_path": docx_path, "pdf_path": pdf_path, "payload": payload}
+    # Sécurité finale : si encore 2 pages, on force un shrink compact
+    try:
+        if pdf_page_count(pdf_path) > 1:
+            cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text))
+            await asyncio.to_thread(write_docx_from_template, tpl, cv_text, docx_path, payload=payload, compact_mode=True)
+            await asyncio.to_thread(convert_docx_to_pdf, docx_path, pdf_path)
+    except Exception:
+        pass
 
     # Nettoyage des fichiers vieux de plus de 2 heures
     try:
