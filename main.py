@@ -1549,7 +1549,7 @@ def ensure_required_sections(cv_text: str, payload: Dict[str, Any]) -> str:
     )
     
     if not experience_lines or actual_exp_blocks < expected_exp_blocks:
-    experience_lines = rebuild_experiences_from_input(payload.get("experiences", ""))
+        experience_lines = rebuild_experiences_from_input(payload.get("experiences", ""))
     else:
         # Vérifie que les bullets utilisateur ne sont pas supprimés
         user_exps = parse_raw_experiences_input(payload.get("experiences", ""))
