@@ -231,6 +231,7 @@ Règles ABSOLUES :
 - INTERDIT ABSOLU : dans les activités, tu conserves TOUS les faits précis : années (depuis 10 ans), nombres de pays (13 pays), noms d'événements, fréquences. Tu ne supprimes jamais ces informations.
 - INTERDIT ABSOLU : tu ne fusionnes JAMAIS deux bullets en un seul. Chaque bullet reste séparé.
 - INTERDIT ABSOLU : chaque activité doit faire au minimum 8 mots. Tu ne coupes jamais une activité à moins de 8 mots.
+- INTERDIT ABSOLU : tu ne laisses jamais un fragment de phrase sans verbe principal. Si une phrase est incomplète après raccourcissement, tu la complètes ou tu la supprimes entièrement.
 - INTERDIT ABSOLU : tu ne supprimes JAMAIS une activité si elle est déjà en 1 ligne.
 - Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
 
@@ -274,6 +275,8 @@ Interdictions absolues :
 - ne jamais ajouter un contexte inventé,
 - ne jamais ajouter “optimisant”, “maximisant”, “garantissant”, “assurant”, “renforçant”, “améliorant” si cela crée un faux résultat,
 - ne jamais ajouter de pays, compétitions, événements, fréquence ou niveau s’ils ne sont pas déjà présents.
+- INTERDIT ABSOLU : ne jamais terminer un bullet par une phrase participiale inventée ("assurant", "contribuant à", "favorisant", "développant", "renforçant", "facilitant", "permettant", "garantissant") si cette finalité n'était pas présente dans le bullet original.
+- INTERDIT ABSOLU : ne jamais laisser un fragment de phrase sans verbe principal.
 
 Style attendu :
 - professionnel
@@ -361,6 +364,8 @@ Interdictions :
 - pas de faux bénéfice,
 - pas d’optimisation inventée,
 - pas de précision artificielle.
+- INTERDIT ABSOLU : ne jamais terminer un bullet par une phrase participiale inventée ("assurant", "contribuant à", "favorisant", "permettant", "garantissant", "renforçant").
+- INTERDIT ABSOLU : ne jamais laisser un fragment de phrase sans verbe principal.
 
 Style :
 - sobre
@@ -407,6 +412,8 @@ Interdictions :
 - pas de pilotage inventé,
 - pas de jargon type “impact”, “efficacité”, “maximiser”, “haute qualité”, “coordination efficace” si cela sonne artificiel,
 - pas de précision fictive.
+- INTERDIT ABSOLU : ne jamais terminer un bullet par une phrase participiale inventée ("assurant", "contribuant à", "favorisant", "permettant", "renforçant", "maximisant").
+- INTERDIT ABSOLU : ne jamais laisser un fragment de phrase sans verbe principal.
 
 Style :
 - structuré
@@ -3265,6 +3272,7 @@ def dedupe_language_items(items: list[str]) -> list[str]:
     normalized = []
     seen_exact = set()
     seen_language_bases = set()
+    seen_test_keywords = set()  # Fix: évite TOEIC 930 standalone si déjà dans "Anglais C1 (TOEIC 930)"
 
     language_roots = [
         "anglais", "français", "francais", "espagnol", "allemand",
@@ -3285,10 +3293,14 @@ def dedupe_language_items(items: list[str]) -> list[str]:
 
         # si c'est un test officiel, on le garde tel quel une seule fois
         if any(k in low for k in test_keywords):
+            matched_test = next((k for k in test_keywords if k in low), None)
+            if matched_test and matched_test in seen_test_keywords:
+                continue  # ce test est déjà représenté (ex: TOEIC déjà dans "Anglais C1 (TOEIC 930)")
             if low not in seen_exact:
                 seen_exact.add(low)
+                if matched_test:
+                    seen_test_keywords.add(matched_test)
                 normalized.append(txt)
-                # marque aussi la langue de base pour éviter le doublon "Anglais B2" + "Anglais B2 (TOEIC)"
                 for root in language_roots:
                     if low.startswith(root):
                         seen_language_bases.add(root)
@@ -5160,7 +5172,7 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         
         # 1) Trop long => revenir au meilleur résultat 1 page si dispo, sinon shrink
         if pages > 1:
-            if best_1page_text and best_1page_fill >= 0.80:
+            if best_1page_text and best_1page_fill >= 0.75:
                 cv_text = best_1page_text
                 await asyncio.to_thread(write_docx_from_template, tpl, cv_text, docx_path, payload=payload, compact_mode=compact_mode)
                 await asyncio.to_thread(convert_docx_to_pdf, docx_path, pdf_path)
@@ -5179,7 +5191,7 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         chars_no_space_check = len(re.sub(r"\s+", "", cv_text))
         nb_lines_check = cv_text.count("\n") + 1
         _is_short = (chars_no_space_check < 1150) or (nb_lines_check < 42)
-        fill_threshold = 0.65 if _is_short else 0.93
+        fill_threshold = 0.65 if _is_short else 0.87
         if pages == 1 and fill < fill_threshold:
             sector = payload.get("sector", "")
             max_expand = 2 if _is_short else 5
