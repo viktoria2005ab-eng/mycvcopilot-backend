@@ -5179,10 +5179,10 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         chars_no_space_check = len(re.sub(r"\s+", "", cv_text))
         nb_lines_check = cv_text.count("\n") + 1
         _is_short = (chars_no_space_check < 1150) or (nb_lines_check < 42)
-        fill_threshold = 0.80 if _is_short else 0.93
+        fill_threshold = 0.65 if _is_short else 0.93
         if pages == 1 and fill < fill_threshold:
             sector = payload.get("sector", "")
-            max_expand = 5 if _is_short else 3
+            max_expand = 2 if _is_short else 5
         
             if expand_count >= max_expand:
                 break
