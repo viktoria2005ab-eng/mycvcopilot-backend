@@ -5136,6 +5136,8 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
     last_action = None
     compact_mode = False
     expand_count = 0
+    best_1page_text = None
+    best_1page_fill = 0.0
 
     # 2) boucle max 5 essais (baseline + 2 corrections)
     for attempt in range(5):
@@ -5152,16 +5154,22 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         pages = pdf_page_count(pdf_path)
         fill = pdf_fill_ratio_first_page(pdf_path) if pages == 1 else 0.0
         print("attempt", attempt, "pages", pages, "fill", round(fill, 2))
+        if pages == 1 and fill > best_1page_fill:
+            best_1page_fill = fill
+            best_1page_text = cv_text
         
-        # 1) Trop long => shrink
+        # 1) Trop long => revenir au meilleur résultat 1 page si dispo, sinon shrink
         if pages > 1:
-            # évite shrink en boucle infinie
+            if best_1page_text and best_1page_fill >= 0.80:
+                cv_text = best_1page_text
+                await asyncio.to_thread(write_docx_from_template, tpl, cv_text, docx_path, payload=payload, compact_mode=compact_mode)
+                await asyncio.to_thread(convert_docx_to_pdf, docx_path, pdf_path)
+                break
             if last_action == "shrink" and attempt >= 2:
                 compact_mode = True
             else:
                 cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text))
                 last_action = "shrink"
-    
             if attempt >= 2:
                 compact_mode = True
             continue
