@@ -4947,6 +4947,12 @@ async def start(payload: Dict[str, Any], request: Request):
     client_ip = request.client.host
     _check_ip_rate_limit(client_ip)
 
+    # Vérification que l'email a bien été vérifié côté backend
+    email_check = (payload.get("email") or "").strip().lower()
+    if email_check not in _verified_emails or dt.datetime.utcnow() > _verified_emails[email_check]:
+        raise HTTPException(status_code=403, detail="Email non vérifié. Veuillez vérifier votre email avant de générer un CV.")
+    _verified_emails.pop(email_check, None)  # usage unique
+
     required = ["email", "sector", "company", "role", "job_posting", "full_name", "city", "phone"]
 
     for k in required:
@@ -5300,6 +5306,7 @@ def db_conn():
 # Anti-abus : nb de tentatives d'envoi par email
 _send_attempts: Dict[str, list] = {}   # email -> liste de datetimes
 _verify_attempts: Dict[str, int] = {}  # email -> nb de mauvais codes
+_verified_emails: Dict[str, dt.datetime] = {}  # email -> expiration (1h après vérification)
 
 def _check_send_rate_limit(email: str):
     """Bloque si l'email a demandé plus de 3 codes en 1 heure."""
@@ -5417,5 +5424,8 @@ async def verify_code(body: VerifyCodeRequest):
     del email_verification_codes[email]
     _verify_attempts.pop(email, None)
     _send_attempts.pop(email, None)
+
+    # Marque l'email comme vérifié (valable 1 heure)
+    _verified_emails[email] = dt.datetime.utcnow() + dt.timedelta(hours=1)
 
     return {"ok": True, "verified": True}
