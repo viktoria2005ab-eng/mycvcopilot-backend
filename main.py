@@ -4944,7 +4944,7 @@ def quota_check(email: str):
 @app.post("/start")
 async def start(payload: Dict[str, Any], request: Request):
     # Rate limiting par IP
-    client_ip = request.client.host
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host).split(",")[0].strip()
     _check_ip_rate_limit(client_ip)
 
     # Vérification que l'email a bien été vérifié côté backend
@@ -5001,7 +5001,7 @@ async def start(payload: Dict[str, Any], request: Request):
 @app.post("/create-checkout")
 async def create_checkout(payload: Dict[str, Any], request: Request):
     # Rate limiting par IP
-    client_ip = request.client.host
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host).split(",")[0].strip()
     _check_ip_rate_limit(client_ip)
     """
     Crée une session Stripe Checkout sécurisée.
