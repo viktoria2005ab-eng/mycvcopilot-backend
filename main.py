@@ -12,8 +12,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # Config Zoho
-ZOHO_EMAIL = os.getenv("ZOHO_EMAIL", "")
-ZOHO_PASSWORD = os.getenv("ZOHO_PASSWORD", "")
+BREVO_LOGIN = os.getenv("BREVO_LOGIN", "")
+BREVO_PASSWORD = os.getenv("BREVO_PASSWORD", "")
+SENDER_EMAIL = os.getenv("SENDER_EMAIL", "contact@mycvcopilote.com")
 
 # Stockage temporaire des codes de vérification
 # format : { "email@ex.com": {"code": "123456", "expires": datetime} }
@@ -5324,13 +5325,13 @@ def _check_send_rate_limit(email: str):
 
 
 def send_verification_email(to_email: str, code: str):
-    """Envoie le code par email via SMTP Zoho."""
-    if not ZOHO_EMAIL or not ZOHO_PASSWORD:
+    """Envoie le code par email via SMTP Brevo."""
+    if not BREVO_LOGIN or not BREVO_PASSWORD:
         raise HTTPException(status_code=500, detail="Serveur mail non configuré.")
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = "Ton code de vérification MyCVCopilote"
-    msg["From"] = ZOHO_EMAIL
+    msg["From"] = SENDER_EMAIL
     msg["To"] = to_email
 
     html = f"""
@@ -5349,10 +5350,10 @@ def send_verification_email(to_email: str, code: str):
     msg.attach(MIMEText(html, "html"))
 
     try:
-        with smtplib.SMTP("smtp.zoho.eu", 587, timeout=10) as server:
+        with smtplib.SMTP("smtp-relay.brevo.com", 587, timeout=10) as server:
             server.starttls()
-            server.login(ZOHO_EMAIL, ZOHO_PASSWORD)
-            server.sendmail(ZOHO_EMAIL, to_email, msg.as_string())
+            server.login(BREVO_LOGIN, BREVO_PASSWORD)
+            server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
     except smtplib.SMTPAuthenticationError:
         raise HTTPException(status_code=500, detail="Erreur d'authentification mail.")
     except Exception as e:
