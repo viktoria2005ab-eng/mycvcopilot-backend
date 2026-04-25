@@ -4974,6 +4974,12 @@ async def start(payload: Dict[str, Any], request: Request):
     if len(email) > 200 or "@" not in email or "." not in email.split("@")[-1]:
         raise HTTPException(status_code=400, detail="Email invalide.")
 
+    # Emails exemptés du quota (testeurs internes)
+    WHITELIST = {"louis.bonnamour@essca.eu"}
+    if email in WHITELIST:
+        job_id = await generate_and_store(payload)
+        return {"mode": "free", "downloads": make_download_urls(job_id)}
+
     current_month = month_key()
 
     # Vérifie et consomme le quota de façon atomique
