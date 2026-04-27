@@ -4602,7 +4602,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         table._tbl.addnext(spacer_elt)
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
-                        spacer.paragraph_format.space_after = Pt(0)
+                        spacer.paragraph_format.space_after = Pt(4)
                         anchor = spacer
                 
                 _remove_paragraph(p)
