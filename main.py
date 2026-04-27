@@ -66,6 +66,132 @@ client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 from pypdf import PdfReader
 
+def strip_padding(text: str, is_activity: bool = False) -> str:
+    """
+    Supprime les subordonnées participiales inventées en fin de bullet ou d'activité.
+    Appliqué ligne par ligne après chaque appel LLM.
+    """
+    if not text:
+        return text
+
+    # Patterns de rembourrage en fin de bullet (subordonnées participiales inventées)
+    BULLET_PADDING = [
+        # "assurant X", "renforçant X", etc. après une virgule ou " tout en"
+        r",\s*(assurant|renforçant|optimisant|consolidant|garantissant|facilitant"
+        r"|maximisant|sécurisant|fiabilisant|contribuant ainsi|mettant en évidence"
+        r"|présentant des recommandations|proposant des recommandations"
+        r"|soutenant|tout en restant|tout en renforçant|tout en assurant"
+        r"|tout en optimisant|afin d'assurer|dans l'objectif de"
+        r"|augmentant sans précédent|enrichissant|développant|favorisant)[^.]*",
+        # "permettant X", "contribuant à X" après virgule
+        r",\s*(permettant|contribuant\s+\w*\s*à|participant à l'amélioration)[^.]*",
+        # "afin de X" inventé
+        r",?\s+afin de (renforcer|optimiser|assurer|garantir|consolider|maximiser)[^.]*",
+    ]
+
+    # Patterns supplémentaires pour les activités
+    ACTIVITY_PADDING = [
+        r",?\s+(développant|renforçant|favorisant|cultivant|enrichissant"
+        r"|améliorant|acquérant|permettant de développer|favorisant le développement de)[^.]*",
+    ]
+
+    patterns = BULLET_PADDING + (ACTIVITY_PADDING if is_activity else [])
+
+    for pattern in patterns:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+
+    # Nettoyer la ponctuation résiduelle
+    text = re.sub(r"\s*,\s*\.$", ".", text)
+    text = re.sub(r"\s*,\s*$", "", text)
+    text = text.strip()
+    if text and text[-1] not in ".!?":
+        text = text + "."
+
+    return text
+
+
+def apply_strip_padding_to_cv(cv_text: str, payload: dict = None) -> str:
+    """
+    Applique strip_padding sur chaque bullet et chaque activité du texte CV structuré.
+    Si payload fourni, limite le nombre de bullets par expérience à ce que l'utilisateur a fourni.
+    """
+    if not cv_text:
+        return cv_text
+
+    # Construire un mapping role -> max bullets depuis l'input utilisateur
+    max_bullets_by_role = {}
+    if payload:
+        raw_exp = payload.get("experiences", "")
+        for block in raw_exp.split("\n\n"):
+            lines = [l.strip() for l in block.strip().splitlines() if l.strip()]
+            bullets_in_block = sum(1 for l in lines if l.startswith("-"))
+            # La première ligne non-bullet est le titre (role - company)
+            meta_lines = [l for l in lines if not l.startswith("-")]
+            if meta_lines:
+                first_line = meta_lines[0].lower()
+                # Clé = premiers 20 chars du titre
+                key = first_line[:20].strip()
+                if key:
+                    # On autorise max bullets_in_block + 1 (pour l'expand éventuel)
+                    max_bullets_by_role[key] = max(bullets_in_block, 2)
+
+    lines = cv_text.split("\n")
+    result = []
+    in_activities = False
+    in_experiences = False
+    current_role_key = None
+    current_bullet_count = 0
+
+    for line in lines:
+        stripped = line.strip()
+
+        if stripped == "ACTIVITIES:":
+            in_activities = True
+            in_experiences = False
+            result.append(line)
+            continue
+        elif stripped == "EXPERIENCES:":
+            in_experiences = True
+            in_activities = False
+            result.append(line)
+            continue
+        elif stripped in ("EDUCATION:", "SKILLS:"):
+            in_activities = False
+            in_experiences = False
+            result.append(line)
+            continue
+
+        # Détecter un nouveau bloc d'expérience (ROLE:)
+        if in_experiences and stripped.startswith("ROLE:"):
+            current_role_key = stripped.replace("ROLE:", "").strip().lower()[:20]
+            current_bullet_count = 0
+            result.append(line)
+            continue
+
+        # Bullets d'expériences
+        if stripped.startswith("- ") and in_experiences:
+            content = stripped[2:]
+            # Vérifier si ce bullet dépasse le max autorisé
+            max_allowed = max_bullets_by_role.get(current_role_key, 3)
+            if current_bullet_count >= max_allowed + 1:
+                # Bullet entièrement inventé → on le supprime
+                continue
+            cleaned = strip_padding(content, is_activity=False)
+            result.append("- " + cleaned)
+            current_bullet_count += 1
+            continue
+
+        # Lignes d'activités
+        if in_activities and stripped and not stripped.startswith("ACTIVITIES:"):
+            cleaned = strip_padding(stripped, is_activity=True)
+            result.append(cleaned)
+            continue
+
+        result.append(line)
+
+    return "\n".join(result)
+
+
 def clean_cv_output(cv_text: str) -> str:
     if not cv_text:
         return ""
@@ -176,7 +302,7 @@ def has_all_sections(cv_text: str) -> bool:
     t = (cv_text or "")
     return all(sec in t for sec in REQUIRED_SECTIONS)
 
-def safe_apply_llm_edit(old_text: str, new_text: str) -> str:
+def safe_apply_llm_edit(old_text: str, new_text: str, payload: dict = None) -> str:
     """
     Si l'IA renvoie un CV cassé (sections manquantes, etc.),
     on garde l'ancien pour éviter de tout péter.
@@ -184,6 +310,7 @@ def safe_apply_llm_edit(old_text: str, new_text: str) -> str:
     new_clean = clean_cv_output(new_text)
     if not has_all_sections(new_clean):
         return old_text  # on refuse la sortie cassée
+    new_clean = apply_strip_padding_to_cv(new_clean, payload=payload)
     return new_clean
 
 def pdf_page_count(pdf_path: str) -> int:
@@ -273,7 +400,7 @@ Tu peux uniquement :
 1) passer à 3 bullets pour les 1 ou 2 expériences les plus pertinentes si elles n’en ont que 2,
 2) reformuler des bullets existantes de manière plus professionnelle et plus vendeuse,
 3) enrichir légèrement une ligne de formation déjà présente,
-4) conserver les activités EXACTEMENT telles quelles, sans rien ajouter ni modifier.
+4) enrichir légèrement une activité existante avec 1 ou 2 qualités simples et crédibles.
 
 Interdictions absolues :
 - ne jamais ajouter de chiffre,
@@ -365,7 +492,7 @@ Tu peux uniquement :
 1) ajouter 1 bullet à l’expérience la plus pertinente si elle n’en a que 2,
 2) reformuler légèrement les bullets pour les rendre plus professionnelles,
 3) conserver davantage de détails académiques déjà présents,
-4) conserver les activités EXACTEMENT telles quelles, sans rien ajouter ni modifier.
+4) enrichir légèrement une activité existante sans ajouter de fait précis.
 
 Interdictions :
 - pas de “travaux d’audit”, “contrôle interne”, “conformité”, “états financiers”, “procédures d’audit” si ce n’est pas déjà présent,
@@ -412,7 +539,7 @@ Tu peux uniquement :
 1) ajouter 1 bullet à l’expérience la plus pertinente si elle n’en a que 2,
 2) reformuler légèrement les bullets pour les rendre plus professionnelles,
 3) conserver davantage de détails académiques déjà présents,
-4) conserver les activités EXACTEMENT telles quelles, sans rien ajouter ni modifier.
+4) enrichir légèrement une activité existante sans ajouter de fait précis.
 
 Interdictions :
 - pas de recommandation stratégique formelle inventée,
@@ -690,8 +817,10 @@ HALLUCINATIONS (INTERDICTION ABSOLUE) :
 - Dans EDUCATION : interdiction d’ajouter des séminaires, conférences, ateliers, études de cas, projets, classements, GPA/moyenne, prix, bourses, matières, cours, spécialisations, options ou modules
   SI ce n’est pas explicitement écrit dans le champ FORMATION utilisateur.
 - Interdiction absolue d’ajouter une matière "logique" ou "proche du secteur" si elle n’est pas fournie mot pour mot ou clairement présente dans le champ FORMATION.
-- Dans EXPERIENCES : INTERDIT ABSOLU d’ajouter en fin de bullet une subordonnée participiale inventée ("consolidant", "renforçant", "optimisant", "permettant", "contribuant à", "garantissant", "assurant", "tout en restant", "tout en renforçant", "contribuant ainsi"). Règle absolue : chaque bullet = UNE seule idée, UNE seule action concrète tirée du texte source.
-- Dans ACTIVITIES : INTERDIT ABSOLU d’ajouter une qualité acquise ("développant", "renforçant", "favorisant", "cultivant", "permettant", "enrichissant"). Chaque activité = description factuelle uniquement de ce qui est fourni.
+- Dans EXPERIENCES : interdiction d’ajouter des impacts inventés ("augmentant", "optimisant", "améliorant", "permettant", "renforçant", "contribuant à", "garantissant", "assurant", "identifiant", "mettant en évidence", "présentant des recommandations", "proposant des recommandations")
+  SI l’impact, la finalité ou la recommandation n’est pas explicitement présente dans l’expérience brute.
+- Dans ACTIVITIES : interdiction d’ajouter un niveau ("compétition", "national", "régional", "club", "championnat", "hebdomadaire", "quotidien")
+  SI ce n’est pas explicitement écrit dans CENTRES D’INTÉRÊT utilisateur.
   
 INTERDICTION ABSOLUE d’ajouter :
 - Classement
@@ -939,7 +1068,7 @@ RÈGLES STRICTES :
 HALLUCINATIONS (INTERDICTION ABSOLUE) :
 - Dans EDUCATION : interdiction d’ajouter séminaires, classements, GPA, prix, bourses, projets, matières, cours, spécialisations, options ou modules non fournis.
 - Interdiction absolue d’ajouter une matière ou un cours simplement parce qu’il paraît cohérent avec l’audit.
-- Dans EXPERIENCES : INTERDIT ABSOLU d’ajouter en fin de bullet une subordonnée participiale inventée ("consolidant", "renforçant", "optimisant", "permettant", "garantissant", "assurant", "tout en restant", "tout en renforçant", "contribuant ainsi", "afin d’assurer"). Règle absolue : chaque bullet = UNE seule idée, UNE seule action concrète.
+- Dans EXPERIENCES : interdiction d’ajouter des impacts, finalités ou bénéfices inventés ("améliorant", "optimisant", "renforçant", "garantissant", "assurant", "fiabilisant", "facilitant", "permettant", "sécurisant", "mettant en évidence", etc.) si ce n’est pas explicitement fourni.
 - Tu n’ajoutes jamais "conformité", "normes", "contrôle interne", "procédures d'audit", "travaux d'audit" ou "états financiers" si ces notions ne figurent pas déjà dans l’expérience source.
 - Dans ACTIVITIES : interdiction d’ajouter compétition, club, fréquence ou niveau non fourni.
 
@@ -956,7 +1085,7 @@ SECTION SKILLS (COMPÉTENCES & OUTILS) :
 SECTION ACTIVITIES :
 - Tu n’y mets que des centres d’intérêt personnels.
 - Format : "Activité : description courte et factuelle".
-- INTERDIT ABSOLU : ne jamais ajouter de qualité acquise ou compétence développée. Description factuelle uniquement.
+- Tu peux mentionner une seule qualité simple et crédible, jamais plusieurs.
 - Interdiction d’utiliser un ton RH générique ou trop valorisant.
 
 RÈGLES DE SORTIE :
@@ -1078,7 +1207,7 @@ RÈGLES STRICTES :
 HALLUCINATIONS (INTERDICTION ABSOLUE) :
 - Dans EDUCATION : interdiction d’ajouter classements, GPA, distinctions, projets, matières, cours, spécialisations, options ou modules non fournis.
 - Interdiction absolue d’ajouter une matière ou un cours simplement parce qu’il paraît cohérent avec la stratégie ou le management.
-- Dans EXPERIENCES : INTERDIT ABSOLU d’ajouter en fin de bullet une subordonnée participiale inventée ("consolidant", "renforçant", "permettant", "contribuant à", "garantissant", "tout en restant", "tout en renforçant", "contribuant ainsi"). Règle absolue : chaque bullet = UNE seule idée, UNE seule action concrète.
+- Dans EXPERIENCES : interdiction d’ajouter des impacts, recommandations, diagnostics, optimisations, opportunités identifiées ou bénéfices inventés.
 - Tu n’ajoutes jamais "recommandations stratégiques", "diagnostic", "benchmark", "pilotage", "coordination de projet", "parties prenantes", "roadmap", "CRM", "visibilité", "efficacité", "traçabilité" ou "performance" si ces notions ne figurent pas déjà dans le texte source.
 - Dans ACTIVITIES : interdiction d’ajouter un niveau, une fréquence ou un engagement non fourni.
 
@@ -1094,7 +1223,7 @@ SECTION SKILLS (COMPÉTENCES & OUTILS) :
 SECTION ACTIVITIES :
 - Tu n’y mets que des centres d’intérêt personnels.
 - Format : "Activité : description courte et factuelle".
-- INTERDIT ABSOLU : ne jamais ajouter de qualité acquise ou compétence développée. Description factuelle uniquement.
+- Tu peux mentionner une seule qualité simple et crédible, jamais plusieurs.
 - Interdiction d’utiliser un ton RH générique ou trop valorisant.
 
 RÈGLES DE SORTIE :
@@ -1198,6 +1327,8 @@ SECTION EDUCATION :
   - Si un moot court, mock trial ou concours de plaidoirie est fourni, tu peux le placer soit dans EDUCATION s’il est académique, soit dans SKILLS sur la ligne "Certifications :" s’il est présenté comme distinction, concours ou validation utile au poste.
   - mention / classement uniquement si explicitement fournis
 - Interdiction absolue d’ajouter des matières juridiques “logiques” si elles ne sont pas données.
+- INTERDIT ABSOLU : ne jamais inventer un mémoire, une thèse, un concours, une participation à une compétition, un prix, une mention, un classement si ce n'est pas écrit mot pour mot dans le champ FORMATION fourni.
+- Si le bloc de formation ne contient que le diplôme et l'université, tu écris UNIQUEMENT : DEGREE, SCHOOL, LOCATION, DATES, et DETAILS: avec une seule ligne minimale. Rien d'autre.
 - Chaque bloc EDUCATION doit contenir DETAILS:.
 - Si aucun détail n’est fourni, tu écris une seule ligne minimale, factuelle et non inventée :
   - Formation juridique.
@@ -1379,6 +1510,7 @@ def generate_cv_text(payload: Dict[str, Any]) -> str:
 
     cv_text = resp.choices[0].message.content.strip()
     cv_text = clean_cv_output(cv_text)
+    cv_text = apply_strip_padding_to_cv(cv_text, payload=payload)
 
     if is_legal_sector(payload.get("sector", "")):
         if "DEGREE:" not in cv_text or "ROLE:" not in cv_text:
@@ -1439,7 +1571,6 @@ def count_experience_blocks(raw_experiences: str) -> int:
 def rebuild_education_from_input(raw_education: str) -> list[str]:
     """
     Reconvertit l'input brut formation en pseudo-format structuré minimal.
-    Supporte le format : "Degree – School, Dates, Location" sur une ligne, puis détails.
     """
     blocks = []
     current = []
@@ -1456,51 +1587,13 @@ def rebuild_education_from_input(raw_education: str) -> list[str]:
     if current:
         blocks.append(current)
 
-    def parse_edu_first_line(line: str):
-        degree, school, dates, location = "", "", "", ""
-
-        # Extraire les dates (MMM YYYY – MMM YYYY ou MMM YYYY – Aujourd'hui)
-        date_pat = re.search(
-            r"((?:Jan|Fév|Feb|Mar|Avr|Apr|Mai|May|Juin|Jun|Juil|Jul|Août|Aug|Sept|Sep|Oct|Nov|Déc|Dec)\.?\s+\d{4}"
-            r"\s*[–\-]\s*"
-            r"(?:(?:Jan|Fév|Feb|Mar|Avr|Apr|Mai|May|Juin|Jun|Juil|Jul|Août|Aug|Sept|Sep|Oct|Nov|Déc|Dec)\.?\s+\d{4}"
-            r"|Aujourd'hui|Present|En cours|\d{4}))",
-            line, re.IGNORECASE
-        )
-        if date_pat:
-            dates = date_pat.group(1).strip()
-            line = (line[:date_pat.start()].rstrip(" ,–-") + line[date_pat.end():]).strip()
-
-        # Extraire localisation en fin ("Lyon, France" ou "Lisbonne, Portugal" ou "États-Unis")
-        loc_pat = re.search(
-            r",\s*([A-ZÀ-Ÿa-zà-ÿ][A-ZÀ-Ÿa-zà-ÿ\s\-\']+(?:,\s*[A-ZÀ-Ÿa-zà-ÿ][A-ZÀ-Ÿa-zà-ÿ\s\-\']+)?)\s*$",
-            line
-        )
-        if loc_pat:
-            candidate = loc_pat.group(1).strip()
-            parts = [p.strip() for p in candidate.split(",")]
-            if all(1 <= len(p.split()) <= 4 for p in parts):
-                location = candidate
-                line = line[:loc_pat.start()].rstrip(" ,").strip()
-
-        # Séparer degree et school sur " – " ou " - "
-        for sep in [" – ", " - "]:
-            if sep in line:
-                idx = line.index(sep)
-                degree = line[:idx].strip()
-                school = line[idx + len(sep):].strip()
-                break
-        else:
-            degree = line.strip()
-
-        return degree, school, dates, location
-
     out = []
     for block in blocks:
-        first_line = block[0] if block else ""
-        details = block[1:] if len(block) > 1 else []
-
-        degree, school, dates, location = parse_edu_first_line(first_line)
+        school = block[0] if len(block) > 0 else ""
+        degree = block[1] if len(block) > 1 else ""
+        location = block[2] if len(block) > 2 else ""
+        dates = block[3] if len(block) > 3 else ""
+        details = block[4:] if len(block) > 4 else []
 
         out.append(f"DEGREE: {degree}")
         out.append(f"SCHOOL: {school}")
@@ -1508,12 +1601,12 @@ def rebuild_education_from_input(raw_education: str) -> list[str]:
         out.append(f"DATES: {dates}")
         out.append("DETAILS:")
 
-        detail_lines = [d.strip().lstrip("-").strip() for d in details if d.strip()]
-        if detail_lines:
-            for d in detail_lines:
-                out.append(f"- {d}")
+        if details:
+            for d in details:
+                if d.strip():
+                    out.append(f"- {d.strip().lstrip('-').strip()}")
         else:
-            out.append("- ")
+            out.append("- Formation.")
         out.append("")
 
     return out
@@ -2397,55 +2490,72 @@ def enrich_activities_with_llm(lines: list[str], sector: str = "") -> list[str]:
         else:
             sector_hint = "Valorise des qualités simples, crédibles et cohérentes avec l'activité."
 
-
         prompt = f"""
 Tu es un expert en rédaction de CV premium.
 
 Ta mission :
-Reformuler des centres d'intérêt bruts en lignes de CV élégantes et professionnelles,
-sans jamais inventer de fait ni ajouter de qualité acquise.
+Transformer des centres d’intérêt bruts en lignes de CV plus valorisantes et plus élégantes,
+sans ajouter de faits faux ou absurdes.
 
-RÈGLES ABSOLUES :
+OBJECTIF PRODUIT :
+- On doit apporter de la valeur.
+- On doit rendre l’activité plus intéressante pour un recruteur.
+- On peut faire ressortir des qualités transférables, même si elles ne sont pas écrites mot pour mot,
+  à condition qu’elles soient LOGIQUES et cohérentes avec l’activité.
+- On n’invente jamais un niveau, une fréquence, un club, un championnat, un événement ou un contexte précis
+  qui n’existent pas dans l’entrée.
+
+RÈGLES :
 - Tu gardes EXACTEMENT le même nombre de lignes.
 - Une ligne en entrée = une ligne en sortie.
 - Tu écris en français.
-- Aucun markdown, aucun commentaire, aucune puce.
-- Format strict : "Nom de l'activité : description factuelle."
+- Aucun markdown.
+- Aucun commentaire.
+- Pas de puces.
+- Pas de guillemets.
+- Pas de ton RH cliché.
 
-CE QUE TU PEUX FAIRE :
-- Reformuler plus élégamment ce qui est déjà présent
-- Reprendre exactement les niveaux, fréquences, contextes fournis (ex : "3-4 fois par semaine", "niveau régional", "compétition U16")
-- Si un chiffre est présent dans l'entrée (ex : "13 pays", "15 ans"), tu DOIS le conserver.
+AUTORISÉ :
+- reformuler de manière plus premium
+- rendre l’activité plus professionnelle
+- ajouter 1 à 3 qualités transférables logiques
+- transformer un hobby simple en ligne plus valorisante
 
-INTERDIT ABSOLU :
-- Ajouter "développant", "renforçant", "favorisant", "cultivant", "permettant", "enrichissant", "améliorant" suivi d'une qualité
-- Inventer une compétition, un club, un niveau, une fréquence, une durée, un événement non présents dans l'entrée
-- Écrire des clichés : "culture générale", "perspective internationale", "ouverture sur le monde", "forme physique et mentale"
-- Faire des phrases de plus de 15 mots après les deux-points
+INTERDIT :
+- inventer une compétition, un club, un niveau, une fréquence, une durée, un événement, un voyage précis
+- écrire des clichés comme :
+  "culture générale", "perspective internationale", "enrichit la vision du monde",
+  "analyse des récits", "forme physique et mentale", "ouverture sur le monde"
+- faire des phrases lourdes ou scolaires
+- faire trop long
 
-EXEMPLES CORRECTS :
-Entrée : "course à pied 3-4x par semaine"
-Sortie : "Course à pied : pratique régulière 3 à 4 fois par semaine."
+IMPORTANT :
+- Si l’entrée contient déjà un niveau précis, tu peux le reprendre.
+- Si l’entrée est simple ("Lecture", "Voyages", "Running"), tu peux enrichir intelligemment
+  avec des qualités cohérentes, sans inventer de faits précis.
+- Exemple attendu :
+  "Équitation : pratique à haut niveau développant discipline, résilience et concentration."
+- Exemple attendu :
+  "Football : pratique développant esprit d’équipe et esprit de compétition."
+- Exemple attendu :
+  "Lecture : intérêt personnel développant curiosité et esprit d’analyse."
+- Exemple attendu :
+  "Voyages : découverte de nouvelles cultures développant adaptabilité et ouverture."
+- Exemple attendu :
+  "Running : pratique régulière développant discipline et persévérance."
+- Exemple interdit :
+  "Lecture : participation à des clubs de lecture..."
+  si ce n'est pas dans l'entrée.
+- Exemple interdit :
+  "Football : compétitions régionales"
+  si ce n'est pas dans l'entrée.
+- IMPORTANT : si un chiffre est présent dans l'entrée (ex : "13 pays", "15 ans", "500 personnes"), tu DOIS le conserver dans la sortie.
 
-Entrée : "ski en compétition nationale U16"
-Sortie : "Ski : pratique en compétition nationale, niveau U16."
-
-Entrée : "tennis niveau régional"
-Sortie : "Tennis : pratique à niveau régional."
-
-Entrée : "voile"
-Sortie : "Voile : pratique en navigation."
-
-Entrée : "moot court compétition de plaidoirie"
-Sortie : "Moot court : participation à des compétitions de plaidoirie."
-
-EXEMPLES INTERDITS :
-"Course à pied : pratique régulière développant endurance et discipline." ← INTERDIT
-"Tennis : pratique renforçant la compétitivité." ← INTERDIT
-"Lecture : intérêt personnel développant curiosité et esprit d'analyse." ← INTERDIT
+INDICATION SECTEUR :
+{sector_hint}
 
 FORMAT DE SORTIE :
-Nom activité : description factuelle concise.
+Nom activité : phrase valorisante concise.
 
 ACTIVITÉS :
 {chr(10).join(cleaned)}
@@ -3500,6 +3610,21 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
     # Français toujours en premier
     french_items = [x for x in language_tests if re.search(r"(?i)\bfran[cç]ais\b", x)]
     other_items = [x for x in language_tests if not re.search(r"(?i)\bfran[cç]ais\b", x)]
+
+    # Trier les autres langues par niveau décroissant
+    def lang_level_score(lang: str) -> int:
+        l = lang.lower()
+        if "natif" in l or "native" in l: return 10
+        if "c2" in l: return 9
+        if "c1" in l: return 8
+        if "courant" in l or "fluent" in l: return 7
+        if "b2" in l: return 6
+        if "b1" in l or "intermédiaire" in l: return 5
+        if "a2" in l: return 3
+        if "a1" in l or "notions" in l or "débutant" in l: return 2
+        return 4  # score par défaut si pas de niveau
+
+    other_items = sorted(other_items, key=lang_level_score, reverse=True)
     language_tests = french_items + other_items
 
     if language_tests:
@@ -5277,7 +5402,7 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
             if last_action == "shrink" and attempt >= 2:
                 compact_mode = True
             else:
-                cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text))
+                cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text), payload=payload)
                 last_action = "shrink"
             if attempt >= 2:
                 compact_mode = True
@@ -5288,42 +5413,42 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         chars_no_space_check = len(re.sub(r"\s+", "", cv_text))
         nb_lines_check = cv_text.count("\n") + 1
         _is_short = (chars_no_space_check < 1150) or (nb_lines_check < 42)
-        fill_threshold = 0.70 if _is_short else 0.90
+        fill_threshold = 0.65 if _is_short else 0.87
         if pages == 1 and fill < fill_threshold:
             sector = payload.get("sector", "")
-            max_expand = 3 if _is_short else 7
+            max_expand = 2 if _is_short else 5
         
             if expand_count >= max_expand:
                 break
         
             if is_legal_sector(sector):
-                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_droit(cv_text))
+                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_droit(cv_text), payload=payload)
                 last_action = "expand"
                 expand_count += 1
                 continue
         
             if is_audit_sector(sector):
-                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_audit(cv_text))
+                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_audit(cv_text), payload=payload)
                 last_action = "expand"
                 expand_count += 1
                 continue
         
             if is_management_sector(sector):
-                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_management(cv_text))
+                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_management(cv_text), payload=payload)
                 last_action = "expand"
                 expand_count += 1
                 continue
         
             if is_finance_sector(sector):
-                finance_max_expand = 4
+                finance_max_expand = 2
                 if expand_count >= finance_max_expand:
                     break
-                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
+                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text), payload=payload)
                 last_action = "expand"
                 expand_count += 1
                 continue
         
-            cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text))
+            cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text), payload=payload)
             last_action = "expand"
             expand_count += 1
             continue
@@ -5335,7 +5460,7 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
     # Sécurité finale : si encore 2 pages, on force un shrink compact
     try:
         if pdf_page_count(pdf_path) > 1:
-            cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text))
+            cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text), payload=payload)
             await asyncio.to_thread(write_docx_from_template, tpl, cv_text, docx_path, payload=payload, compact_mode=True)
             await asyncio.to_thread(convert_docx_to_pdf, docx_path, pdf_path)
     except Exception:
