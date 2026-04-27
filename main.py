@@ -140,6 +140,13 @@ def clean_activities_output(activities):
         if any(b in text for b in banned_phrases):
             continue
 
+        # Majuscule au début du texte
+        if act.get("text"):
+            t = act["text"].strip()
+            if t:
+                act = dict(act)
+                act["text"] = t[0].upper() + t[1:]
+
         cleaned.append(act)
 
     # max 3
@@ -3470,6 +3477,11 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
 
     language_tests = dedupe_language_items(language_tests)
 
+    # Français toujours en premier
+    french_items = [x for x in language_tests if re.search(r"(?i)\bfran[cç]ais\b", x)]
+    other_items = [x for x in language_tests if not re.search(r"(?i)\bfran[cç]ais\b", x)]
+    language_tests = french_items + other_items
+
     if language_tests:
         lang_line = "Langues : " + ", ".join(language_tests)
     else:
@@ -4231,14 +4243,28 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                     if degree_clean and school_clean and school_clean.lower() in degree_clean.lower():
                         title_line = degree_clean
+                        school_line = ""
                     else:
-                        title_parts = [x for x in [degree_clean, school_clean] if x]
-                        title_line = " – ".join(title_parts) if title_parts else (degree_clean or school_clean)
+                        title_line = degree_clean
+                        school_line = school_clean
 
                     if title_line:
                         r_title = lp.add_run(title_line)
                         r_title.bold = True
                         r_title.font.size = Pt(11)
+
+                    # École sur ligne séparée en italique
+                    if school_line:
+                        para_school = left.add_paragraph()
+                        para_school.paragraph_format.space_before = Pt(0)
+                        para_school.paragraph_format.space_after = Pt(0)
+                        try:
+                            para_school.style = doc.styles["Normal"]
+                        except Exception:
+                            pass
+                        r_school = para_school.add_run(school_line)
+                        r_school.italic = True
+                        r_school.font.size = Pt(11)
 
                     if mention_value:
                         para_m = left.add_paragraph()
@@ -4483,10 +4509,42 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         else:
                             kept.append(part)
                     title_part = " – ".join(kept).strip()
-                
+
+                # ✅ Séparer école du programme : dernier segment après " – " si c'est un nom d'école
+                school_part_cas2 = ""
+                school_keywords = ["school", "university", "université", "institut", "college",
+                                   "essca", "edhec", "hec", "em lyon", "emlyon", "audencia",
+                                   "kedge", "skema", "neoma", "grenoble em", "iseg", "ieseg",
+                                   "sciences po", "dauphine", "assas", "sorbonne", "panthéon"]
+                if " – " in title_part:
+                    parts_edu = title_part.split(" – ")
+                    last_part = parts_edu[-1].strip()
+                    if any(k in last_part.lower() for k in school_keywords):
+                        school_part_cas2 = last_part
+                        title_part = " – ".join(parts_edu[:-1]).strip()
+                elif " - " in title_part:
+                    parts_edu = title_part.split(" - ")
+                    last_part = parts_edu[-1].strip()
+                    if any(k in last_part.lower() for k in school_keywords):
+                        school_part_cas2 = last_part
+                        title_part = " - ".join(parts_edu[:-1]).strip()
+
                 title_run = lp.add_run(title_part)
                 title_run.bold = True
                 title_run.font.size = Pt(11)
+
+                # ✅ École sur ligne séparée en italique
+                if school_part_cas2:
+                    para_school2 = left.add_paragraph()
+                    para_school2.paragraph_format.space_before = Pt(0)
+                    para_school2.paragraph_format.space_after = Pt(0)
+                    try:
+                        para_school2.style = doc.styles["Normal"]
+                    except Exception:
+                        pass
+                    r_school2 = para_school2.add_run(school_part_cas2)
+                    r_school2.italic = True
+                    r_school2.font.size = Pt(11)
                 
                 # ✅ Ligne en dessous : Mention : (souligné)
                 if mention_value:
