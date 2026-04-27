@@ -5006,11 +5006,18 @@ async def start(payload: Dict[str, Any], request: Request):
     client_ip = request.headers.get("X-Forwarded-For", request.client.host).split(",")[0].strip()
     _check_ip_rate_limit(client_ip)
 
+    # Emails de test — bypass vérification email ET quota
+    DEV_WHITELIST = {
+        "louis.bonnamour@essca.eu",
+        "viktoria.aureau--bobillon@essca.eu"
+    }
+
     # Vérification que l'email a bien été vérifié côté backend
     email_check = (payload.get("email") or "").strip().lower()
-    if email_check not in _verified_emails or dt.datetime.utcnow() > _verified_emails[email_check]:
-        raise HTTPException(status_code=403, detail="Email non vérifié. Veuillez vérifier votre email avant de générer un CV.")
-    _verified_emails.pop(email_check, None)  # usage unique
+    if email_check not in DEV_WHITELIST:
+        if email_check not in _verified_emails or dt.datetime.utcnow() > _verified_emails[email_check]:
+            raise HTTPException(status_code=403, detail="Email non vérifié. Veuillez vérifier votre email avant de générer un CV.")
+        _verified_emails.pop(email_check, None)  # usage unique
 
     required = ["email", "sector", "company", "role", "job_posting", "full_name", "city", "phone"]
 
@@ -5033,8 +5040,7 @@ async def start(payload: Dict[str, Any], request: Request):
         raise HTTPException(status_code=400, detail="Email invalide.")
 
     # Emails exemptés du quota (testeurs internes)
-    WHITELIST = {"louis.bonnamour@essca.eu"}
-    if email in WHITELIST:
+    if email in DEV_WHITELIST:
         job_id = await generate_and_store(payload)
         return {"mode": "free", "downloads": make_download_urls(job_id)}
 
