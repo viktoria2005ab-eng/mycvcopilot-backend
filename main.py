@@ -74,25 +74,30 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
     if not text:
         return text
 
-    # Patterns de rembourrage en fin de bullet (subordonnées participiales inventées)
+    # Patterns de rembourrage en fin de bullet (après virgule)
     BULLET_PADDING = [
-        # "assurant X", "renforçant X", etc. après une virgule ou " tout en"
         r",\s*(assurant|renforçant|optimisant|consolidant|garantissant|facilitant"
         r"|maximisant|sécurisant|fiabilisant|contribuant ainsi|mettant en évidence"
         r"|présentant des recommandations|proposant des recommandations"
         r"|soutenant|tout en restant|tout en renforçant|tout en assurant"
         r"|tout en optimisant|afin d'assurer|dans l'objectif de"
         r"|augmentant sans précédent|enrichissant|développant|favorisant)[^.]*",
-        # "permettant X", "contribuant à X" après virgule
         r",\s*(permettant|contribuant\s+\w*\s*à|participant à l'amélioration)[^.]*",
-        # "afin de X" inventé
         r",?\s+afin de (renforcer|optimiser|assurer|garantir|consolider|maximiser)[^.]*",
+        # Après point-virgule : "; discipline développée", "; qualité développée"
+        r";\s*\w[\w\s]*développée?\.?$",
+        r";\s*\w[\w\s]*acquise?\.?$",
+        r";\s*\w[\w\s]*renforcée?\.?$",
+        r";\s*[^;.]{3,40}développée?\.?$",
     ]
 
-    # Patterns supplémentaires pour les activités
+    # Patterns supplémentaires pour les activités (avec ou sans virgule)
     ACTIVITY_PADDING = [
         r",?\s+(développant|renforçant|favorisant|cultivant|enrichissant"
-        r"|améliorant|acquérant|permettant de développer|favorisant le développement de)[^.]*",
+        r"|améliorant|acquérant|permettant de développer|favorisant le développement de"
+        r"|développement de l'|développement du )[^.]*",
+        # Sans virgule : "passion pour l'analyse des relations"... garde si c'est de l'input
+        r",\s+(passion pour|intérêt pour)\s+l['']\w+[^.]*(?:contemporain|mondial|international)[^.]*",
     ]
 
     patterns = BULLET_PADDING + (ACTIVITY_PADDING if is_activity else [])
@@ -101,8 +106,8 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
         text = re.sub(pattern, "", text, flags=re.IGNORECASE)
 
     # Nettoyer la ponctuation résiduelle
-    text = re.sub(r"\s*,\s*\.$", ".", text)
     text = re.sub(r"\s*,\s*$", "", text)
+    text = re.sub(r"\s*;\s*$", "", text)
     text = text.strip()
     if text and text[-1] not in ".!?":
         text = text + "."
@@ -1571,29 +1576,88 @@ def count_experience_blocks(raw_experiences: str) -> int:
 def rebuild_education_from_input(raw_education: str) -> list[str]:
     """
     Reconvertit l'input brut formation en pseudo-format structuré minimal.
+    Supporte le format : "Degree – School, Dates, Location" sur une ligne, puis détails.
+    Chaque bloc éducation est séparé par une ligne vide OU commence par un pattern de diplôme.
     """
-    blocks = []
+    # D'abord on split par ligne vide
+    raw_blocks = []
     current = []
-
     for raw in (raw_education or "").splitlines():
         line = (raw or "").strip()
         if not line:
             if current:
-                blocks.append(current)
+                raw_blocks.append(current)
                 current = []
-            continue
-        current.append(line)
-
+        else:
+            current.append(line)
     if current:
-        blocks.append(current)
+        raw_blocks.append(current)
+
+    # Si un seul gros bloc (pas de ligne vide entre les formations), on tente de le découper
+    # en détectant les lignes qui ressemblent à un début de formation (contiennent des dates)
+    if len(raw_blocks) == 1 and len(raw_blocks[0]) > 2:
+        date_pat = re.compile(
+            r"(?:Jan|Fév|Feb|Mar|Avr|Apr|Mai|May|Juin|Jun|Juil|Jul|Août|Aug|Sept|Sep|Oct|Nov|Déc|Dec)"
+            r"\.?\s+\d{4}\s*[–\-]",
+            re.IGNORECASE
+        )
+        split_blocks = []
+        current_block = []
+        for line in raw_blocks[0]:
+            if current_block and date_pat.search(line):
+                # Cette ligne contient des dates → début d'un nouveau bloc
+                split_blocks.append(current_block)
+                current_block = [line]
+            else:
+                current_block.append(line)
+        if current_block:
+            split_blocks.append(current_block)
+        if len(split_blocks) > 1:
+            raw_blocks = split_blocks
+
+    def parse_edu_first_line(line: str):
+        """Parse 'Degree – School, Dates, Location' depuis une ligne."""
+        degree, school, dates, location = "", "", "", ""
+
+        date_pat = re.search(
+            r"((?:Jan|Fév|Feb|Mar|Avr|Apr|Mai|May|Juin|Jun|Juil|Jul|Août|Aug|Sept|Sep|Oct|Nov|Déc|Dec)"
+            r"\.?\s+\d{4}\s*[–\-]\s*"
+            r"(?:(?:Jan|Fév|Feb|Mar|Avr|Apr|Mai|May|Juin|Jun|Juil|Jul|Août|Aug|Sept|Sep|Oct|Nov|Déc|Dec)"
+            r"\.?\s+\d{4}|Aujourd'hui|Present|En cours|\d{4}))",
+            line, re.IGNORECASE
+        )
+        if date_pat:
+            dates = date_pat.group(1).strip()
+            line = (line[:date_pat.start()].rstrip(" ,–-") + line[date_pat.end():]).strip()
+
+        loc_pat = re.search(
+            r",\s*([A-ZÀ-Ÿa-zà-ÿ\u00C0-\u017E][A-ZÀ-Ÿa-zà-ÿ\u00C0-\u017E\s\-']+(?:,\s*[A-ZÀ-Ÿa-zà-ÿ\u00C0-\u017E][A-ZÀ-Ÿa-zà-ÿ\u00C0-\u017E\s\-']+)?)\s*$",
+            line
+        )
+        if loc_pat:
+            candidate = loc_pat.group(1).strip()
+            parts = [p.strip() for p in candidate.split(",")]
+            if all(1 <= len(p.split()) <= 4 for p in parts):
+                location = candidate
+                line = line[:loc_pat.start()].rstrip(" ,").strip()
+
+        for sep in [" – ", " - "]:
+            if sep in line:
+                idx = line.index(sep)
+                degree = line[:idx].strip()
+                school = line[idx + len(sep):].strip()
+                break
+        else:
+            degree = line.strip()
+
+        return degree, school, dates, location
 
     out = []
-    for block in blocks:
-        school = block[0] if len(block) > 0 else ""
-        degree = block[1] if len(block) > 1 else ""
-        location = block[2] if len(block) > 2 else ""
-        dates = block[3] if len(block) > 3 else ""
-        details = block[4:] if len(block) > 4 else []
+    for block in raw_blocks:
+        first_line = block[0] if block else ""
+        details = block[1:] if len(block) > 1 else []
+
+        degree, school, dates, location = parse_edu_first_line(first_line)
 
         out.append(f"DEGREE: {degree}")
         out.append(f"SCHOOL: {school}")
@@ -1601,12 +1665,12 @@ def rebuild_education_from_input(raw_education: str) -> list[str]:
         out.append(f"DATES: {dates}")
         out.append("DETAILS:")
 
-        if details:
-            for d in details:
-                if d.strip():
-                    out.append(f"- {d.strip().lstrip('-').strip()}")
+        detail_lines = [d.strip().lstrip("-").strip() for d in details if d.strip()]
+        if detail_lines:
+            for d in detail_lines:
+                out.append(f"- {d}")
         else:
-            out.append("- Formation.")
+            out.append("- ")
         out.append("")
 
     return out
@@ -3649,7 +3713,7 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
 
     return final
 
-def _render_skills(anchor: Paragraph, lines: list[str]):
+def _render_skills(anchor: Paragraph, lines: list[str], payload: dict = None):
     """
     Rend la section COMPÉTENCES & OUTILS :
     - Pas de puces
@@ -3660,13 +3724,19 @@ def _render_skills(anchor: Paragraph, lines: list[str]):
     is_first = True  # ✅ pour ajouter un petit espace avant la 1ère ligne
     cleaned = []
 
+    # Si l'utilisateur n'a fourni aucune certification, on supprime toute ligne Certifications
+    user_certifications = (payload or {}).get("certifications", "").strip() if payload else ""
+
     for line in lines:
         txt = line.strip()
         
         if txt.lower().startswith("certifications"):
+            # Si l'utilisateur n'a rien fourni en certifications → on supprime
+            if not user_certifications:
+                continue
             allowed_keywords = [
                 "cfa", "amf", "toefl", "toefic", "toeic", "ielts", "pix",
-                "python", "sql", "excel", "bloomberg", "refinitiv",
+                "python", "sql", "bloomberg", "refinitiv",
                 "dscg", "dcg", "caseware",
                 "moot", "mock trial", "plaidoirie", "concours"
             ]
@@ -4249,7 +4319,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
         # ------- COMPÉTENCES & OUTILS -------
         if ph == "%%SKILLS%%" and isinstance(value, list):
-            _render_skills(p, value or [])
+            _render_skills(p, value or [], payload=payload)
             _remove_paragraph(p)
             continue
 
@@ -5413,10 +5483,10 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         chars_no_space_check = len(re.sub(r"\s+", "", cv_text))
         nb_lines_check = cv_text.count("\n") + 1
         _is_short = (chars_no_space_check < 1150) or (nb_lines_check < 42)
-        fill_threshold = 0.65 if _is_short else 0.87
+        fill_threshold = 0.70 if _is_short else 0.90
         if pages == 1 and fill < fill_threshold:
             sector = payload.get("sector", "")
-            max_expand = 2 if _is_short else 5
+            max_expand = 3 if _is_short else 7
         
             if expand_count >= max_expand:
                 break
@@ -5440,7 +5510,7 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
                 continue
         
             if is_finance_sector(sector):
-                finance_max_expand = 2
+                finance_max_expand = 5
                 if expand_count >= finance_max_expand:
                     break
                 cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text), payload=payload)
