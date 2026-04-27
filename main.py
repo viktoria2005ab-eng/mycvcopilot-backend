@@ -81,23 +81,24 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
         r"|présentant des recommandations|proposant des recommandations"
         r"|soutenant|tout en restant|tout en renforçant|tout en assurant"
         r"|tout en optimisant|afin d'assurer|dans l'objectif de"
-        r"|augmentant sans précédent|enrichissant|développant|favorisant)[^.]*",
+        r"|augmentant sans précédent|enrichissant|développant|favorisant"
+        r"|mobilisant|démontrant|approfondissant|mettant en avant"
+        r"|incluant la formation|incluant le coaching|veillant à)[^.]*",
         r",\s*(permettant|contribuant\s+\w*\s*à|participant à l'amélioration)[^.]*",
         r",?\s+afin de (renforcer|optimiser|assurer|garantir|consolider|maximiser)[^.]*",
-        # Après point-virgule : "; discipline développée", "; qualité développée"
+        r"\s+en veillant à [^.]*",
         r";\s*\w[\w\s]*développée?\.?$",
         r";\s*\w[\w\s]*acquise?\.?$",
         r";\s*\w[\w\s]*renforcée?\.?$",
         r";\s*[^;.]{3,40}développée?\.?$",
     ]
 
-    # Patterns supplémentaires pour les activités (avec ou sans virgule)
+    # Patterns supplémentaires pour les activités
     ACTIVITY_PADDING = [
         r",?\s+(développant|renforçant|favorisant|cultivant|enrichissant"
         r"|améliorant|acquérant|permettant de développer|favorisant le développement de"
-        r"|développement de l'|développement du )[^.]*",
-        # Sans virgule : "passion pour l'analyse des relations"... garde si c'est de l'input
-        r",\s+(passion pour|intérêt pour)\s+l['']\w+[^.]*(?:contemporain|mondial|international)[^.]*",
+        r"|développement de l'|développement du|approfondissant ainsi"
+        r"|démontrant une|mettant en avant|engagement continu sur)[^.]*",
     ]
 
     patterns = BULLET_PADDING + (ACTIVITY_PADDING if is_activity else [])
@@ -128,17 +129,25 @@ def apply_strip_padding_to_cv(cv_text: str, payload: dict = None) -> str:
     if payload:
         raw_exp = payload.get("experiences", "")
         for block in raw_exp.split("\n\n"):
-            lines = [l.strip() for l in block.strip().splitlines() if l.strip()]
-            bullets_in_block = sum(1 for l in lines if l.startswith("-"))
-            # La première ligne non-bullet est le titre (role - company)
-            meta_lines = [l for l in lines if not l.startswith("-")]
+            lines_block = [l.strip() for l in block.strip().splitlines() if l.strip()]
+            bullets_in_block = sum(1 for l in lines_block if l.startswith("-"))
+            meta_lines = [l for l in lines_block if not l.startswith("-")]
             if meta_lines:
                 first_line = meta_lines[0].lower()
-                # Clé = premiers 20 chars du titre
-                key = first_line[:20].strip()
-                if key:
-                    # On autorise max bullets_in_block + 1 (pour l'expand éventuel)
-                    max_bullets_by_role[key] = max(bullets_in_block, 2)
+                # Extraire le nom de la société (après " – " ou " - ")
+                company_key = ""
+                for sep in [" – ", " - "]:
+                    if sep in first_line:
+                        parts = first_line.split(sep, 1)
+                        company_key = parts[1][:20].strip()
+                        break
+                # Stocker avec plusieurs clés pour maximiser les chances de match
+                role_key = first_line[:20].strip()
+                allowed = max(bullets_in_block, 2)
+                if role_key:
+                    max_bullets_by_role[role_key] = allowed
+                if company_key:
+                    max_bullets_by_role[company_key] = allowed
 
     lines = cv_text.split("\n")
     result = []
@@ -168,15 +177,24 @@ def apply_strip_padding_to_cv(cv_text: str, payload: dict = None) -> str:
 
         # Détecter un nouveau bloc d'expérience (ROLE:)
         if in_experiences and stripped.startswith("ROLE:"):
-            current_role_key = stripped.replace("ROLE:", "").strip().lower()[:20]
+            role_val = stripped.replace("ROLE:", "").strip().lower()
+            current_role_key = role_val[:20]
             current_bullet_count = 0
+            result.append(line)
+            continue
+
+        # Détecter le COMPANY: pour améliorer le matching
+        if in_experiences and stripped.startswith("COMPANY:"):
+            company_val = stripped.replace("COMPANY:", "").strip().lower()[:20]
+            # Si le role_key ne matche pas, essayer avec le company_key
+            if current_role_key not in max_bullets_by_role and company_val in max_bullets_by_role:
+                current_role_key = company_val
             result.append(line)
             continue
 
         # Bullets d'expériences
         if stripped.startswith("- ") and in_experiences:
             content = stripped[2:]
-            # Vérifier si ce bullet dépasse le max autorisé
             max_allowed = max_bullets_by_role.get(current_role_key, 3)
             if current_bullet_count >= max_allowed + 1:
                 # Bullet entièrement inventé → on le supprime
@@ -1322,21 +1340,20 @@ RÈGLES ABSOLUES :
 
 SECTION EDUCATION :
 - En droit, la formation est centrale.
-- Tu valorises uniquement :
-  - l’intitulé exact du diplôme
-  - l’université / école
-  - le lieu
-  - les dates
-  - les matières uniquement si elles sont explicitement fournies
-  - mémoire / concours / moot court / mock trial / projet académique uniquement si explicitement fournis
-  - Si un moot court, mock trial ou concours de plaidoirie est fourni, tu peux le placer soit dans EDUCATION s’il est académique, soit dans SKILLS sur la ligne "Certifications :" s’il est présenté comme distinction, concours ou validation utile au poste.
-  - mention / classement uniquement si explicitement fournis
-- Interdiction absolue d’ajouter des matières juridiques “logiques” si elles ne sont pas données.
-- INTERDIT ABSOLU : ne jamais inventer un mémoire, une thèse, un concours, une participation à une compétition, un prix, une mention, un classement si ce n'est pas écrit mot pour mot dans le champ FORMATION fourni.
-- Si le bloc de formation ne contient que le diplôme et l'université, tu écris UNIQUEMENT : DEGREE, SCHOOL, LOCATION, DATES, et DETAILS: avec une seule ligne minimale. Rien d'autre.
+- Tu retranscris UNIQUEMENT ce qui est explicitement écrit dans le champ FORMATION :
+  - l'intitulé exact du diplôme
+  - l'université / école
+  - le lieu et les dates
+  - les matières SI et SEULEMENT SI elles sont écrites mot pour mot dans l'input
+  - la mention SI et SEULEMENT SI elle est écrite mot pour mot dans l'input
+- INTERDIT ABSOLU — même si cela paraît logique ou probable :
+  - inventer un mémoire, une thèse, un sujet de recherche
+  - inventer un concours, une compétition, une participation
+  - inventer un classement, un prix, une distinction
+  - inventer des matières non fournies
+  - ajouter "avec la rédaction d'un mémoire", "centré sur un sujet juridique", "encadré par un professeur"
+- Si le bloc de formation ne contient que diplôme + université : DETAILS: avec une seule ligne "- Formation juridique." UNIQUEMENT.
 - Chaque bloc EDUCATION doit contenir DETAILS:.
-- Si aucun détail n’est fourni, tu écris une seule ligne minimale, factuelle et non inventée :
-  - Formation juridique.
 
 SECTION EXPERIENCES :
 - 2 bullet points par défaut par expérience.
@@ -4496,7 +4513,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         r2.font.size = Pt(11)
 
                     # Détails sous le titre
-                    for d in details:
+                    is_last_program = (idx == len(programs) - 1)
+                    detail_list = [d for d in details if (d or "").strip()]
+                    for d_idx, d in enumerate(detail_list):
                         text = (d or "").strip()
                         if not text:
                             continue
@@ -4508,7 +4527,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                         para = left.add_paragraph()
                         para.paragraph_format.space_before = Pt(0)
-                        para.paragraph_format.space_after = Pt(0)
+                        # Sur le dernier détail du dernier bloc éducation, ajouter espace avant EXPÉRIENCES
+                        is_last_detail = (d_idx == len(detail_list) - 1)
+                        para.paragraph_format.space_after = Pt(4) if (is_last_program and is_last_detail) else Pt(0)
                         try:
                             para.style = doc.styles["Normal"]
                         except Exception:
@@ -4602,7 +4623,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         table._tbl.addnext(spacer_elt)
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
-                        spacer.paragraph_format.space_after = Pt(4)
+                        spacer.paragraph_format.space_after = Pt(0)
                         anchor = spacer
                 
                 _remove_paragraph(p)
