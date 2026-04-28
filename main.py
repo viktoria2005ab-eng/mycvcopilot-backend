@@ -93,12 +93,12 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
         r";\s*[^;.]{3,40}développée?\.?$",
     ]
 
-    # Patterns supplémentaires pour les activités
+    # Patterns supplémentaires pour les activités - SEULEMENT après virgule
     ACTIVITY_PADDING = [
-        r",?\s+(développant|renforçant|favorisant|cultivant|enrichissant"
+        r",\s+(développant|renforçant|favorisant|cultivant|enrichissant"
         r"|améliorant|acquérant|permettant de développer|favorisant le développement de"
-        r"|développement de l'|développement du|approfondissant ainsi"
-        r"|démontrant une|mettant en avant|engagement continu sur)[^.]*",
+        r"|approfondissant ainsi|démontrant une|mettant en avant|engagement continu sur"
+        r"|développement significatif de|élargissant|stimulant)[^.]*",
     ]
 
     patterns = BULLET_PADDING + (ACTIVITY_PADDING if is_activity else [])
@@ -119,14 +119,27 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
 def apply_strip_padding_to_cv(cv_text: str, payload: dict = None) -> str:
     """
     Applique strip_padding sur chaque bullet et chaque activité du texte CV structuré.
+    Pour le droit : efface les DETAILS inventés quand l'input éducation ne contient rien.
     """
     if not cv_text:
         return cv_text
+
+    # Pour le droit : construire la liste des blocs éducation ayant des détails réels
+    edu_details_allowed = set()
+    if payload and payload.get("sector", "") in ("droit", "legal"):
+        raw_edu = payload.get("education", "")
+        for block in raw_edu.split("\n\n"):
+            lines_b = [l.strip() for l in block.strip().splitlines() if l.strip()]
+            if len(lines_b) > 1:  # a des détails réels
+                edu_details_allowed.add(lines_b[0][:30].lower())
 
     lines = cv_text.split("\n")
     result = []
     in_activities = False
     in_experiences = False
+    in_education = False
+    current_degree_key = None
+    skip_details = False
 
     for line in lines:
         stripped = line.strip()
@@ -134,17 +147,49 @@ def apply_strip_padding_to_cv(cv_text: str, payload: dict = None) -> str:
         if stripped == "ACTIVITIES:":
             in_activities = True
             in_experiences = False
+            in_education = False
             result.append(line)
             continue
         elif stripped == "EXPERIENCES:":
             in_experiences = True
             in_activities = False
+            in_education = False
             result.append(line)
             continue
-        elif stripped in ("EDUCATION:", "SKILLS:"):
+        elif stripped == "EDUCATION:":
+            in_education = True
             in_activities = False
             in_experiences = False
             result.append(line)
+            continue
+        elif stripped == "SKILLS:":
+            in_activities = False
+            in_experiences = False
+            in_education = False
+            result.append(line)
+            continue
+
+        # Droit : gérer les DETAILS inventés dans EDUCATION
+        if in_education and stripped.startswith("DEGREE:"):
+            degree_val = stripped.replace("DEGREE:", "").strip()[:30].lower()
+            current_degree_key = degree_val
+            # Vérifier si ce degré avait des détails réels dans l'input
+            has_real_details = any(
+                current_degree_key in allowed or allowed in current_degree_key
+                for allowed in edu_details_allowed
+            ) if edu_details_allowed else True
+            skip_details = not has_real_details
+            result.append(line)
+            continue
+
+        if in_education and stripped == "DETAILS:" and skip_details:
+            result.append(line)
+            continue
+
+        if in_education and stripped.startswith("- ") and skip_details:
+            # Remplacer par ligne minimale vide
+            result.append("- ")
+            skip_details = False  # une seule ligne minimale
             continue
 
         # Bullets d'expériences — strip_padding seulement
@@ -1537,31 +1582,37 @@ def rebuild_education_from_input(raw_education: str) -> list[str]:
     if current:
         raw_blocks.append(current)
 
-    # Si un seul gros bloc (pas de ligne vide entre les formations), on tente de le découper
+    # Si un seul gros bloc, on tente de le découper intelligemment
     if len(raw_blocks) == 1 and len(raw_blocks[0]) > 2:
         date_pat = re.compile(
             r"(?:Jan|Fév|Feb|Mar|Avr|Apr|Mai|May|Juin|Jun|Juil|Jul|Août|Aug|Sept|Sep|Oct|Nov|Déc|Dec)"
             r"\.?\s+\d{4}\s*[–\-]",
             re.IGNORECASE
         )
-        # Mots clés qui indiquent toujours un nouveau bloc de formation
+        # Mots clés qui indiquent TOUJOURS un nouveau bloc de formation
         new_block_keywords = re.compile(
             r"^(exchange program|exchange semester|échange académique|semester abroad|study abroad"
-            r"|master\s|bachelor\s|licence\s|bba\s|mba\s|programme grande école|cpge|prépa|baccalauréat)",
+            r"|master\s|master\d|bachelor\s|licence\s|bba\s|mba\s|programme grande école|cpge|prépa|baccalauréat)",
             re.IGNORECASE
         )
         split_blocks = []
         current_block = []
+        current_has_degree = False  # pour savoir si le bloc courant a déjà un diplôme
         for line in raw_blocks[0]:
-            is_new_block = (
-                (current_block and date_pat.search(line)) or
-                (current_block and new_block_keywords.match(line.strip()))
-            )
-            if is_new_block:
+            is_keyword_new = current_block and new_block_keywords.match(line.strip())
+            # On split sur dates SEULEMENT si le bloc courant a déjà un diplôme
+            is_date_new = current_block and current_has_degree and date_pat.search(line)
+            if is_keyword_new or is_date_new:
                 split_blocks.append(current_block)
                 current_block = [line]
+                current_has_degree = bool(new_block_keywords.match(line.strip()))
             else:
                 current_block.append(line)
+                if not current_has_degree and (
+                    new_block_keywords.match(line.strip()) or
+                    re.search(r"(master|bachelor|programme|licence|bba|mba)", line, re.IGNORECASE)
+                ):
+                    current_has_degree = True
         if current_block:
             split_blocks.append(current_block)
         if len(split_blocks) > 1:
@@ -1619,8 +1670,10 @@ def rebuild_education_from_input(raw_education: str) -> list[str]:
 
         detail_lines = [d.strip().lstrip("-").strip() for d in details if d.strip()]
         if detail_lines:
-            for d in detail_lines:
-                out.append(f"- {d}")
+            # Joindre les lignes de détails en une seule ligne séparée par des virgules
+            # sauf si c'est déjà une phrase longue (> 60 chars)
+            joined = ", ".join(detail_lines)
+            out.append(f"- {joined}")
         else:
             out.append("- ")
         out.append("")
@@ -3426,7 +3479,7 @@ def dedupe_language_items(items: list[str]) -> list[str]:
     normalized = []
     seen_exact = set()
     seen_language_bases = set()
-    seen_test_keywords = set()  # Fix: évite TOEIC 930 standalone si déjà dans "Anglais C1 (TOEIC 930)"
+    seen_test_keywords = set()
 
     language_roots = [
         "anglais", "français", "francais", "espagnol", "allemand",
@@ -3435,6 +3488,15 @@ def dedupe_language_items(items: list[str]) -> list[str]:
     ]
 
     test_keywords = ["toeic", "toefl", "ielts", "cambridge"]
+
+    def extract_language_root(txt: str) -> str | None:
+        """Extrait la racine de langue dans un texte, même verbeux comme 'compétences en Espagnol'."""
+        low = txt.lower()
+        # Chercher la racine n'importe où dans le texte
+        for root in language_roots:
+            if re.search(rf"\b{root}\b", low):
+                return root
+        return None
 
     for raw in items:
         txt = clean_punctuation_text((raw or "").strip())
@@ -3445,20 +3507,24 @@ def dedupe_language_items(items: list[str]) -> list[str]:
         low = low.replace("niveau ", "")
         low = re.sub(r"\s+", " ", low).strip()
 
+        # Supprimer les entrées verbeuses qui répètent une langue déjà vue
+        # ex: "compétences en Espagnol de niveau A2" quand "Espagnol A2" est déjà là
+        root_found = extract_language_root(txt)
+        if root_found and root_found in seen_language_bases:
+            continue  # langue déjà présente → doublon verbeux
+
         # si c'est un test officiel, on le garde tel quel une seule fois
         if any(k in low for k in test_keywords):
             matched_test = next((k for k in test_keywords if k in low), None)
             if matched_test and matched_test in seen_test_keywords:
-                continue  # ce test est déjà représenté (ex: TOEIC déjà dans "Anglais C1 (TOEIC 930)")
+                continue
             if low not in seen_exact:
                 seen_exact.add(low)
                 if matched_test:
                     seen_test_keywords.add(matched_test)
                 normalized.append(txt)
-                for root in language_roots:
-                    if low.startswith(root):
-                        seen_language_bases.add(root)
-                        break
+                if root_found:
+                    seen_language_bases.add(root_found)
             continue
 
         matched_root = None
@@ -3683,17 +3749,11 @@ def _render_skills(anchor: Paragraph, lines: list[str], payload: dict = None):
         txt = line.strip()
         
         if txt.lower().startswith("certifications"):
-            # Si l'utilisateur n'a rien fourni en certifications → on supprime
+            # Si l'utilisateur n'a rien fourni → on supprime
             if not user_certifications:
                 continue
-            allowed_keywords = [
-                "cfa", "amf", "toefl", "toefic", "toeic", "ielts", "pix",
-                "python", "sql", "bloomberg", "refinitiv",
-                "dscg", "dcg", "caseware",
-                "moot", "mock trial", "plaidoirie", "concours"
-            ]
-            if not any(k in txt.lower() for k in allowed_keywords):
-                continue
+            # Si l'utilisateur a fourni des certifications → on affiche toujours
+            # (sans filtre keywords car l'utilisateur sait ce qu'il a fourni)
     
         cleaned.append(txt)
 
