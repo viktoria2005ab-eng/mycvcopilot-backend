@@ -119,42 +119,14 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
 def apply_strip_padding_to_cv(cv_text: str, payload: dict = None) -> str:
     """
     Applique strip_padding sur chaque bullet et chaque activité du texte CV structuré.
-    Si payload fourni, limite le nombre de bullets par expérience à ce que l'utilisateur a fourni.
     """
     if not cv_text:
         return cv_text
-
-    # Construire un mapping role -> max bullets depuis l'input utilisateur
-    max_bullets_by_role = {}
-    if payload:
-        raw_exp = payload.get("experiences", "")
-        for block in raw_exp.split("\n\n"):
-            lines_block = [l.strip() for l in block.strip().splitlines() if l.strip()]
-            bullets_in_block = sum(1 for l in lines_block if l.startswith("-"))
-            meta_lines = [l for l in lines_block if not l.startswith("-")]
-            if meta_lines:
-                first_line = meta_lines[0].lower()
-                # Extraire le nom de la société (après " – " ou " - ")
-                company_key = ""
-                for sep in [" – ", " - "]:
-                    if sep in first_line:
-                        parts = first_line.split(sep, 1)
-                        company_key = parts[1][:20].strip()
-                        break
-                # Stocker avec plusieurs clés pour maximiser les chances de match
-                role_key = first_line[:20].strip()
-                allowed = max(bullets_in_block, 2)
-                if role_key:
-                    max_bullets_by_role[role_key] = allowed
-                if company_key:
-                    max_bullets_by_role[company_key] = allowed
 
     lines = cv_text.split("\n")
     result = []
     in_activities = False
     in_experiences = False
-    current_role_key = None
-    current_bullet_count = 0
 
     for line in lines:
         stripped = line.strip()
@@ -175,33 +147,11 @@ def apply_strip_padding_to_cv(cv_text: str, payload: dict = None) -> str:
             result.append(line)
             continue
 
-        # Détecter un nouveau bloc d'expérience (ROLE:)
-        if in_experiences and stripped.startswith("ROLE:"):
-            role_val = stripped.replace("ROLE:", "").strip().lower()
-            current_role_key = role_val[:20]
-            current_bullet_count = 0
-            result.append(line)
-            continue
-
-        # Détecter le COMPANY: pour améliorer le matching
-        if in_experiences and stripped.startswith("COMPANY:"):
-            company_val = stripped.replace("COMPANY:", "").strip().lower()[:20]
-            # Si le role_key ne matche pas, essayer avec le company_key
-            if current_role_key not in max_bullets_by_role and company_val in max_bullets_by_role:
-                current_role_key = company_val
-            result.append(line)
-            continue
-
-        # Bullets d'expériences
+        # Bullets d'expériences — strip_padding seulement
         if stripped.startswith("- ") and in_experiences:
             content = stripped[2:]
-            max_allowed = max_bullets_by_role.get(current_role_key, 3)
-            if current_bullet_count >= max_allowed + 1:
-                # Bullet entièrement inventé → on le supprime
-                continue
             cleaned = strip_padding(content, is_activity=False)
             result.append("- " + cleaned)
-            current_bullet_count += 1
             continue
 
         # Lignes d'activités
@@ -326,14 +276,10 @@ def has_all_sections(cv_text: str) -> bool:
     return all(sec in t for sec in REQUIRED_SECTIONS)
 
 def safe_apply_llm_edit(old_text: str, new_text: str, payload: dict = None) -> str:
-    """
-    Si l'IA renvoie un CV cassé (sections manquantes, etc.),
-    on garde l'ancien pour éviter de tout péter.
-    """
     new_clean = clean_cv_output(new_text)
     if not has_all_sections(new_clean):
-        return old_text  # on refuse la sortie cassée
-    new_clean = apply_strip_padding_to_cv(new_clean, payload=payload)
+        return old_text
+    new_clean = apply_strip_padding_to_cv(new_clean)
     return new_clean
 
 def pdf_page_count(pdf_path: str) -> int:
@@ -409,46 +355,27 @@ def llm_expand_cv(cv_text: str) -> str:
         return cv_text
 
     prompt = f"""
-Tu dois rendre ce CV légèrement plus dense pour mieux remplir une page Word, sans le rendre faux ni artificiel.
+Tu dois rendre ce CV plus dense pour remplir une page Word complète.
 
-Règles ABSOLUES :
-- Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, ACTIVITIES:
-- Tu ne rajoutes aucun commentaire ni phrase méta.
-- Tu n’inventes pas de nouvelle expérience, de nouvel outil, de nouveau chiffre, de nouveau pays, de nouvelle fréquence, de nouvelle activité ou de nouveau résultat.
-- Tu peux valoriser légèrement une activité ou une mission existante si cela reste directement crédible.
-- Tu peux ajouter une qualité transférable simple et logique.
-- Tu n’ajoutes jamais de fait précis non fourni.
+OBJECTIF PRINCIPAL : ajouter du contenu réel et professionnel pour remplir la page.
 
 Tu peux uniquement :
-1) passer à 3 bullets pour les 1 ou 2 expériences les plus pertinentes si elles n’en ont que 2,
-2) reformuler des bullets existantes de manière plus professionnelle et plus vendeuse,
-3) enrichir légèrement une ligne de formation déjà présente,
-4) enrichir légèrement une activité existante avec 1 ou 2 qualités simples et crédibles.
+1) Passer à 3 bullets pour les expériences qui n'en ont que 2 — en développant ce qui est déjà là de manière plus complète.
+2) Développer les bullets existants : ajouter contexte, méthode, précision sur ce qui est déjà mentionné.
+3) Si une formation a des détails, les développer légèrement.
+4) Reformuler les bullets pour qu'ils soient plus complets et professionnels.
 
-Interdictions absolues :
-- ne jamais ajouter de chiffre,
-- ne jamais ajouter d’impact business précis,
-- ne jamais ajouter de recommandation formelle,
-- ne jamais ajouter un outil non fourni,
-- ne jamais ajouter un contexte inventé,
-- ne jamais ajouter “optimisant”, “maximisant”, “garantissant”, “assurant”, “renforçant”, “améliorant” si cela crée un faux résultat,
-- ne jamais ajouter de pays, compétitions, événements, fréquence ou niveau s’ils ne sont pas déjà présents.
-- INTERDIT ABSOLU : ne jamais terminer un bullet par une phrase participiale inventée ("assurant", "contribuant à", "favorisant", "développant", "renforçant", "facilitant", "permettant", "garantissant") si cette finalité n'était pas présente dans le bullet original.
-- INTERDIT ABSOLU : ne jamais laisser un fragment de phrase sans verbe principal.
+INTERDIT ABSOLU :
+- Inventer une nouvelle expérience, un nouveau poste, un nouveau projet.
+- Ajouter un chiffre non fourni.
+- Ajouter un outil non fourni.
+- Terminer un bullet par une subordonnée participiale ("assurant", "contribuant à", "favorisant", "renforçant", "permettant", "garantissant", "mobilisant", "démontrant").
+- Laisser un fragment de phrase sans verbe principal.
 
-Style attendu :
-- professionnel
-- crédible
-- légèrement valorisant
-- factuel
-- fluide
-- pas de jargon cabinet
-
-Sortie : UNIQUEMENT le CV complet.
+Sortie : UNIQUEMENT le CV complet sans commentaire.
 
 CV :
-\"\"\"{cv_text}\"\"\"
-"""
+\"\"\"{{cv_text}}\"\"\"\n"""
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
@@ -1611,18 +1538,26 @@ def rebuild_education_from_input(raw_education: str) -> list[str]:
         raw_blocks.append(current)
 
     # Si un seul gros bloc (pas de ligne vide entre les formations), on tente de le découper
-    # en détectant les lignes qui ressemblent à un début de formation (contiennent des dates)
     if len(raw_blocks) == 1 and len(raw_blocks[0]) > 2:
         date_pat = re.compile(
             r"(?:Jan|Fév|Feb|Mar|Avr|Apr|Mai|May|Juin|Jun|Juil|Jul|Août|Aug|Sept|Sep|Oct|Nov|Déc|Dec)"
             r"\.?\s+\d{4}\s*[–\-]",
             re.IGNORECASE
         )
+        # Mots clés qui indiquent toujours un nouveau bloc de formation
+        new_block_keywords = re.compile(
+            r"^(exchange program|exchange semester|échange académique|semester abroad|study abroad"
+            r"|master\s|bachelor\s|licence\s|bba\s|mba\s|programme grande école|cpge|prépa|baccalauréat)",
+            re.IGNORECASE
+        )
         split_blocks = []
         current_block = []
         for line in raw_blocks[0]:
-            if current_block and date_pat.search(line):
-                # Cette ligne contient des dates → début d'un nouveau bloc
+            is_new_block = (
+                (current_block and date_pat.search(line)) or
+                (current_block and new_block_keywords.match(line.strip()))
+            )
+            if is_new_block:
                 split_blocks.append(current_block)
                 current_block = [line]
             else:
