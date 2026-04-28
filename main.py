@@ -333,8 +333,11 @@ def pdf_page_count(pdf_path: str) -> int:
 
 def pdf_fill_ratio_first_page(pdf_path: str) -> float:
     """
-    Heuristique simple : nombre de lignes non vides extraites de la page 1.
-    Sert à détecter "trop vide" (beaucoup d'espace en bas).
+    Heuristique : nombre de lignes non vides extraites de la page 1.
+    Calibrage : 
+    - 20 lignes = ~0.40 (CV très court)
+    - 40 lignes = ~0.70 (CV mi-page)
+    - 58 lignes = ~0.95 (page bien remplie)
     """
     reader = PdfReader(pdf_path)
     if len(reader.pages) == 0:
@@ -349,12 +352,11 @@ def pdf_fill_ratio_first_page(pdf_path: str) -> float:
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     n = len(lines)
 
-    # calibrage simple
-    if n <= 22:
-        return 0.60
-    if n >= 55:
+    if n <= 20:
+        return 0.40
+    if n >= 58:
         return 0.95
-    return 0.60 + (n - 22) * (0.35 / (55 - 22))
+    return 0.40 + (n - 20) * (0.55 / (58 - 20))
 
 def llm_shrink_cv(cv_text: str) -> str:
     if not client:
@@ -5459,8 +5461,8 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
     best_1page_text = None
     best_1page_fill = 0.0
 
-    # 2) boucle max 5 essais (baseline + 2 corrections)
-    for attempt in range(5):
+    # 2) boucle max 14 essais
+    for attempt in range(14):
         import asyncio
         try:
             await asyncio.to_thread(write_docx_from_template, tpl, cv_text, docx_path, payload=payload, compact_mode=compact_mode)
@@ -5499,10 +5501,10 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         chars_no_space_check = len(re.sub(r"\s+", "", cv_text))
         nb_lines_check = cv_text.count("\n") + 1
         _is_short = (chars_no_space_check < 1150) or (nb_lines_check < 42)
-        fill_threshold = 0.70 if _is_short else 0.90
+        fill_threshold = 0.65 if _is_short else 0.88
         if pages == 1 and fill < fill_threshold:
             sector = payload.get("sector", "")
-            max_expand = 3 if _is_short else 7
+            max_expand = 3 if _is_short else 10
         
             if expand_count >= max_expand:
                 break
@@ -5526,7 +5528,7 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
                 continue
         
             if is_finance_sector(sector):
-                finance_max_expand = 5
+                finance_max_expand = 8
                 if expand_count >= finance_max_expand:
                     break
                 cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text), payload=payload)
