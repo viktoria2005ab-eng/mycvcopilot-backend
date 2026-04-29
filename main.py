@@ -1770,7 +1770,7 @@ def ensure_required_sections(cv_text: str, payload: Dict[str, Any]) -> str:
         if (line or "").strip().startswith("ROLE:")
     )
     
-    if not experience_lines or actual_exp_blocks < expected_exp_blocks:
+    if not experience_lines or actual_exp_blocks == 0:
         experience_lines = rebuild_experiences_from_input(payload.get("experiences", ""))
     else:
         # Vérifie que les bullets utilisateur ne sont pas supprimés
@@ -1856,49 +1856,61 @@ def translate_months_fr(text: str) -> str:
         return text
 
     patterns = {
-        # EN full
-        r"(?i)\bJanuary\b": "Janv",
-        r"(?i)\bFebruary\b": "Fév",
+        # EN full → FR abrégé avec point (mois vraiment abrégés) ou sans (mois courts)
+        r"(?i)\bJanuary\b": "Janv.",
+        r"(?i)\bFebruary\b": "Fév.",
         r"(?i)\bMarch\b": "Mars",
-        r"(?i)\bApril\b": "Avr",
+        r"(?i)\bApril\b": "Avr.",
         r"(?i)\bMay\b": "Mai",
         r"(?i)\bJune\b": "Juin",
-        r"(?i)\bJuly\b": "Juil",
+        r"(?i)\bJuly\b": "Juil.",
         r"(?i)\bAugust\b": "Août",
-        r"(?i)\bSeptember\b": "Sept",
-        r"(?i)\bOctober\b": "Oct",
-        r"(?i)\bNovember\b": "Nov",
-        r"(?i)\bDecember\b": "Déc",
+        r"(?i)\bSeptember\b": "Sept.",
+        r"(?i)\bOctober\b": "Oct.",
+        r"(?i)\bNovember\b": "Nov.",
+        r"(?i)\bDecember\b": "Déc.",
 
         # EN short
-        r"(?i)\bJan\b": "Janv",
-        r"(?i)\bFeb\b": "Fév",
+        r"(?i)\bJan\b": "Janv.",
+        r"(?i)\bFeb\b": "Fév.",
         r"(?i)\bMar\b": "Mars",
-        r"(?i)\bApr\b": "Avr",
+        r"(?i)\bApr\b": "Avr.",
         r"(?i)\bJun\b": "Juin",
-        r"(?i)\bJul\b": "Juil",
+        r"(?i)\bJul\b": "Juil.",
         r"(?i)\bAug\b": "Août",
-        r"(?i)\bSep\b": "Sept",
-        r"(?i)\bOct\b": "Oct",
-        r"(?i)\bNov\b": "Nov",
-        r"(?i)\bDec\b": "Déc",
+        r"(?i)\bSep\b": "Sept.",
+        r"(?i)\bOct\b": "Oct.",
+        r"(?i)\bNov\b": "Nov.",
+        r"(?i)\bDec\b": "Déc.",
 
-        # FR full
-        r"(?i)\bJanvier\b": "Janv",
-        r"(?i)\bFévrier\b": "Fév",
-        r"(?i)\bFevrier\b": "Fév",
+        # FR full → abrégé
+        r"(?i)\bJanvier\b": "Janv.",
+        r"(?i)\bFévrier\b": "Fév.",
+        r"(?i)\bFevrier\b": "Fév.",
         r"(?i)\bMars\b": "Mars",
-        r"(?i)\bAvril\b": "Avr",
+        r"(?i)\bAvril\b": "Avr.",
         r"(?i)\bMai\b": "Mai",
         r"(?i)\bJuin\b": "Juin",
-        r"(?i)\bJuillet\b": "Juil",
+        r"(?i)\bJuillet\b": "Juil.",
         r"(?i)\bAoût\b": "Août",
         r"(?i)\bAout\b": "Août",
-        r"(?i)\bSeptembre\b": "Sept",
-        r"(?i)\bOctobre\b": "Oct",
-        r"(?i)\bNovembre\b": "Nov",
-        r"(?i)\bDécembre\b": "Déc",
-        r"(?i)\bDecembre\b": "Déc",
+        r"(?i)\bSeptembre\b": "Sept.",
+        r"(?i)\bOctobre\b": "Oct.",
+        r"(?i)\bNovembre\b": "Nov.",
+        r"(?i)\bDécembre\b": "Déc.",
+        r"(?i)\bDecembre\b": "Déc.",
+
+        # FR déjà abrégé sans point → ajouter le point
+        r"(?i)\bJanv\b(?!\.)": "Janv.",
+        r"(?i)\bFév\b(?!\.)": "Fév.",
+        r"(?i)\bFev\b(?!\.)": "Fév.",
+        r"(?i)\bAvr\b(?!\.)": "Avr.",
+        r"(?i)\bJuil\b(?!\.)": "Juil.",
+        r"(?i)\bSept\b(?!\.)": "Sept.",
+        r"(?i)\bOct\b(?!\.)": "Oct.",
+        r"(?i)\bNov\b(?!\.)": "Nov.",
+        r"(?i)\bDéc\b(?!\.)": "Déc.",
+        r"(?i)\bDec\b(?!\.)": "Déc.",
     }
 
     for pattern, repl in patterns.items():
@@ -3666,8 +3678,10 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
             if item not in certifications_items:
                 certifications_items.append(item)
 
-    cleaned = [x for x in cleaned if not x.lower().startswith("maîtrise des logiciels")]
-    cleaned.insert(0, build_software_line_from_payload(payload))
+    # ✅ Utiliser la ligne logiciels du LLM si elle existe (bien formatée), sinon fallback payload
+    has_llm_software_line = any(x.lower().startswith("maîtrise des logiciels") for x in cleaned)
+    if not has_llm_software_line:
+        cleaned.insert(0, build_software_line_from_payload(payload))
 
     certifications_items = dedupe_preserve_order(certifications_items)
 
@@ -3682,11 +3696,11 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
         item = re.sub(r",?\s+et\s+(une\s+)?compréhension.*$", "", item, flags=re.IGNORECASE)
         return item.strip()
 
-    if payload_languages:
+    # ✅ Payload languages uniquement en fallback — si le LLM a déjà fourni les langues, ne pas doubler
+    if payload_languages and not language_tests:
         base_langs = [_clean_lang_item(x.strip()) for x in payload_languages.split(",") if x.strip()]
         for lang in base_langs:
-            if lang not in language_tests:
-                language_tests.insert(0, lang)
+            language_tests.append(lang)
 
     language_tests = dedupe_language_items(language_tests)
 
@@ -3871,14 +3885,24 @@ def _is_bac_block(block: list[str]) -> bool:
 
 def _keep_bac_block(block: list[str]) -> bool:
     """
-    On garde le bac UNIQUEMENT si :
+    On garde le bac si :
     1) lycée d'exception (Henri IV, Louis-le-Grand, lycée international, etc.)
     2) bac / diplôme international (IB, Abibac, maturité suisse, etc.)
-    3) mention d'honneur type 'félicitations du jury'
+    3) mention d'honneur / félicitations du jury
+    4) moyenne ou note explicitement fournie (ex : 15.5, mention bien)
     """
     text = " ".join(block).lower()
     # Cas spécifiques : honneurs / honeurs du jury
     if "honneurs du jury" in text or "honeurs du jury" in text:
+        return True
+
+    # ✅ Garde si une moyenne ou note est mentionnée (l'utilisateur a mis sa note → valeur pour lui)
+    if re.search(r"\bmoyenne\b", text):
+        return True
+    if re.search(r"\b(mention\s+(bien|très bien|assez bien|très\s+bien))\b", text):
+        return True
+    # Note brute type 15, 16, 17...
+    if re.search(r"\b(1[4-9]|20)[\.,]\d", text):
         return True
 
     elite_keywords = [
@@ -4466,8 +4490,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     school = (edu.get("school") or "").strip()
                     location = (edu.get("location") or "").strip()
                     raw_education = payload.get("education", "")
-                    if location and location.lower() not in raw_education.lower():
-                        location = ""
+                    if location:
+                        # Matching flexible : on compare juste la ville (avant la virgule) pour gérer "Lyon, France" vs "lyon"
+                        city_part = re.sub(r"[,\s]+", " ", location.lower()).strip().split()[0] if location else ""
+                        raw_edu_low = re.sub(r"[,\s]+", " ", raw_education.lower())
+                        if city_part and city_part not in raw_edu_low:
+                            location = ""
                     dates = (edu.get("dates") or "").strip()
                     details = edu.get("details") or []
 
@@ -4700,12 +4728,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         spacer.paragraph_format.space_after = ITEM_SPACING
                         anchor = spacer
                     else:
-                        # ✅ espace après la DERNIÈRE formation avant le titre suivant
+                        # ✅ espace après la DERNIÈRE formation avant le titre EXPÉRIENCES
                         spacer_elt = OxmlElement("w:p")
                         table._tbl.addnext(spacer_elt)
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
-                        spacer.paragraph_format.space_after = Pt(0)
+                        spacer.paragraph_format.space_after = Pt(4)
                         anchor = spacer
                 
                 _remove_paragraph(p)
@@ -4982,11 +5010,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     anchor.paragraph_format.space_after = ITEM_SPACING
                     anchor.paragraph_format.space_before = Pt(0)
                 else:
-                    # ✅ espace après la dernière formation
+                    # ✅ espace après la dernière formation avant le titre EXPÉRIENCES
                     new_p_elt = OxmlElement("w:p")
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
-                    anchor.paragraph_format.space_after = Pt(0)
+                    anchor.paragraph_format.space_after = Pt(4)
                     anchor.paragraph_format.space_before = Pt(0)
 
             # ⚠️ NE PAS supprimer anchor
@@ -5138,8 +5166,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     role = role[0].upper() + role[1:]
 
                 company = (exp.get("company") or "").strip()
-                title_parts = [x for x in [role, company] if x]
-                title_line = " - ".join(title_parts)
 
                 # ✅ petit espace entre le TITRE de section et la 1ère expérience (sans ligne vide)
                 if first_table:
@@ -5167,7 +5193,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 left.text = ""
                 right.text = ""
 
-                # ----- Colonne gauche : rôle + bullets -----
+                # ----- Colonne gauche : rôle + entreprise (2 lignes) + bullets -----
                 lp = left.paragraphs[0]
                 _keep_lines(lp, keep_lines=True, keep_next=True)
                 try:
@@ -5176,13 +5202,28 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     pass
                 lp.paragraph_format.left_indent = Pt(0)
                 lp.paragraph_format.first_line_indent = Pt(0)
+                lp.paragraph_format.space_after = Pt(0)
 
-                if title_line:
-                    title_run = lp.add_run(title_line)
+                # Ligne 1 : rôle en GRAS
+                if role:
+                    title_run = lp.add_run(role)
                     title_run.bold = True
                     title_run.font.size = Pt(11)
 
-                lp.paragraph_format.space_after = Pt(1)
+                # Ligne 2 : entreprise en ITALIQUE (comme l'école sous le diplôme)
+                if company:
+                    para_company = left.add_paragraph()
+                    para_company.paragraph_format.space_before = Pt(0)
+                    para_company.paragraph_format.space_after = Pt(1)
+                    try:
+                        para_company.style = doc.styles["Normal"]
+                    except Exception:
+                        pass
+                    para_company.paragraph_format.left_indent = Pt(0)
+                    para_company.paragraph_format.first_line_indent = Pt(0)
+                    r_company = para_company.add_run(company)
+                    r_company.italic = True
+                    r_company.font.size = Pt(11)
 
                 bullets = (exp.get("bullets") or [])[:3]
                 for b in bullets:
@@ -5234,8 +5275,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
 
                 location = (exp.get("location") or "").strip()
                 raw_experiences = payload.get("experiences", "")
-                if location and location.lower() not in raw_experiences.lower():
-                    location = ""
+                if location:
+                    city_part = location.split(",")[0].strip().lower()
+                    raw_exp_low = raw_experiences.lower()
+                    if city_part and city_part not in raw_exp_low:
+                        location = ""
+
                 if location:
                     rp.add_run("\n")
                     r_loc = rp.add_run(location)
