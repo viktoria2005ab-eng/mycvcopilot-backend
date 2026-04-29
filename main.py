@@ -75,7 +75,7 @@ def normalize_email(email: str) -> str:
     """
     if not email:
         return email
-    email = normalize_email(email)
+    email = email.strip().lower()
     if "@" in email:
         local, domain = email.split("@", 1)
         # Supprimer le sous-adressage (+ alias) pour Gmail, Outlook, etc.
