@@ -600,6 +600,30 @@ CV :
 # --- MVP "DB" en mémoire (à remplacer par Postgres plus tard)
 # quota[email] = "YYYY-MM" (mois où le gratuit a été consommé)
 quota: Dict[str, str] = {}
+
+# ── Rate limiting par IP ──────────────────────────────────────────────────────
+# Structure : { ip: [(timestamp, endpoint), ...] }
+_ip_hits: Dict[str, list] = {}
+_ip_lock = __import__("threading").Lock()
+
+def _check_ip_rate_limit(ip: str, endpoint: str, max_hits: int, window_seconds: int) -> bool:
+    """
+    Retourne True si la requête est autorisée, False si le rate limit est atteint.
+    Fenêtre glissante simple en mémoire.
+    """
+    now = __import__("time").time()
+    with _ip_lock:
+        hits = _ip_hits.get(ip, [])
+        # Nettoyer les hits hors fenêtre
+        hits = [(t, ep) for t, ep in hits if now - t < window_seconds]
+        # Compter uniquement les hits pour cet endpoint
+        count = sum(1 for t, ep in hits if ep == endpoint)
+        if count >= max_hits:
+            _ip_hits[ip] = hits
+            return False
+        hits.append((now, endpoint))
+        _ip_hits[ip] = hits
+        return True
 # jobs[job_id] = {"docx_path":..., "pdf_path":...}
 jobs: Dict[str, Dict[str, str]] = {}
 
@@ -5710,9 +5734,11 @@ def convert_docx_to_pdf(docx_path: str, pdf_path: str) -> None:
         os.rename(generated_pdf, pdf_path)
 
 def make_download_urls(job_id: str) -> Dict[str, str]:
+    token = (jobs.get(job_id) or {}).get("download_token", "")
+    token_param = f"?token={token}" if token else ""
     return {
-        "pdf": f"{PUBLIC_BASE_DOWNLOAD}/download/{job_id}/cv.pdf",
-        "docx": f"{PUBLIC_BASE_DOWNLOAD}/download/{job_id}/cv.docx",
+        "pdf":  f"{PUBLIC_BASE_DOWNLOAD}/download/{job_id}/cv.pdf{token_param}",
+        "docx": f"{PUBLIC_BASE_DOWNLOAD}/download/{job_id}/cv.docx{token_param}",
     }
 
 @app.get("/quota")
@@ -5734,9 +5760,10 @@ def quota_check(email: str):
 
 @app.post("/start")
 async def start(payload: Dict[str, Any], request: Request):
-    # Rate limiting par IP
-    client_ip = request.headers.get("X-Forwarded-For", request.client.host).split(",")[0].strip()
-    _check_ip_rate_limit(client_ip)
+    # ✅ Rate limiting par IP : max 10 générations par heure
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown").split(",")[0].strip()
+    if not _check_ip_rate_limit(client_ip, "start", max_hits=10, window_seconds=3600):
+        raise HTTPException(status_code=429, detail="Trop de générations depuis cette adresse IP. Réessaie dans une heure.")
 
     # Emails de test — bypass vérification email ET quota
     DEV_WHITELIST = {
@@ -5913,11 +5940,16 @@ async def payment_status(session_id: str):
     }
 
 @app.get("/download/{job_id}/{filename}")
-def download(job_id: str, filename: str):
+def download(job_id: str, filename: str, token: str = ""):
     from fastapi.responses import FileResponse
 
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Inconnu.")
+
+    # ✅ Vérification du token de téléchargement
+    stored_token = jobs[job_id].get("download_token", "")
+    if stored_token and token != stored_token:
+        raise HTTPException(status_code=403, detail="Accès non autorisé.")
 
     payload = jobs[job_id].get("payload") or {}
     download_base = build_cv_filename(payload)
@@ -6046,7 +6078,8 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         # 3) OK
         break
 
-    jobs[job_id] = {"docx_path": docx_path, "pdf_path": pdf_path, "payload": payload}
+    download_token = str(uuid.uuid4())
+    jobs[job_id] = {"docx_path": docx_path, "pdf_path": pdf_path, "payload": payload, "download_token": download_token}
     # Sécurité finale : si encore 2 pages, on force un shrink compact
     try:
         if pdf_page_count(pdf_path) > 1:
@@ -6167,7 +6200,7 @@ def send_verification_email(to_email: str, code: str):
 
 
 @app.post("/send-verification-code")
-async def send_verification_code(body: EmailRequest):
+async def send_verification_code(body: EmailRequest, request: Request):
     email = normalize_email(body.email or "")
 
     # Validation basique
@@ -6175,6 +6208,11 @@ async def send_verification_code(body: EmailRequest):
         raise HTTPException(status_code=400, detail="Email invalide.")
     if len(email) > 200:
         raise HTTPException(status_code=400, detail="Email invalide.")
+
+    # ✅ Rate limiting par IP : max 5 codes par IP par 10 minutes
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown").split(",")[0].strip()
+    if not _check_ip_rate_limit(client_ip, "send-code", max_hits=5, window_seconds=600):
+        raise HTTPException(status_code=429, detail="Trop de tentatives. Réessaie dans 10 minutes.")
 
     # Anti-abus
     _check_send_rate_limit(email)
