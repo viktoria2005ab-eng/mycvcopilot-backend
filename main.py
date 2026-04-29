@@ -83,7 +83,13 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
         r"|tout en optimisant|afin d'assurer|dans l'objectif de"
         r"|augmentant sans précédent|enrichissant|développant|favorisant"
         r"|mobilisant|démontrant|approfondissant|mettant en avant"
-        r"|incluant la formation|incluant le coaching|veillant à)[^.]*",
+        r"|incluant la formation|incluant le coaching|veillant à"
+        r"|en soutenant le suivi|en soutenant la communication"
+        r"|avec une attention particulière aux détails"
+        r"|augmentant le réseau commercial|augmentant les opportunités"
+        r"|en contribuant|en participant|en apportant"
+        r"|dans le cadre de projets diversifiés|diversifiés"
+        r"|dans le cadre de projets)[^.]*",
         r",\s*(permettant|contribuant\s+\w*\s*à|participant à l'amélioration)[^.]*",
         r",?\s+afin de (renforcer|optimiser|assurer|garantir|consolider|maximiser)[^.]*",
         r"\s+en veillant à [^.]*",
@@ -257,6 +263,12 @@ def clean_punctuation_text(text: str) -> str:
     text = re.sub(r",\s*$", "", text)   # ✅ enlève une virgule finale
     text = re.sub(r";\s*$", "", text)   # ✅ enlève un point-virgule final
 
+    # ✅ Majuscule sur le 1er mot après " : " (ex: "Spécialisation : finance" → "Finance")
+    def _cap_after_colon(m):
+        word = m.group(1)
+        return " : " + word[0].upper() + word[1:]
+    text = re.sub(r" : ([a-záàâäéèêëíìîïóòôöúùûüçœæ])", _cap_after_colon, text)
+
     return text.strip()
 
 def clean_activities_output(activities):
@@ -320,10 +332,16 @@ def has_all_sections(cv_text: str) -> bool:
     t = (cv_text or "")
     return all(sec in t for sec in REQUIRED_SECTIONS)
 
-def safe_apply_llm_edit(old_text: str, new_text: str, payload: dict = None) -> str:
+def safe_apply_llm_edit(old_text: str, new_text: str, payload: dict = None, allow_drop_exp: bool = False) -> str:
     new_clean = clean_cv_output(new_text)
     if not has_all_sections(new_clean):
         return old_text
+    # ✅ Pendant l'EXPAND, le LLM ne doit jamais supprimer d'expériences
+    if not allow_drop_exp:
+        old_role_count = old_text.count("\nROLE:")
+        new_role_count = new_clean.count("\nROLE:")
+        if new_role_count < old_role_count:
+            return old_text  # le LLM a supprimé des expériences → on rejette et garde l'original
     new_clean = apply_strip_padding_to_cv(new_clean)
     return new_clean
 
@@ -1898,7 +1916,8 @@ def translate_months_fr(text: str) -> str:
         r"(?i)\bOctobre\b": "Oct.",
         r"(?i)\bNovembre\b": "Nov.",
         r"(?i)\bDécembre\b": "Déc.",
-        r"(?i)\bDecembre\b": "Déc.",
+        r"(?i)\bPresent\b": "Aujourd'hui",
+        r"(?i)\bAujourd'hui\b": "Aujourd'hui",  # normalise les variantes
 
         # FR déjà abrégé sans point → ajouter le point
         r"(?i)\bJanv\b(?!\.)": "Janv.",
@@ -3658,7 +3677,8 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
         if low.startswith("langues :"):
             content = chunk.split(":", 1)[1].strip() if ":" in chunk else ""
             if content:
-                parts = [x.strip() for x in content.split(",") if x.strip()]
+                # ✅ Parser intelligent : gère "francais natif anglais courant IELTS 8" sans virgules
+                parts = parse_languages_smart(content)
                 for p in parts:
                     if p not in language_tests:
                         language_tests.append(p)
@@ -3698,7 +3718,7 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
 
     # ✅ Payload languages uniquement en fallback — si le LLM a déjà fourni les langues, ne pas doubler
     if payload_languages and not language_tests:
-        base_langs = [_clean_lang_item(x.strip()) for x in payload_languages.split(",") if x.strip()]
+        base_langs = parse_languages_smart(payload_languages)
         for lang in base_langs:
             language_tests.append(lang)
 
@@ -3875,6 +3895,72 @@ def _education_end_year(block: list[str]) -> int:
     except ValueError:
         return 0
 
+def format_bac_detail_lines(lines: list[str]) -> list[str]:
+    """
+    Formate les lignes de détails brutes d'un bloc Baccalauréat.
+    "physique chimie mathematiques moyenne 15.5" → ["Spécialités : Physique-Chimie, Mathématiques", "Mention : Bien – Moyenne : 15,5/20"]
+    """
+    SUBJECTS = {
+        "physique": "Physique", "chimie": "Chimie",
+        "mathematiques": "Mathématiques", "mathématiques": "Mathématiques", "maths": "Mathématiques",
+        "svt": "SVT", "sciences de la vie": "SVT",
+        "histoire": "Histoire", "géographie": "Géographie", "geographie": "Géographie",
+        "economie": "Économie", "économie": "Économie", "ses": "SES",
+        "philosophie": "Philosophie", "philo": "Philosophie",
+        "informatique": "NSI", "nsi": "NSI",
+        "langues": "Langues", "llcer": "LLCER", "lele": "LLCER",
+        "arts": "Arts", "humanités": "Humanités",
+    }
+    MENTION_MAP = {
+        "tres bien": "Très Bien", "très bien": "Très Bien",
+        "bien": "Bien", "assez bien": "Assez Bien",
+        "passable": "Passable",
+        "félicitations": "Félicitations du jury", "felicitations": "Félicitations du jury",
+    }
+
+    joined = " ".join(lines).lower()
+    
+    subjects_found = []
+    for key, label in SUBJECTS.items():
+        if re.search(r"\b" + re.escape(key) + r"\b", joined):
+            if label not in subjects_found:
+                subjects_found.append(label)
+
+    # Chercher une mention
+    mention = ""
+    for key, label in MENTION_MAP.items():
+        if re.search(r"\b" + re.escape(key) + r"\b", joined):
+            mention = label
+            break
+
+    # Chercher une moyenne (ex: 15.5, 16, 17,5)
+    moyenne_match = re.search(r"\bmoyenne\s*[:\s]?\s*(\d+[\.,]?\d*)", joined)
+    note_match = re.search(r"\b(1[4-9]|20)[\.,](\d)\b", joined) if not moyenne_match else None
+    moyenne = ""
+    if moyenne_match:
+        raw_val = moyenne_match.group(1).replace(".", ",")
+        moyenne = f"Moyenne : {raw_val}/20"
+    elif note_match:
+        raw_val = note_match.group(0).replace(".", ",")
+        moyenne = f"Moyenne : {raw_val}/20"
+
+    result = []
+    if subjects_found:
+        result.append("Spécialités : " + ", ".join(subjects_found))
+    if mention and moyenne:
+        result.append(f"Mention {mention} – {moyenne}")
+    elif mention:
+        result.append(f"Mention {mention}")
+    elif moyenne:
+        result.append(moyenne)
+
+    # Si rien de détecté, garder les lignes originales avec capitalize
+    if not result:
+        result = [l.capitalize() for l in lines if l.strip()]
+
+    return result
+
+
 def _is_bac_block(block: list[str]) -> bool:
     """Retourne True si le bloc correspond à un baccalauréat classique."""
     if not block:
@@ -3958,6 +4044,120 @@ def _keep_bac_block(block: list[str]) -> bool:
 
     return False
 
+def parse_languages_smart(text: str) -> list[str]:
+    """
+    Parse une chaîne de langues même sans virgules ni formatage.
+    "francais natif anglais courant IELTS 8 allemand intermediaire B1"
+    → ["Français natif", "Anglais courant (IELTS 8)", "Allemand intermédiaire B1"]
+    """
+    if not text:
+        return []
+
+    # Si déjà bien formaté avec virgules, on utilise le split simple
+    if "," in text:
+        return [x.strip() for x in text.split(",") if x.strip()]
+
+    # Normalisation des noms de langues pour la détection
+    lang_map = {
+        "francais": "Français",
+        "français": "Français",
+        "anglais": "Anglais",
+        "english": "Anglais",
+        "allemand": "Allemand",
+        "german": "Allemand",
+        "espagnol": "Espagnol",
+        "spanish": "Espagnol",
+        "italien": "Italien",
+        "italian": "Italien",
+        "portugais": "Portugais",
+        "portuguese": "Portugais",
+        "chinois": "Chinois",
+        "chinese": "Chinois",
+        "japonais": "Japonais",
+        "japanese": "Japonais",
+        "arabe": "Arabe",
+        "arabic": "Arabe",
+        "russe": "Russe",
+        "russian": "Russe",
+        "néerlandais": "Néerlandais",
+        "neerlandais": "Néerlandais",
+        "dutch": "Néerlandais",
+        "coréen": "Coréen",
+        "korean": "Coréen",
+        "turc": "Turc",
+        "turkish": "Turc",
+    }
+
+    text_low = text.lower()
+    
+    # Trouver toutes les positions des noms de langue dans le texte
+    positions = []
+    for key, canonical in lang_map.items():
+        for m in re.finditer(r"\b" + re.escape(key) + r"\b", text_low):
+            positions.append((m.start(), m.end(), canonical, key))
+
+    if not positions:
+        # Aucune langue détectée : retourner tel quel
+        return [text.strip()] if text.strip() else []
+
+    # Trier par position
+    positions.sort(key=lambda x: x[0])
+
+    # Supprimer les doublons (même langue détectée plusieurs fois)
+    seen_canonical = set()
+    unique_positions = []
+    for pos in positions:
+        if pos[2] not in seen_canonical:
+            seen_canonical.add(pos[2])
+            unique_positions.append(pos)
+    positions = unique_positions
+
+    # Extraire les segments entre chaque langue
+    segments = []
+    for i, (start, end, canonical, key) in enumerate(positions):
+        # Contenu après le nom de cette langue jusqu'au début de la suivante
+        next_start = positions[i + 1][0] if i + 1 < len(positions) else len(text)
+        suffix = text[end:next_start].strip()
+        
+        # Nettoyer le suffix : enlever préfixes parasites de début
+        suffix = re.sub(r"^[:\-–,\s]+", "", suffix)
+        
+        # Normaliser les niveaux
+        suffix = re.sub(r"(?i)\bnatif\b", "natif", suffix)
+        suffix = re.sub(r"(?i)\bnative\b", "natif", suffix)
+        suffix = re.sub(r"(?i)\bcourant\b", "courant", suffix)
+        suffix = re.sub(r"(?i)\bfluent\b", "courant", suffix)
+        suffix = re.sub(r"(?i)\bintermédiaire\b", "intermédiaire", suffix)
+        suffix = re.sub(r"(?i)\bintermediaire\b", "intermédiaire", suffix)
+        suffix = re.sub(r"(?i)\bintermediate\b", "intermédiaire", suffix)
+        suffix = re.sub(r"(?i)\bdébutant\b", "débutant", suffix)
+        suffix = re.sub(r"(?i)\bnotions\b", "notions", suffix)
+
+        # Chercher un score de test (TOEIC 975, IELTS 8, etc.)
+        test_match = re.search(r"(TOEIC|TOEFL|IELTS|DELF|DALF|Cambridge|HSK)\s*[\:\s]?\s*(\d+[\.,]?\d*)", suffix, re.IGNORECASE)
+        if test_match:
+            score_text = test_match.group(0).strip()
+            # Reformater proprement : "anglais courant (IELTS 8)"
+            level_text = re.sub(r"(TOEIC|TOEFL|IELTS|DELF|DALF|Cambridge|HSK)\s*[\:\s]?\s*(\d+[\.,]?\d*)", "", suffix, flags=re.IGNORECASE).strip()
+            level_text = re.sub(r"\b(b1|b2|c1|c2|a1|a2)\b", "", level_text, flags=re.IGNORECASE).strip()
+            level_text = level_text.strip(" ,;-–")
+            score_part = f"({score_text.strip()})"
+            if level_text:
+                full = f"{canonical} {level_text} {score_part}".strip()
+            else:
+                full = f"{canonical} {score_part}".strip()
+        else:
+            full = f"{canonical} {suffix}".strip() if suffix else canonical
+
+        # Normaliser les niveaux CEFR isolés (seulement si pas déjà dans parenthèses)
+        if not test_match:
+            full = re.sub(r"\s+(b1|b2|c1|c2|a1|a2)\b", lambda m: f" ({m.group(1).upper()})", full, flags=re.IGNORECASE)
+
+        segments.append(full)
+
+    return segments
+
+
 def normalize_contract_type(t: str) -> str:
     if not t:
         return ""
@@ -3976,11 +4176,17 @@ def normalize_contract_type(t: str) -> str:
         "part time": "Temps partiel",
         "part-time job": "Job étudiant",
         "student job": "Job étudiant",
+        "emploi étudiant": "Job étudiant",
+        "emploi etudiant": "Job étudiant",
         "summer job": "Job d'été",
         "temporary": "CDD",
         "contract": "CDD",
-        "volunteering": "Volontariat",
-        "volunteer": "Volontariat",
+        "volunteering": "Bénévolat",
+        "volunteer": "Bénévolat",
+        "bénévole": "Bénévolat",
+        "benevole": "Bénévolat",
+        "associatif": "Associatif / Bénévolat",
+        "association": "Associatif / Bénévolat",
     }
 
     # Match exact
@@ -4052,6 +4258,7 @@ def is_student_job_exp(exp: dict) -> bool:
     # Types de contrat explicitement étudiants
     student_types = [
         "job étudiant", "job etudiant", "job d'été", "job d'ete",
+        "emploi étudiant", "emploi etudiant",
         "temps partiel", "part-time", "part time", "summer job",
         "saisonnier", "saisonnière", "saisonniere",
     ]
@@ -4583,7 +4790,23 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     degree_clean = degree.strip()
                     school_clean = school.strip()
 
-                    if degree_clean and school_clean and school_clean.lower() in degree_clean.lower():
+                    # ✅ Pour les échanges académiques, l'école EST le titre principal
+                    EXCHANGE_KEYWORDS = [
+                        "programme d'échange", "program d'échange", "échange académique",
+                        "exchange program", "exchange semester", "semestre d'échange",
+                        "semester abroad", "study abroad", "visiting student",
+                    ]
+                    is_exchange = any(kw in degree_clean.lower() for kw in EXCHANGE_KEYWORDS)
+
+                    if is_exchange and school_clean:
+                        # Afficher l'école en gras (titre), "Semestre d'échange" devient sous-note dans les DETAILS
+                        title_line = school_clean
+                        school_line = ""
+                        # Injecter "Semestre d'échange" comme premier DETAILS si pas déjà là
+                        first_detail = (program.get("details") or [""])[0].lower()
+                        if "échange" not in first_detail and "exchange" not in first_detail:
+                            program.setdefault("details", []).insert(0, "Semestre d'échange")
+                    elif degree_clean and school_clean and school_clean.lower() in degree_clean.lower():
                         title_line = degree_clean
                         school_line = ""
                     else:
@@ -4639,7 +4862,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         para.paragraph_format.space_before = Pt(0)
                         # Sur le dernier détail du dernier bloc éducation, ajouter espace avant EXPÉRIENCES
                         is_last_detail = (d_idx == len(detail_list) - 1)
-                        para.paragraph_format.space_after = Pt(4) if (is_last_program and is_last_detail) else Pt(0)
+                        para.paragraph_format.space_after = Pt(0)
                         try:
                             para.style = doc.styles["Normal"]
                         except Exception:
@@ -4728,12 +4951,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         spacer.paragraph_format.space_after = ITEM_SPACING
                         anchor = spacer
                     else:
-                        # ✅ espace après la DERNIÈRE formation avant le titre EXPÉRIENCES
+                        # ✅ spacer neutre après la DERNIÈRE formation
+                        # Le titre "EXPÉRIENCES PROFESSIONNELLES" a déjà space_before=Pt(1) via normalize
                         spacer_elt = OxmlElement("w:p")
                         table._tbl.addnext(spacer_elt)
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
-                        spacer.paragraph_format.space_after = Pt(4)
+                        spacer.paragraph_format.space_after = Pt(0)
                         anchor = spacer
                 
                 _remove_paragraph(p)
@@ -4941,6 +5165,28 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     if not text:
                         continue
 
+                    # ✅ Pour les blocs BAC, formater les détails bruts (spécialités, moyenne)
+                    is_this_bac = _is_bac_block(block)
+                    if is_this_bac:
+                        # Collecter toutes les lignes de détail et les formater d'un coup
+                        raw_details = [
+                            (b or "").strip() for j, b in enumerate(block[1:], start=1)
+                            if j != location_index and (b or "").strip()
+                        ]
+                        formatted = format_bac_detail_lines(raw_details)
+                        for fmt_line in formatted:
+                            para = left.add_paragraph()
+                            try:
+                                para.style = doc.styles["Normal"]
+                            except Exception:
+                                pass
+                            para.paragraph_format.left_indent = Pt(0)
+                            para.paragraph_format.first_line_indent = Pt(0)
+                            para.paragraph_format.space_after = Pt(0)
+                            run = para.add_run(fmt_line)
+                            run.font.size = Pt(11)
+                        break  # On a traité tous les détails d'un coup, on sort de la boucle
+
                     para = left.add_paragraph()
                     try:
                         para.style = doc.styles["Normal"]
@@ -5010,11 +5256,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     anchor.paragraph_format.space_after = ITEM_SPACING
                     anchor.paragraph_format.space_before = Pt(0)
                 else:
-                    # ✅ espace après la dernière formation avant le titre EXPÉRIENCES
+                    # ✅ spacer neutre après la dernière formation
                     new_p_elt = OxmlElement("w:p")
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
-                    anchor.paragraph_format.space_after = Pt(4)
+                    anchor.paragraph_format.space_after = Pt(0)
                     anchor.paragraph_format.space_before = Pt(0)
 
             # ⚠️ NE PAS supprimer anchor
@@ -5662,7 +5908,7 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
             if last_action == "shrink" and attempt >= 2:
                 compact_mode = True
             else:
-                cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text), payload=payload)
+                cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text), payload=payload, allow_drop_exp=True)
                 last_action = "shrink"
             if attempt >= 2:
                 compact_mode = True
@@ -5682,19 +5928,19 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
                 break
         
             if is_legal_sector(sector):
-                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_droit(cv_text), payload=payload)
+                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_droit(cv_text), payload=payload, allow_drop_exp=False)
                 last_action = "expand"
                 expand_count += 1
                 continue
         
             if is_audit_sector(sector):
-                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_audit(cv_text), payload=payload)
+                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_audit(cv_text), payload=payload, allow_drop_exp=False)
                 last_action = "expand"
                 expand_count += 1
                 continue
         
             if is_management_sector(sector):
-                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_management(cv_text), payload=payload)
+                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv_management(cv_text), payload=payload, allow_drop_exp=False)
                 last_action = "expand"
                 expand_count += 1
                 continue
@@ -5703,12 +5949,12 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
                 finance_max_expand = 5
                 if expand_count >= finance_max_expand:
                     break
-                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text), payload=payload)
+                cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text), payload=payload, allow_drop_exp=False)
                 last_action = "expand"
                 expand_count += 1
                 continue
         
-            cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text), payload=payload)
+            cv_text = safe_apply_llm_edit(cv_text, llm_expand_cv(cv_text), payload=payload, allow_drop_exp=False)
             last_action = "expand"
             expand_count += 1
             continue
@@ -5720,7 +5966,7 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
     # Sécurité finale : si encore 2 pages, on force un shrink compact
     try:
         if pdf_page_count(pdf_path) > 1:
-            cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text), payload=payload)
+            cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text), payload=payload, allow_drop_exp=True)
             await asyncio.to_thread(write_docx_from_template, tpl, cv_text, docx_path, payload=payload, compact_mode=True)
             await asyncio.to_thread(convert_docx_to_pdf, docx_path, pdf_path)
     except Exception:
