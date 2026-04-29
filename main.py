@@ -38,6 +38,7 @@ from pydantic import BaseModel
 
 class EmailRequest(BaseModel):
     email: str
+    turnstile_token: str = ""  # Cloudflare Turnstile CAPTCHA token
 
 class VerifyCodeRequest(BaseModel):
     email: str
@@ -61,6 +62,7 @@ STRIPE_SECRET = os.getenv("STRIPE_SECRET") or os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 PUBLIC_BASE_DOWNLOAD = os.getenv("PUBLIC_BASE_DOWNLOAD", "")  # ex: https://mycvcopilote-api.onrender.com/download
+TURNSTILE_SECRET = os.getenv("TURNSTILE_SECRET_KEY", "")  # Cloudflare Turnstile
 
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
@@ -82,6 +84,29 @@ def normalize_email(email: str) -> str:
         local = local.split("+")[0]
         email = f"{local}@{domain}"
     return email
+
+
+async def verify_turnstile(token: str, ip: str = "") -> bool:
+    """
+    Vérifie un token Cloudflare Turnstile côté serveur.
+    Retourne True si valide, False sinon.
+    Si TURNSTILE_SECRET_KEY n'est pas configuré → bypass (mode dev).
+    """
+    if not TURNSTILE_SECRET:
+        return True  # Bypass si pas configuré
+    if not token:
+        return False
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            resp = await c.post(
+                "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+                data={"secret": TURNSTILE_SECRET, "response": token, "remoteip": ip},
+            )
+            data = resp.json()
+            return bool(data.get("success"))
+    except Exception:
+        return True  # En cas d'erreur réseau, on laisse passer
 
 
 def strip_padding(text: str, is_activity: bool = False) -> str:
@@ -6213,6 +6238,11 @@ async def send_verification_code(body: EmailRequest, request: Request):
     client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown").split(",")[0].strip()
     if not _check_ip_rate_limit(client_ip, "send-code", max_hits=5, window_seconds=600):
         raise HTTPException(status_code=429, detail="Trop de tentatives. Réessaie dans 10 minutes.")
+
+    # ✅ Vérification Cloudflare Turnstile
+    turnstile_token = body.turnstile_token if hasattr(body, "turnstile_token") else (request.headers.get("X-Turnstile-Token", ""))
+    if not await verify_turnstile(turnstile_token, client_ip):
+        raise HTTPException(status_code=403, detail="Vérification anti-bot échouée. Recharge la page et réessaie.")
 
     # Anti-abus
     _check_send_rate_limit(email)
