@@ -3971,6 +3971,92 @@ def normalize_contract_type(t: str) -> str:
 
     return original
 
+def extract_start_year_month(dates_str: str) -> int:
+    """
+    Extrait l'année et le mois de début depuis une chaîne de dates.
+    Retourne un entier YYYYMM pour permettre le tri chronologique décroissant.
+    Ex: "Sept 2025 – Aujourd'hui" → 202509
+        "Janv 2024 – Août 2024"  → 202401
+    """
+    if not dates_str:
+        return 0
+
+    month_map = {
+        "janv": 1, "jan": 1, "janvier": 1, "january": 1,
+        "fév": 2, "fev": 2, "février": 2, "fevrier": 2, "february": 2, "feb": 2,
+        "mars": 3, "mar": 3, "march": 3,
+        "avr": 4, "apr": 4, "avril": 4, "april": 4,
+        "mai": 5, "may": 5,
+        "juin": 6, "jun": 6, "june": 6,
+        "juil": 7, "jul": 7, "juillet": 7, "july": 7,
+        "août": 8, "aout": 8, "aug": 8, "august": 8,
+        "sept": 9, "sep": 9, "septembre": 9, "september": 9,
+        "oct": 10, "octobre": 10, "october": 10,
+        "nov": 11, "novembre": 11, "november": 11,
+        "déc": 12, "dec": 12, "décembre": 12, "decembre": 12, "december": 12,
+    }
+
+    # Prendre seulement la partie avant le premier tiret (date de début)
+    start_part = re.split(r"\s*[–\-]\s*", dates_str)[0].strip()
+
+    # Chercher mois + année (ex: "Sept 2025")
+    m = re.search(r"(\b\w+\b)\s+(\d{4})", start_part, re.IGNORECASE)
+    if m:
+        month_str = m.group(1).lower()
+        year = int(m.group(2))
+        month = month_map.get(month_str, 0)
+        return year * 100 + month
+
+    # Fallback: juste une année (ex: "2024")
+    m = re.search(r"(\d{4})", start_part)
+    if m:
+        return int(m.group(1)) * 100
+
+    return 0
+
+
+def is_student_job_exp(exp: dict) -> bool:
+    """
+    Retourne True si l'expérience est un job étudiant / alimentaire,
+    pas directement lié à une trajectoire professionnelle.
+    """
+    type_ = (exp.get("type") or "").lower()
+    role = (exp.get("role") or "").lower()
+    company = (exp.get("company") or "").lower()
+    all_text = f"{type_} {role} {company}"
+
+    # Types de contrat explicitement étudiants
+    student_types = [
+        "job étudiant", "job etudiant", "job d'été", "job d'ete",
+        "temps partiel", "part-time", "part time", "summer job",
+        "saisonnier", "saisonnière", "saisonniere",
+    ]
+    if any(t in type_ for t in student_types):
+        return True
+
+    # Rôles typiquement alimentaires / étudiants
+    student_roles = [
+        "caissier", "caissière", "cassier", "cassière",
+        "serveur", "serveuse",
+        "barista", "barman", "barmaid",
+        "vendeur", "vendeuse",
+        "livreur", "livreuse",
+        "hôte de caisse", "hôtesse de caisse",
+        "hôte d'accueil", "hôtesse d'accueil",
+        "animateur", "animatrice",
+        "surveillant de baignade",
+        "manutentionnaire",
+        "baby-sitter", "babysitter",
+        "employé polyvalent", "employe polyvalent",
+        "employé de rayon", "employe de rayon",
+        "agent d'accueil",
+    ]
+    if any(r in role for r in student_roles):
+        return True
+
+    return False
+
+
 def _split_education_block_on_degree_titles(block: list[str]) -> list[list[str]]:
     """
     Si l'IA enchaîne plusieurs diplômes dans un même bloc (sans ligne vide),
@@ -4926,8 +5012,22 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             else:
                 exps = exps_from_cv if exps_from_cv else parse_raw_experiences_input(payload.get("experiences", ""))
                 exps = trim_finance_experiences(exps, is_cv_long=cv_is_long)
+
+            # ✅ Séparer les expériences pro des jobs étudiants
+            pro_exps = [e for e in exps if not is_student_job_exp(e)]
+            student_exps = [e for e in exps if is_student_job_exp(e)]
+
+            # ✅ Trier chaque groupe par date de début décroissante (plus récent en premier)
+            pro_exps = sorted(pro_exps, key=lambda e: extract_start_year_month(e.get("dates", "")), reverse=True)
+            student_exps = sorted(student_exps, key=lambda e: extract_start_year_month(e.get("dates", "")), reverse=True)
+
+            # Combiner : pro d'abord, jobs étudiants ensuite (avec flag pour le séparateur)
+            has_student_section = bool(student_exps)
+            exps = pro_exps + student_exps
+
             anchor = p
             first_table = True
+            student_separator_inserted = False
 
             # Si jamais le modèle n'a pas respecté le format structuré,
             # on retombe sur un simple rendu en liste pour ne pas tout casser.
@@ -4949,6 +5049,28 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             for idx, exp in enumerate(exps):
                 raw_role = (exp.get("role") or "").strip()
                 role = normalize_role_text(raw_role)
+
+                # ✅ Insérer le séparateur "Autres expériences" avant le 1er job étudiant
+                if (
+                    has_student_section
+                    and pro_exps  # on affiche le séparateur seulement s'il y a des exps pro avant
+                    and not student_separator_inserted
+                    and is_student_job_exp(exp)
+                ):
+                    student_separator_inserted = True
+                    # Petit paragraphe label entre les deux groupes
+                    sep_elt = OxmlElement("w:p")
+                    if hasattr(anchor, "_tbl"):
+                        anchor._tbl.addnext(sep_elt)
+                    else:
+                        anchor._p.addnext(sep_elt)
+                    sep_para = Paragraph(sep_elt, p._parent)
+                    sep_para.paragraph_format.space_before = Pt(4)
+                    sep_para.paragraph_format.space_after = Pt(1)
+                    r_sep = sep_para.add_run("Autres expériences")
+                    r_sep.italic = True
+                    r_sep.font.size = Pt(9)
+                    anchor = sep_para
 
                 if is_legal and raw_role:
                     raw_role_low = raw_role.lower()
@@ -5080,12 +5202,18 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                 
                     bp = left.add_paragraph()
                     try:
-                        bp.style = "List Bullet"
-                        bp.add_run(b)
+                        bp.style = doc.styles["Normal"]
                     except Exception:
-                        bp.text = f"• {b}"
-                
+                        pass
+                    # Tiret long (–) au lieu de puce ronde
+                    r_dash = bp.add_run("–  ")
+                    r_dash.font.size = Pt(11)
+                    r_content = bp.add_run(b)
+                    r_content.font.size = Pt(11)
+
                     bp.paragraph_format.space_after = Pt(0)
+                    bp.paragraph_format.left_indent = Pt(8)
+                    bp.paragraph_format.first_line_indent = Pt(-8)
                     _keep_lines(bp, keep_lines=True, keep_next=False)
 
                 # ----- Colonne droite : dates, lieu, type -----
