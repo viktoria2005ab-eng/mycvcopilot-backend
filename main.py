@@ -116,7 +116,13 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
         r",\s+(développant|renforçant|favorisant|cultivant|enrichissant"
         r"|améliorant|acquérant|permettant de développer|favorisant le développement de"
         r"|approfondissant ainsi|démontrant une|mettant en avant|engagement continu sur"
-        r"|développement significatif de|élargissant|stimulant)[^.]*",
+        r"|développement significatif de|élargissant|stimulant"
+        r"|favoriser l'esprit d'équipe|favorisant l'esprit d'équipe"
+        r"|développement de compétences en|amélioration des compétences"
+        r"|enrichissement des connaissances|développement de la confiance"
+        r"|pour le bien-être personnel|pour maintenir le bien-être"
+        r"|pour le travail d'équipe|et la stratégie"
+        r"|exploration de différents domaines|approfondissement des connaissances)[^.]*",
     ]
 
     patterns = BULLET_PADDING + (ACTIVITY_PADDING if is_activity else [])
@@ -1701,53 +1707,78 @@ def rebuild_education_from_input(raw_education: str) -> list[str]:
 
         # Mode A : plusieurs lignes bien séparées
         if len(block) >= 2:
-            # Ligne 1 = titre/diplôme
-            first = block[0]
+            first = block[0].strip()
+            second = block[1].strip() if len(block) > 1 else ""
             dates, first_stripped = _extract_dates_and_strip(first)
 
-            # Chercher "Degree – School" sur la 1ère ligne
-            for sep in [" – ", " - "]:
-                if sep in first_stripped:
-                    parts = first_stripped.split(sep, 1)
-                    # Le "school" est-il dans la 2ème ligne aussi ? Ignore si c'est le cas
-                    if SCHOOL_KEYWORDS.search(parts[1]) or not SCHOOL_KEYWORDS.search(block[1] if len(block) > 1 else ""):
-                        degree = parts[0].strip()
-                        school = parts[1].strip()
-                    else:
-                        degree = first_stripped
-                    break
-            else:
-                degree = first_stripped
+            # ✅ Détecter si la 1ère ligne est l'ÉCOLE et la 2ème le DIPLÔME
+            # (format front natif : "EDHEC Business School\nBachelor in Business Administration...")
+            first_is_school = bool(SCHOOL_KEYWORDS.search(first_stripped)) and not bool(DEGREE_KEYWORDS.match(first_stripped))
+            second_is_degree = bool(DEGREE_KEYWORDS.match(second)) if second else False
 
-            # Lignes suivantes : détecter school, dates, location, details
-            for line in block[1:]:
-                line_stripped = line.strip()
-                if not line_stripped:
-                    continue
-
-                d, stripped = _extract_dates_and_strip(line_stripped)
-                if d and not dates:
-                    dates = d
-                    if stripped and not school and SCHOOL_KEYWORDS.search(stripped):
-                        school = stripped
-                    elif stripped:
-                        # C'est peut-être une location
-                        if _looks_like_location(stripped) and not location:
+            if first_is_school and second_is_degree:
+                # Cas "École\nDiplôme\nDates\nLieu\nDétails"
+                school = first_stripped
+                degree_candidate, _ = _extract_dates_and_strip(second)
+                degree = second if not degree_candidate else second
+                # Traiter les lignes à partir de la 3ème
+                for line in block[2:]:
+                    line_stripped = line.strip()
+                    if not line_stripped:
+                        continue
+                    d, stripped = _extract_dates_and_strip(line_stripped)
+                    if d and not dates:
+                        dates = d
+                        if stripped and _looks_like_location(stripped) and not location:
                             location = stripped
-                    continue
+                        continue
+                    if not location and _looks_like_location(line_stripped) and len(line_stripped.split()) <= 5:
+                        location = line_stripped
+                        continue
+                    detail_clean = line_stripped.lstrip("-•").strip()
+                    if detail_clean:
+                        details.append(detail_clean)
+            else:
+                # Cas standard "Diplôme – École\nDates\nLieu\nDétails" ou "Diplôme\nÉcole\nDates..."
+                # Chercher "Degree – School" sur la 1ère ligne
+                for sep in [" – ", " - "]:
+                    if sep in first_stripped:
+                        parts = first_stripped.split(sep, 1)
+                        if SCHOOL_KEYWORDS.search(parts[1]) or not SCHOOL_KEYWORDS.search(second):
+                            degree = parts[0].strip()
+                            school = parts[1].strip()
+                        else:
+                            degree = first_stripped
+                        break
+                else:
+                    degree = first_stripped
 
-                if not school and SCHOOL_KEYWORDS.search(line_stripped) and not DATE_PAT.search(line_stripped):
-                    school = line_stripped
-                    continue
+                # Lignes suivantes : détecter school, dates, location, details
+                for line in block[1:]:
+                    line_stripped = line.strip()
+                    if not line_stripped:
+                        continue
 
-                if not location and _looks_like_location(line_stripped) and len(line_stripped.split()) <= 5:
-                    location = line_stripped
-                    continue
+                    d, stripped = _extract_dates_and_strip(line_stripped)
+                    if d and not dates:
+                        dates = d
+                        if stripped and not school and SCHOOL_KEYWORDS.search(stripped):
+                            school = stripped
+                        elif stripped and _looks_like_location(stripped) and not location:
+                            location = stripped
+                        continue
 
-                # Sinon c'est un détail
-                detail_clean = line_stripped.lstrip("-•").strip()
-                if detail_clean:
-                    details.append(detail_clean)
+                    if not school and SCHOOL_KEYWORDS.search(line_stripped) and not DATE_PAT.search(line_stripped):
+                        school = line_stripped
+                        continue
+
+                    if not location and _looks_like_location(line_stripped) and len(line_stripped.split()) <= 5:
+                        location = line_stripped
+                        continue
+
+                    detail_clean = line_stripped.lstrip("-•").strip()
+                    if detail_clean:
+                        details.append(detail_clean)
 
         else:
             # Mode B : tout sur 1 ligne — parser token par token
@@ -3982,11 +4013,21 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
         item = re.sub(r",?\s+et\s+(une\s+)?compréhension.*$", "", item, flags=re.IGNORECASE)
         return item.strip()
 
-    # ✅ Payload languages uniquement en fallback — si le LLM a déjà fourni les langues, ne pas doubler
+    # ✅ Re-parser toutes les langues via parse_languages_smart pour gérer le texte brut du LLM
+    # Ex: "francais natif anglais courant TOEFL 105 italien B2" → liste propre
+    reparsed = []
+    for item in language_tests:
+        if "," in item or len(item.split()) <= 4:
+            reparsed.append(item)
+        else:
+            # Texte brut long → re-parser
+            parsed = parse_languages_smart(item)
+            reparsed.extend(parsed if parsed else [item])
+    language_tests = reparsed
+
+    # ✅ Payload languages uniquement en fallback — si le LLM n'a fourni aucune langue
     if payload_languages and not language_tests:
-        base_langs = [_clean_lang_item(x.strip()) for x in payload_languages.split(",") if x.strip()]
-        for lang in base_langs:
-            language_tests.append(lang)
+        language_tests = parse_languages_smart(payload_languages)
 
     language_tests = dedupe_language_items(language_tests)
 
@@ -4554,7 +4595,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         x.strip()
         for x in [
             payload.get("phone", ""),
-            payload.get("email", ""),
+            normalize_email(payload.get("email", "") or ""),
             payload.get("linkedin", ""),
         ]
         if x and x.strip()
@@ -5962,10 +6003,10 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         payload_chars = len(re.sub(r"\s+", "", payload_content))
         payload_lines = payload_content.count("\n") + 1
         _is_short = (payload_chars < 900) or (payload_lines < 20)
-        fill_threshold = 0.70 if _is_short else 0.88
+        fill_threshold = 0.72 if _is_short else 0.88
         if pages == 1 and fill < fill_threshold:
             sector = payload.get("sector", "")
-            max_expand = 3 if _is_short else 7
+            max_expand = 5 if _is_short else 8
         
             if expand_count >= max_expand:
                 break
