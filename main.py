@@ -356,7 +356,26 @@ def normalize_role_text(role: str) -> str:
         "stagaire": "Stagiaire",
     }
 
+    # ✅ Rôles trop abrégés que le LLM génère parfois
+    role_expansions = {
+        r"^m&a$": "Stagiaire M&A",
+        r"^finance$": "Stagiaire Finance",
+        r"^comptabilité$": "Stagiaire Comptabilité",
+        r"^marketing$": "Stagiaire Marketing",
+        r"^rh$": "Stagiaire RH",
+        r"^juridique$": "Stagiaire Juridique",
+        r"^audit$": "Stagiaire Auditeur",
+        r"^commercial$": "Chargé de mission commercial",
+        r"^communication$": "Chargé de communication",
+        r"^contrôle de gestion$": "Stagiaire Contrôle de Gestion",
+        r"^private equity$": "Stagiaire Private Equity",
+    }
+
     low = role.strip().lower()
+    for pattern, replacement in role_expansions.items():
+        if re.match(pattern, low):
+            return replacement
+
     if low in fixes:
         return fixes[low]
 
@@ -1610,7 +1629,7 @@ from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 ITEM_SPACING = Pt(0.2)   # espace entre 2 formations / 2 expériences
-SECTION_SPACING = Pt(1) # espace entre sections (Formation -> Exp, Exp -> Skills)
+SECTION_SPACING = Pt(0)  # le titre de section a déjà space_before via normalize
 
 from docx.oxml.ns import qn
 
@@ -4024,7 +4043,26 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
         if low.startswith("langues :"):
             content = chunk.split(":", 1)[1].strip() if ":" in chunk else ""
             if content:
-                parts = [x.strip() for x in content.split(",") if x.strip()]
+                # ✅ Splitter par virgule HORS des parenthèses pour gérer "Anglais (courant, TOEIC 910)"
+                parts = []
+                depth = 0
+                current_part = ""
+                for ch in content:
+                    if ch == "(":
+                        depth += 1
+                        current_part += ch
+                    elif ch == ")":
+                        depth -= 1
+                        current_part += ch
+                    elif ch == "," and depth == 0:
+                        if current_part.strip():
+                            parts.append(current_part.strip())
+                        current_part = ""
+                    else:
+                        current_part += ch
+                if current_part.strip():
+                    parts.append(current_part.strip())
+
                 for p in parts:
                     if p not in language_tests:
                         language_tests.append(p)
@@ -4334,6 +4372,79 @@ def _keep_bac_block(block: list[str]) -> bool:
 
     return False
 
+def parse_languages_smart(text: str) -> list:
+    """
+    Parse une chaîne de langues même sans virgules.
+    "francais natif anglais courant IELTS 8 allemand intermediaire B1"
+    → ["Français natif", "Anglais courant (IELTS 8)", "Allemand intermédiaire (B1)"]
+    """
+    if not text:
+        return []
+    if "," in text:
+        return [x.strip() for x in text.split(",") if x.strip()]
+
+    lang_map = {
+        "francais": "Français", "français": "Français",
+        "anglais": "Anglais", "english": "Anglais",
+        "allemand": "Allemand", "german": "Allemand",
+        "espagnol": "Espagnol", "spanish": "Espagnol",
+        "italien": "Italien", "italian": "Italien",
+        "portugais": "Portugais", "portuguese": "Portugais",
+        "chinois": "Chinois", "chinese": "Chinois",
+        "japonais": "Japonais", "japanese": "Japonais",
+        "arabe": "Arabe", "arabic": "Arabe",
+        "russe": "Russe", "russian": "Russe",
+        "neerlandais": "Néerlandais", "néerlandais": "Néerlandais", "dutch": "Néerlandais",
+        "coreen": "Coréen", "coréen": "Coréen", "korean": "Coréen",
+        "turc": "Turc", "turkish": "Turc",
+    }
+
+    text_low = text.lower()
+    positions = []
+    for key, canonical in lang_map.items():
+        for m in re.finditer(r"\b" + re.escape(key) + r"\b", text_low):
+            positions.append((m.start(), m.end(), canonical, key))
+
+    if not positions:
+        return [text.strip()] if text.strip() else []
+
+    positions.sort(key=lambda x: x[0])
+    seen_canonical = set()
+    unique_positions = []
+    for pos in positions:
+        if pos[2] not in seen_canonical:
+            seen_canonical.add(pos[2])
+            unique_positions.append(pos)
+    positions = unique_positions
+
+    segments = []
+    for i, (start, end, canonical, key) in enumerate(positions):
+        next_start = positions[i + 1][0] if i + 1 < len(positions) else len(text)
+        suffix = text[end:next_start].strip()
+        suffix = re.sub(r"^[:\-–,\s]+", "", suffix)
+
+        test_match = re.search(
+            r"(TOEIC|TOEFL|IELTS|DELF|DALF|Cambridge|HSK)\s*[\:\s]?\s*(\d+[\.,]?\d*)",
+            suffix, re.IGNORECASE
+        )
+        if test_match:
+            score_text = test_match.group(0).strip()
+            level_text = re.sub(
+                r"(TOEIC|TOEFL|IELTS|DELF|DALF|Cambridge|HSK)\s*[\:\s]?\s*(\d+[\.,]?\d*)",
+                "", suffix, flags=re.IGNORECASE
+            ).strip().strip(" ,;-–")
+            full = f"{canonical} {level_text} ({score_text})".strip() if level_text else f"{canonical} ({score_text})"
+        else:
+            full = f"{canonical} {suffix}".strip() if suffix else canonical
+            # Normaliser niveaux CEFR isolés
+            full = re.sub(r"\s+(b1|b2|c1|c2|a1|a2)\b",
+                          lambda m: f" ({m.group(1).upper()})", full, flags=re.IGNORECASE)
+
+        segments.append(full)
+
+    return segments
+
+
 def normalize_contract_type(t: str) -> str:
     if not t:
         return ""
@@ -4426,6 +4537,14 @@ def is_student_job_exp(exp: dict) -> bool:
     all_text = f"{type_} {role} {company}"
 
     # Types de contrat explicitement étudiants
+    # ✅ Jamais classer BDE / Junior Entreprise / associatif comme job étudiant
+    ASSOCIATIF_KEYWORDS = [
+        "bde", "bda", "bds", "junior entreprise", "junior-entreprise",
+        "association", "asso", "club", "comité", "bureau", "cde", "vie étudiante",
+    ]
+    if any(kw in role or kw in company or kw in type_ for kw in ASSOCIATIF_KEYWORDS):
+        return False
+
     student_types = [
         "job étudiant", "job etudiant", "job d'été", "job d'ete",
         "temps partiel", "part-time", "part time", "summer job",
@@ -4959,7 +5078,22 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     degree_clean = degree.strip()
                     school_clean = school.strip()
 
-                    if degree_clean and school_clean and school_clean.lower() in degree_clean.lower():
+                    # ✅ Pour les échanges : l'école est le titre, "Semestre d'échange" en détail
+                    EXCHANGE_LABELS = [
+                        "exchange semester", "exchange program", "échange académique",
+                        "semester abroad", "study abroad", "semestre d'échange",
+                        "visiting student", "programme d'échange", "program d'échange",
+                    ]
+                    is_exchange = any(kw in degree_clean.lower() for kw in EXCHANGE_LABELS)
+
+                    if is_exchange and school_clean:
+                        title_line = school_clean
+                        school_line = ""
+                        # Injecter "Semestre d'échange" comme DETAIL si pas déjà là
+                        existing_details = [d.strip() for d in details_lines if d.strip()]
+                        if not any("échange" in d.lower() or "exchange" in d.lower() for d in existing_details):
+                            details_lines = ["Semestre d'échange"] + existing_details
+                    elif degree_clean and school_clean and school_clean.lower() in degree_clean.lower():
                         title_line = degree_clean
                         school_line = ""
                     else:
