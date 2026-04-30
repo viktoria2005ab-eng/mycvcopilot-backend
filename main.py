@@ -5089,10 +5089,9 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     if is_exchange and school_clean:
                         title_line = school_clean
                         school_line = ""
-                        # Injecter "Semestre d'échange" comme DETAIL si pas déjà là
-                        existing_details = [d.strip() for d in details_lines if d.strip()]
-                        if not any("échange" in d.lower() or "exchange" in d.lower() for d in existing_details):
-                            details_lines = ["Semestre d'échange"] + existing_details
+                        # Injecter "Semestre d'échange" comme 1er détail si absent
+                        if not any("échange" in d.lower() or "exchange" in d.lower() for d in details):
+                            details = ["Semestre d'échange"] + [d for d in details if d.strip()]
                     elif degree_clean and school_clean and school_clean.lower() in degree_clean.lower():
                         title_line = degree_clean
                         school_line = ""
