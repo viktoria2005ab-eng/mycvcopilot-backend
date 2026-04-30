@@ -135,6 +135,10 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
         r";\s*\w[\w\s]*acquise?\.?$",
         r";\s*\w[\w\s]*renforcée?\.?$",
         r";\s*[^;.]{3,40}développée?\.?$",
+        r",\s+favorisant (des|le|la|les|un|une) [^.]*",
+        r",\s+permettant (des|le|la|les|un|une) [^.]*",
+        r",\s+renforçant (la|le|les) [^.]*",
+        r",\s+contrastant avec [^.]*",
     ]
 
     # Patterns supplémentaires pour les activités - SEULEMENT après virgule
@@ -2647,6 +2651,7 @@ def translate_months_fr(text: str) -> str:
     """
     # ✅ Normaliser "Present", "Today", "Actuellement" → "Aujourd'hui"
     text = re.sub(r"(?i)\b(present|today|actuellement|en cours)\b", "Aujourd'hui", text)
+    text = re.sub(r"(?i)\bSemester\b", "Semestre", text)  # EN → FR
 
     # ✅ Normaliser toutes les dates tout-en-majuscules (ex: "AVR 2024", "AOUT 2024", "ETE 2023")
     text = re.sub(r"\b([A-ZÉÀÂÄÈÊËÎÏÔÙÛÜ]{3,})\b",
