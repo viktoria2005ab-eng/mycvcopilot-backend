@@ -159,7 +159,12 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
     patterns = BULLET_PADDING + (ACTIVITY_PADDING if is_activity else [])
 
     for pattern in patterns:
+        before_strip = text
         text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+        # ✅ Si le strip laisse moins de 8 mots, restaurer le texte original
+        # (mieux vaut garder du contenu imparfait qu'une activité vide)
+        if is_activity and len(text.strip().split()) < 8 and len(before_strip.strip().split()) >= 8:
+            text = before_strip
 
     # Nettoyer la ponctuation résiduelle
     text = re.sub(r"\s*,\s*$", "", text)
@@ -423,12 +428,16 @@ def pdf_fill_ratio_first_page(pdf_path: str) -> float:
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     n = len(lines)
 
-    # calibrage simple
+    # Calibrage recalibré sur 1cm marges, police 11pt, tableaux 2 colonnes
+    # 22 lignes → 0.55 (CV très vide)
+    # 45 lignes → 0.80 (CV moyen)
+    # 60 lignes → 0.92 (CV bien rempli)
+    # 68 lignes → 0.97 (CV pleine page)
     if n <= 22:
-        return 0.60
-    if n >= 55:
-        return 0.95
-    return 0.60 + (n - 22) * (0.35 / (55 - 22))
+        return 0.55
+    if n >= 68:
+        return 0.97
+    return 0.55 + (n - 22) * (0.42 / (68 - 22))
 
 def llm_shrink_cv(cv_text: str) -> str:
     if not client:
@@ -458,6 +467,9 @@ Règles ABSOLUES :
 - INTERDIT ABSOLU : tu ne supprimes JAMAIS une activité si elle est déjà en 1 ligne.
 - Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
 
+
+RÈGLE LONGUEUR BULLETS : Chaque bullet doit faire entre 20 et 40 mots (environ 1,5 à 2 lignes dans Word). Un bullet trop court (< 15 mots) est insuffisant — enrichis-le avec le contexte, le périmètre ou la méthode utilisée, sans inventer de chiffres.
+RÈGLE ACTIVITÉS : Chaque activité doit faire 10-20 mots minimum. Ne jamais laisser une activité en 1-2 mots seuls.
 
 Format ACTIVITIES : 1 activité par ligne, sans puce, forme "Activité : description courte."
 Sortie : UNIQUEMENT le CV complet.
@@ -536,6 +548,9 @@ Style :
 - professionnel
 
 
+RÈGLE LONGUEUR BULLETS : Chaque bullet doit faire entre 20 et 40 mots (environ 1,5 à 2 lignes dans Word). Un bullet trop court (< 15 mots) est insuffisant — enrichis-le avec le contexte, le périmètre ou la méthode utilisée, sans inventer de chiffres.
+RÈGLE ACTIVITÉS : Chaque activité doit faire 10-20 mots minimum. Ne jamais laisser une activité en 1-2 mots seuls.
+
 Format ACTIVITIES : 1 activité par ligne, sans puce, forme "Activité : description courte."
 Sortie : UNIQUEMENT le CV complet.
 
@@ -583,6 +598,9 @@ Style :
 - professionnel
 - légèrement valorisant
 
+
+RÈGLE LONGUEUR BULLETS : Chaque bullet doit faire entre 20 et 40 mots (environ 1,5 à 2 lignes dans Word). Un bullet trop court (< 15 mots) est insuffisant — enrichis-le avec le contexte, le périmètre ou la méthode utilisée, sans inventer de chiffres.
+RÈGLE ACTIVITÉS : Chaque activité doit faire 10-20 mots minimum. Ne jamais laisser une activité en 1-2 mots seuls.
 
 Format ACTIVITIES : 1 activité par ligne, sans puce, forme "Activité : description courte."
 Sortie : UNIQUEMENT le CV complet.
@@ -634,6 +652,9 @@ Style :
 - simple
 - pas de bullshit consulting
 
+
+RÈGLE LONGUEUR BULLETS : Chaque bullet doit faire entre 20 et 40 mots (environ 1,5 à 2 lignes dans Word). Un bullet trop court (< 15 mots) est insuffisant — enrichis-le avec le contexte, le périmètre ou la méthode utilisée, sans inventer de chiffres.
+RÈGLE ACTIVITÉS : Chaque activité doit faire 10-20 mots minimum. Ne jamais laisser une activité en 1-2 mots seuls.
 
 Format ACTIVITIES : 1 activité par ligne, sans puce, forme "Activité : description courte."
 Sortie : UNIQUEMENT le CV complet.
@@ -1793,8 +1814,7 @@ def rebuild_education_from_input(raw_education: str) -> list[str]:
             if first_is_school and second_is_degree:
                 # Cas "École\nDiplôme\nDates\nLieu\nDétails"
                 school = first_stripped
-                degree_candidate, _ = _extract_dates_and_strip(second)
-                degree = second if not degree_candidate else second
+                degree = second
                 # Traiter les lignes à partir de la 3ème
                 for line in block[2:]:
                     line_stripped = line.strip()
@@ -1927,6 +1947,31 @@ def rebuild_education_from_input(raw_education: str) -> list[str]:
 
         # Normaliser les dates
         dates = translate_months_fr(dates) if dates else ""
+
+        # ✅ Si le "degree" contient en fait des matières/sujets (bac), le déplacer en détail
+        BAC_SUBJECT_WORDS = {
+            "physique", "chimie", "mathématiques", "mathematiques", "maths",
+            "svt", "histoire", "géographie", "philosophie", "philo",
+            "économie", "economie", "ses", "informatique", "arts", "français",
+            "moyenne", "mention",
+        }
+        degree_words_low = {w.lower().strip(".,;") for w in degree.split()}
+        if len(degree_words_low & BAC_SUBJECT_WORDS) >= 2:
+            # Le "degree" est en fait des matières/spécialités → déplacer en details
+            details = [degree] + details
+            # Déduire le vrai degré depuis l'école si possible
+            if "baccalauréat" in school.lower() or "baccalaureat" in school.lower() or "bac" in school.lower():
+                degree = "Baccalauréat général"
+            else:
+                degree = "Baccalauréat"
+
+        # ✅ Nettoyer le nom d'école des mots de diplôme redondants
+        for bac_word in ["baccalauréat général", "baccalaureat general", "bac général", "bac general",
+                          "baccalauréat", "baccalaureat"]:
+            school = re.sub(rf"(?i)\s*{re.escape(bac_word)}\s*", " ", school).strip()
+        # Capitaliser
+        if school:
+            school = school[0].upper() + school[1:]
 
         out.append(f"DEGREE: {degree}")
         out.append(f"SCHOOL: {school}")
@@ -2229,6 +2274,9 @@ def translate_months_fr(text: str) -> str:
     - Français complet -> abréviation FR
     On évite l'effet 'Septt' en ne remplaçant que des mots entiers.
     """
+    # ✅ Normaliser "Present", "Today", "Actuellement" → "Aujourd'hui"
+    text = re.sub(r"(?i)\b(present|today|actuellement|en cours)\b", "Aujourd'hui", text)
+
     # ✅ Normaliser toutes les dates tout-en-majuscules (ex: "AVR 2024", "AOUT 2024", "ETE 2023")
     text = re.sub(r"\b([A-ZÉÀÂÄÈÊËÎÏÔÙÛÜ]{3,})\b",
                   lambda m: m.group(1).capitalize(),
@@ -6213,10 +6261,10 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         payload_chars = len(re.sub(r"\s+", "", payload_content))
         payload_lines = payload_content.count("\n") + 1
         _is_short = (payload_chars < 900) or (payload_lines < 20)
-        fill_threshold = 0.72 if _is_short else 0.88
+        fill_threshold = 0.75 if _is_short else 0.93
         if pages == 1 and fill < fill_threshold:
             sector = payload.get("sector", "")
-            max_expand = 5 if _is_short else 8
+            max_expand = 6 if _is_short else 10
         
             if expand_count >= max_expand:
                 break
