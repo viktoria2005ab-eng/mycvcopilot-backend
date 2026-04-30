@@ -373,13 +373,21 @@ def normalize_role_text(role: str) -> str:
         r"^finance$": "Stagiaire Finance",
         r"^comptabilité$": "Stagiaire Comptabilité",
         r"^marketing$": "Stagiaire Marketing",
-        r"^rh$": "Stagiaire RH",
+        r"^rh$": "Stagiaire Ressources Humaines",
         r"^juridique$": "Stagiaire Juridique",
         r"^audit$": "Stagiaire Auditeur",
         r"^commercial$": "Chargé de mission commercial",
         r"^communication$": "Chargé de communication",
         r"^contrôle de gestion$": "Stagiaire Contrôle de Gestion",
+        r"^controle de gestion$": "Stagiaire Contrôle de Gestion",
         r"^private equity$": "Stagiaire Private Equity",
+        r"^développement$": "Chargé de développement",
+        r"^developpement$": "Chargé de développement",
+        r"^it$": "Stagiaire IT",
+        r"^conseil$": "Consultant stagiaire",
+        r"^supply chain$": "Stagiaire Supply Chain",
+        r"^data$": "Stagiaire Data",
+        r"^achats$": "Stagiaire Achats",
     }
 
     low = role.strip().lower()
@@ -443,33 +451,29 @@ def llm_shrink_cv(cv_text: str) -> str:
     if not client:
         return cv_text
 
+    # Count experiences to include in prompt
+    exp_count = cv_text.count("\nROLE:")
+
     prompt = f"""
-Tu dois rendre ce CV PLUS COURT pour tenir sur 1 page Word, SANS le casser.
+Tu dois rendre ce CV LÉGÈREMENT PLUS COURT pour tenir sur 1 page Word, SANS le casser.
+Ce CV a {exp_count} expériences. Tu dois TOUTES les conserver.
+
+Stratégie UNIQUE de réduction (dans cet ordre) :
+1) Raccourcir les bullets (1-2 lignes au lieu de 2-3), en gardant les chiffres et faits clés
+2) Limiter à 2 bullets les expériences secondaires (ancienne, courte, non liée au secteur)
+3) Réduire DETAILS dans EDUCATION à 1-2 lignes max par diplôme
+NE JAMAIS aller plus loin — ne jamais supprimer une expérience entière.
 
 Règles ABSOLUES :
 - Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, ACTIVITIES:
-- Tu conserves EXACTEMENT le format structuré de chaque expérience : ROLE:, COMPANY:, DATES:, LOCATION:, TYPE:, BULLETS: sur des lignes séparées. Tu ne fusionnes JAMAIS ces champs en une seule ligne.
+- Tu conserves EXACTEMENT le format structuré de chaque expérience : ROLE:, COMPANY:, DATES:, LOCATION:, TYPE:, BULLETS: sur des lignes séparées.
+- Tu ne supprimes JAMAIS une expérience entière — chaque ROLE: doit rester présent.
 - Tu ne rajoutes AUCUN commentaire ni phrase méta.
-- Tu ne coupes JAMAIS une phrase.
-- Tu n'utilises JAMAIS "..." ni de guillemets triples.
-- Tu n'inventes rien : pas de nouvelles missions, chiffres, outils.
-- Tu peux uniquement :
-  1) raccourcir les bullets (phrases plus directes),
-  2) réduire DETAILS dans EDUCATION (1-2 lignes max par diplôme),
-  3) ne pas toucher aux activités, les conserver telles quelles dans le CV,
-  4) limiter à 2 bullets les expériences secondaires (garder 3 bullets pour l'expérience la plus pertinente).
-- INTERDIT ABSOLU : tu ne supprimes JAMAIS une expérience entière. Toutes les expériences doivent rester présentes.
-- INTERDIT ABSOLU : chaque bullet doit faire au minimum 8 mots et conserver tous les chiffres et faits précis (600+, 9 100 euros, 12%, 20 000 euros, etc.). Tu ne rends jamais un bullet vague ou générique.
-- INTERDIT ABSOLU : dans les activités, tu conserves TOUS les faits précis : années (depuis 10 ans), nombres de pays (13 pays), noms d'événements, fréquences. Tu ne supprimes jamais ces informations.
-- INTERDIT ABSOLU : tu ne fusionnes JAMAIS deux bullets en un seul. Chaque bullet reste séparé.
-- INTERDIT ABSOLU : chaque activité doit faire au minimum 8 mots. Tu ne coupes jamais une activité à moins de 8 mots.
-- INTERDIT ABSOLU : tu ne laisses jamais un fragment de phrase sans verbe principal. Si une phrase est incomplète après raccourcissement, tu la complètes ou tu la supprimes entièrement.
-- INTERDIT ABSOLU : tu ne supprimes JAMAIS une activité si elle est déjà en 1 ligne.
-- Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
-
-
-RÈGLE LONGUEUR BULLETS : Chaque bullet doit faire entre 20 et 40 mots (environ 1,5 à 2 lignes dans Word). Un bullet trop court (< 15 mots) est insuffisant — enrichis-le avec le contexte, le périmètre ou la méthode utilisée, sans inventer de chiffres.
-RÈGLE ACTIVITÉS : Chaque activité doit faire 10-20 mots minimum. Ne jamais laisser une activité en 1-2 mots seuls.
+- Tu n'inventes rien.
+- INTERDIT ABSOLU : chaque bullet doit faire au minimum 8 mots et conserver tous les chiffres et faits précis.
+- INTERDIT ABSOLU : chaque activité doit faire au minimum 8 mots.
+- INTERDIT ABSOLU : ne jamais écrire un bullet à l'infinitif. Tout bullet commence par un verbe conjugué au passé composé.
+- INTERDIT ABSOLU : ne jamais fusionner deux bullets en un seul.
 
 Format ACTIVITIES : 1 activité par ligne, sans puce, forme "Activité : description courte."
 Sortie : UNIQUEMENT le CV complet.
@@ -588,7 +592,9 @@ Interdictions :
 - pas de faux bénéfice,
 - pas d’optimisation inventée,
 - pas de précision artificielle.
+- INTERDIT ABSOLU : ne jamais écrire un bullet à l'infinitif (ex : "Analyser", "Rédiger", "Coordonner" seul). Tout bullet commence OBLIGATOIREMENT par un verbe conjugué au passé composé (ex : Réalisé, Coordonné, Piloté, Rédigé, Développé, Géré, Obtenu, Analysé, Structuré, Négocié).
 - INTERDIT ABSOLU : ne jamais terminer un bullet par une phrase participiale inventée ("assurant", "contribuant à", "favorisant", "permettant", "garantissant", "renforçant").
+- INTERDIT ABSOLU : ne jamais écrire un bullet à l'infinitif. Tout bullet commence par un verbe conjugué au passé composé (Réalisé, Coordonné, Piloté, Géré, Développé, Analysé, Structuré, Négocié...).
 - INTERDIT ABSOLU : ne jamais laisser un fragment de phrase sans verbe principal.
 
 Style :
@@ -641,7 +647,9 @@ Interdictions :
 - pas de pilotage inventé,
 - pas de jargon type “impact”, “efficacité”, “maximiser”, “haute qualité”, “coordination efficace” si cela sonne artificiel,
 - pas de précision fictive.
+- INTERDIT ABSOLU : ne jamais écrire un bullet à l'infinitif (ex : "Analyser", "Rédiger", "Coordonner" seul). Tout bullet commence OBLIGATOIREMENT par un verbe conjugué au passé composé (ex : Réalisé, Coordonné, Piloté, Rédigé, Développé, Géré, Obtenu, Analysé, Structuré, Négocié).
 - INTERDIT ABSOLU : ne jamais terminer un bullet par une phrase participiale inventée ("assurant", "contribuant à", "favorisant", "permettant", "renforçant", "maximisant").
+- INTERDIT ABSOLU : ne jamais écrire un bullet à l'infinitif. Tout bullet commence par un verbe conjugué au passé composé (Réalisé, Coordonné, Piloté, Géré, Développé, Analysé, Structuré, Négocié...).
 - INTERDIT ABSOLU : ne jamais laisser un fragment de phrase sans verbe principal.
 
 Style :
@@ -4008,7 +4016,35 @@ def build_software_line_from_payload(payload: dict) -> str:
 
     return "Maîtrise des logiciels : " + ", ".join(items)
 
-def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
+def _clean_user_annotation(text: str) -> str:
+    """
+    Supprime les annotations personnelles que les utilisateurs ajoutent dans les champs
+    (ex: "je prépare aussi", "pas encore obtenu", "je me débrouille", "pas super fort", etc.)
+    """
+    if not text:
+        return text
+    # Patterns courants d'annotations personnelles
+    patterns = [
+        r"\bje (prépare|prepare|fais|suis|connais|parle|maîtrise|maitrise|me débrouille|me debrouille)[^,;.]*",
+        r"\bpas (encore|super|très|tres|trop|forcément|forcement)[^,;.]*",
+        r"\ben (cours|préparation|preparation)[^,;.]*",
+        r"\baussi\b[^,;.]*",
+        r"\bunpeu\b[^,;.]*",
+        r"\bun peu\b[^,;.]*",
+        r"\bnotions?\b(?!\s+de\s+\w)",  # "notions" seul = gardé, "notions de X" = gardé
+        r"\bà améliorer\b[^,;.]*",
+        r"\bà perfectionner\b[^,;.]*",
+        r"\bmais (je|j')[^,;.]*",
+    ]
+    for pat in patterns:
+        text = re.sub(pat, "", text, flags=re.IGNORECASE)
+    # Nettoyer ponctuation résiduelle
+    text = re.sub(r"\s*,\s*,", ",", text)
+    text = re.sub(r",\s*$", "", text.strip())
+    return text.strip()
+
+
+def normalize_skills_block(lines: list, payload: dict) -> list:
     raw = " ".join((x or "").strip() for x in (lines or []) if (x or "").strip())
     raw = re.sub(r"\s+", " ", raw).strip()
 
@@ -4067,9 +4103,9 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
         if chunk:
             chunks.append(chunk)
 
-    payload_certifications = [x.strip() for x in re.split(r",|;", payload.get("certifications", "") or "") if x.strip()]
-    payload_languages = clean_punctuation_text((payload.get("languages") or "").strip())
-    payload_skills = clean_punctuation_text((payload.get("skills") or "").strip())
+    payload_certifications = [_clean_user_annotation(x.strip()) for x in re.split(r",|;", payload.get("certifications", "") or "") if x.strip() and len(_clean_user_annotation(x.strip())) > 2]
+    payload_languages = clean_punctuation_text(_clean_user_annotation((payload.get("languages") or "").strip()))
+    payload_skills = clean_punctuation_text(_clean_user_annotation((payload.get("skills") or "").strip()))
 
     cleaned = []
     seen = set()
@@ -5291,12 +5327,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         spacer.paragraph_format.space_after = ITEM_SPACING
                         anchor = spacer
                     else:
-                        # ✅ spacer minimal — le titre EXPÉRIENCES gère son propre espace
+                        # ✅ spacer léger entre dernière formation et titre EXPÉRIENCES
                         spacer_elt = OxmlElement("w:p")
                         table._tbl.addnext(spacer_elt)
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
-                        spacer.paragraph_format.space_after = Pt(0)
+                        spacer.paragraph_format.space_after = Pt(2)
                         spacer.paragraph_format.line_spacing = 1.0
                         anchor = spacer
                 
@@ -5574,11 +5610,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     anchor.paragraph_format.space_after = ITEM_SPACING
                     anchor.paragraph_format.space_before = Pt(0)
                 else:
-                    # ✅ spacer minimal après la dernière formation (le titre EXPÉRIENCES a déjà son propre espace via le style)
+                    # ✅ spacer léger entre dernière formation et titre EXPÉRIENCES
                     new_p_elt = OxmlElement("w:p")
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
-                    anchor.paragraph_format.space_after = Pt(0)
+                    anchor.paragraph_format.space_after = Pt(2)
                     anchor.paragraph_format.space_before = Pt(0)
                     anchor.paragraph_format.line_spacing = 1.0
 
