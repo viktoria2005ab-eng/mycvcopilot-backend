@@ -147,7 +147,13 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
         r"|enrichissement des connaissances|développement de la confiance"
         r"|pour le bien-être personnel|pour maintenir le bien-être"
         r"|pour le travail d'équipe|et la stratégie"
-        r"|exploration de différents domaines|approfondissement des connaissances)[^.]*",
+        r"|exploration de différents domaines|approfondissement des connaissances"
+        r"|pour acquisition de compétences|pour enrichir les compétences"
+        r"|pour enrichir ses compétences|pour acquérir des compétences"
+        r"|pour garantir le bon déroulement|pour assurer le bon déroulement"
+        r"|pour approfondir les connaissances|pour développer les compétences"
+        r"|pour renforcer les capacités|pour approfondir sa connaissance)[^.]*",
+        r"\s+pour (acquérir|enrichir|développer|renforcer|approfondir) [^.]*(?=\.)",
     ]
 
     patterns = BULLET_PADDING + (ACTIVITY_PADDING if is_activity else [])
@@ -5237,12 +5243,13 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         spacer.paragraph_format.space_after = ITEM_SPACING
                         anchor = spacer
                     else:
-                        # ✅ espace après la DERNIÈRE formation avant le titre EXPÉRIENCES
+                        # ✅ spacer minimal — le titre EXPÉRIENCES gère son propre espace
                         spacer_elt = OxmlElement("w:p")
                         table._tbl.addnext(spacer_elt)
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
-                        spacer.paragraph_format.space_after = Pt(4)
+                        spacer.paragraph_format.space_after = Pt(0)
+                        spacer.paragraph_format.line_spacing = 1.0
                         anchor = spacer
                 
                 _remove_paragraph(p)
@@ -5519,15 +5526,28 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     anchor.paragraph_format.space_after = ITEM_SPACING
                     anchor.paragraph_format.space_before = Pt(0)
                 else:
-                    # ✅ espace après la dernière formation avant le titre EXPÉRIENCES
+                    # ✅ spacer minimal après la dernière formation (le titre EXPÉRIENCES a déjà son propre espace via le style)
                     new_p_elt = OxmlElement("w:p")
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
-                    anchor.paragraph_format.space_after = Pt(4)
+                    anchor.paragraph_format.space_after = Pt(0)
                     anchor.paragraph_format.space_before = Pt(0)
+                    anchor.paragraph_format.line_spacing = 1.0
 
             # ⚠️ NE PAS supprimer anchor
             _remove_paragraph(p)
+
+            # ✅ Forcer space_before=0 sur le titre EXPÉRIENCES PROFESSIONNELLES
+            # (même s'il a été traité par normalize avant l'insertion des tables,
+            #  certains styles héritent un space_before résiduel)
+            for dp in doc.paragraphs:
+                if (dp.text or "").strip().upper() in {
+                    "EXPÉRIENCES PROFESSIONNELLES", "EXPERIENCES PROFESSIONNELLES"
+                }:
+                    dp.paragraph_format.space_before = Pt(2)
+                    dp.paragraph_format.space_after = Pt(1)
+                    break
+
             continue
 
         # ------- EXPÉRIENCES PROFESSIONNELLES -------
