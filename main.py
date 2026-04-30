@@ -1165,6 +1165,10 @@ IMPORTANT :
     
 def build_prompt_finance(payload: Dict[str, Any]) -> str:
     # Construire le mapping mots-clés offre ↔ profil réel
+    _exp_anchor = build_mandatory_experience_anchor(payload)
+    _exp_anchor = build_mandatory_experience_anchor(payload)
+    _exp_anchor = build_mandatory_experience_anchor(payload)
+    _exp_anchor = build_mandatory_experience_anchor(payload)
     _kw_map = build_keyword_mapping(
         job_posting=payload.get("job_posting", ""),
         raw_experiences=payload.get("experiences", ""),
@@ -1190,6 +1194,7 @@ Le CV doit être adapté :
 
 OFFRE D’EMPLOI :
 \"\"\"{payload["job_posting"]}\"\"\"
+{_exp_anchor}
 {_kw_injection}
 
 RÈGLES :
@@ -1465,6 +1470,7 @@ Le CV doit être adapté :
 
 OFFRE D’EMPLOI :
 \"\"\"{payload["job_posting"]}\"\"\"
+{_exp_anchor}
 {_kw_injection}
 
 RÈGLES :
@@ -1606,6 +1612,7 @@ Le CV doit être adapté :
 
 OFFRE D’EMPLOI :
 \"\"\"{payload["job_posting"]}\"\"\"
+{_exp_anchor}
 {_kw_injection}
 
 RÈGLES :
@@ -1754,6 +1761,7 @@ Le CV doit être adapté :
 
 OFFRE D’EMPLOI :
 \"\"\"{payload["job_posting"]}\"\"\"
+{_exp_anchor}
 {_kw_injection}
 
 RÈGLES GÉNÉRALES :
@@ -1941,6 +1949,32 @@ CENTRES D’INTÉRÊT :
 Génère uniquement le CV structuré.
 """
     
+
+def build_mandatory_experience_anchor(payload: dict) -> str:
+    """
+    Construit la liste FIGÉE des expériences que le LLM DOIT inclure.
+    Le LLM peut reformuler les bullets mais ne peut JAMAIS supprimer une expérience.
+    """
+    raw_exps = parse_raw_experiences_input(payload.get("experiences", ""))
+    if not raw_exps:
+        return ""
+    
+    lines = []
+    lines.append("")
+    lines.append("⚠️ LISTE OBLIGATOIRE DES EXPÉRIENCES — NE PAS SUPPRIMER :")
+    lines.append("Tu DOIS inclure toutes les expériences suivantes dans le CV généré.")
+    lines.append("Tu peux reformuler les bullets mais tu ne peux JAMAIS omettre une expérience.")
+    lines.append("")
+    for i, exp in enumerate(raw_exps, 1):
+        role = (exp.get("role") or "").strip()
+        company = (exp.get("company") or "").strip()
+        dates = (exp.get("dates") or "").strip()
+        lines.append(f"  {i}. {role} — {company} ({dates})")
+    lines.append("")
+    lines.append(f"TOTAL : {len(raw_exps)} expériences à inclure TOUTES.")
+    lines.append("")
+    return "\n".join(lines)
+
 def generate_cv_text(payload: Dict[str, Any]) -> str:
     if not client:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY manquante sur le serveur.")
@@ -4330,6 +4364,42 @@ def dedupe_language_items(items: list[str]) -> list[str]:
 
     return normalized
 
+def validate_skills_completeness(skills_line: str, payload: dict) -> str:
+    """
+    Vérifie que les skills critiques du payload ne sont pas absents du CV généré.
+    Si Excel/PowerPoint/outils clés sont dans le payload mais absents du CV → les réinjecter.
+    """
+    if not skills_line:
+        return skills_line
+
+    raw_skills = (payload.get("skills") or "").lower()
+    skills_lower = skills_line.lower()
+
+    # Outils critiques qu'on ne peut jamais perdre
+    CRITICAL_TOOLS = {
+        "excel": "Excel",
+        "powerpoint": "PowerPoint",
+        "word": "Word",
+    }
+
+    missing = []
+    for key, label in CRITICAL_TOOLS.items():
+        if key in raw_skills and key not in skills_lower:
+            missing.append(label)
+
+    if missing:
+        # Insérer les outils manquants après "Maîtrise des logiciels :"
+        if "Maîtrise des logiciels :" in skills_line:
+            skills_line = skills_line.replace(
+                "Maîtrise des logiciels :",
+                "Maîtrise des logiciels : " + ", ".join(missing) + ","
+            )
+        else:
+            skills_line = "Maîtrise des logiciels : " + ", ".join(missing) + ", " + skills_line
+
+    return skills_line
+
+
 def build_software_line_from_payload(payload: dict) -> str:
     raw_skills = payload.get("skills") or ""
     items = [clean_punctuation_text(x.strip()) for x in re.split(r",|;", raw_skills) if x.strip()]
@@ -5216,6 +5286,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             llm_skills.append(f"Langues : {lang_text}")
 
     sections["SKILLS"] = normalize_skills_block(llm_skills, payload)
+    # ✅ Vérifier qu'Excel/PowerPoint ne manquent pas malgré la normalisation
+    sections["SKILLS"] = [
+        validate_skills_completeness(line, payload) if "logiciels" in (line or "").lower() else line
+        for line in sections["SKILLS"]
+    ]
     sections["LANGUAGES"] = []
 
     if not sections.get("SKILLS"):
