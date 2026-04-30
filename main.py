@@ -152,8 +152,13 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
         r"|pour enrichir ses compétences|pour acquérir des compétences"
         r"|pour garantir le bon déroulement|pour assurer le bon déroulement"
         r"|pour approfondir les connaissances|pour développer les compétences"
-        r"|pour renforcer les capacités|pour approfondir sa connaissance)[^.]*",
+        r"|pour renforcer les capacités|pour approfondir sa connaissance"
+        r"|participations? régulières?|participations? actives?"
+        r"|impliqué dans divers projets|impliqué dans différents projets"
+        r"|ce qui renforce|ce qui stimule|ce qui développe|ce qui favorise)[^.]*",
         r"\s+pour (acquérir|enrichir|développer|renforcer|approfondir) [^.]*(?=\.)",
+        r",\s+développe (des compétences|le leadership|l'esprit)[^.]*",
+        r",\s+suivi (des tendances|régulier|actif)[^.]*",
     ]
 
     patterns = BULLET_PADDING + (ACTIVITY_PADDING if is_activity else [])
@@ -5332,7 +5337,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         table._tbl.addnext(spacer_elt)
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
-                        spacer.paragraph_format.space_after = Pt(2)
+                        spacer.paragraph_format.space_after = Pt(0)
                         spacer.paragraph_format.line_spacing = 1.0
                         anchor = spacer
                 
@@ -5614,7 +5619,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     new_p_elt = OxmlElement("w:p")
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
-                    anchor.paragraph_format.space_after = Pt(2)
+                    anchor.paragraph_format.space_after = Pt(0)
                     anchor.paragraph_format.space_before = Pt(0)
                     anchor.paragraph_format.line_spacing = 1.0
 
