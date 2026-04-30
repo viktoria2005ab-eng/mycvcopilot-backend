@@ -1038,36 +1038,50 @@ def build_keyword_mapping(
 def build_keyword_injection(mapping: dict) -> str:
     """
     Génère le bloc d'instruction à injecter dans le prompt de génération.
-    C'est la clé de l'adaptation à l'offre sans invention.
+    Version renforcée : exemples concrets de transformation + instruction impérative.
     """
     if not mapping["applicable"] and not mapping["absent"]:
         return ""
 
+    applicable = mapping["applicable"]
+    absent = mapping["absent"]
+
     lines = []
-    lines.append("\n━━━ ADAPTATION À L'OFFRE — INSTRUCTIONS CRITIQUES ━━━")
-    lines.append("Tu dois OBLIGATOIREMENT respecter ce mapping vérificé par le système :")
+    lines.append("")
+    lines.append("╔══════════════════════════════════════════════════════════════╗")
+    lines.append("║         ADAPTATION OBLIGATOIRE À L'OFFRE D'EMPLOI          ║")
+    lines.append("╚══════════════════════════════════════════════════════════════╝")
+    lines.append("")
+    lines.append("Le système a vérifié les mots-clés de l'offre contre le profil réel.")
+    lines.append("Tu DOIS appliquer les règles suivantes AVANT de rédiger les bullets.")
     lines.append("")
 
-    if mapping["applicable"]:
-        lines.append("✅ TERMES VALIDÉS (présents dans le profil réel → utilise-les dans les bullets) :")
-        for term, context in mapping["applicable"][:12]:
-            lines.append(f"  • \"{term}\"")
+    if applicable:
+        lines.append("✅ TERMES VÉRIFIÉS — UTILISE-LES OBLIGATOIREMENT dans les bullets :")
+        lines.append("   (Ces termes sont dans l'offre ET dans le profil réel du candidat)")
         lines.append("")
-        lines.append("  → Pour chaque terme validé ci-dessus : s'il décrit naturellement ce que le candidat a fait,")
-        lines.append("    REFORMULE le bullet en utilisant ce terme exact ou sa variante professionnelle.")
+        for term, ctx in applicable[:12]:
+            lines.append(f"   → \"{term}\"")
+        lines.append("")
+        lines.append("   MÉTHODE : Pour chaque expérience, si un terme ci-dessus décrit")
+        lines.append("   ce que le candidat a fait → remplace le vocabulaire générique par")
+        lines.append("   ce terme exact. Exemples :")
+        lines.append("   • \"modélisation financière\" → \"modélisation LBO et DCF\"")
+        lines.append("   • \"note pour le comité\" → \"mémo d'investissement\"")
+        lines.append("   • \"tests\" → \"tests de contrôle interne et tests substantifs\"")
+        lines.append("   • \"vérification documents\" → \"circularisation créances clients\"")
+        lines.append("")
 
-    if mapping["absent"]:
+    if absent:
+        lines.append("❌ TERMES INTERDITS — ABSENTS du profil, ne jamais les inventer :")
+        for term in absent[:8]:
+            lines.append(f"   ✗ \"{term}\"")
         lines.append("")
-        lines.append("❌ TERMES ABSENTS DU PROFIL (ne figurent PAS dans les expériences → NE JAMAIS INVENTER) :")
-        for term in mapping["absent"][:10]:
-            lines.append(f"  ✗ \"{term}\"")
-        lines.append("")
-        lines.append("  → Si tu es tenté d'utiliser l'un de ces termes, ARRÊTE-TOI. C'est une invention.")
 
+    lines.append("LONGUEUR BULLETS : Chaque bullet = 20-35 mots minimum (1,5 lignes)")
+    lines.append("VERBES : Passé composé OBLIGATOIRE (Réalisé, Développé, Coordonné...)")
+    lines.append("╚═══════════════════════════════════════════════════════════════╝")
     lines.append("")
-    lines.append("RÈGLE D'OR : Un terme de l'offre n'est utilisable QUE s'il correspond à ce que")
-    lines.append("le candidat a RÉELLEMENT FAIT. Pas de termes fantômes, pas d'inflation de compétences.")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     return "\n".join(lines)
 
@@ -1194,6 +1208,7 @@ RÈGLES :
 - Si le contenu commence à être trop long pour tenir sur une page, tu SUPPRIMES d’abord les expériences les moins pertinentes (jobs étudiants génériques) et tu raccourcis les bullets les moins importantes.
 - Le CV doit être rédigé intégralement en français (même si l’offre ou les intitulés sont en anglais).
 - Tous les bullet points doivent être écrits en français.
+- LONGUEUR BULLETS : chaque bullet doit faire 20 à 35 mots (environ 1,5 ligne). Un bullet court (< 15 mots) = insuffisant. Enrichis avec le contexte, le périmètre, la méthode.
 - prioriser ces verbes : analyser, évaluer, structurer, modéliser, préparer, synthétiser, présenter, suivre
 - éviter ces verbes: aider, assister, participer, contribuer
 
@@ -6582,17 +6597,19 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
             best_1page_fill = fill
             best_1page_text = cv_text
         
-        # 1) Trop long => revenir au meilleur résultat 1 page si dispo, sinon shrink
+        # 1) Trop long => revenir au meilleur résultat 1 page si dispo, sinon shrink léger
         if pages > 1:
-            if best_1page_text and best_1page_fill >= 0.75:
+            if best_1page_text:
+                # ✅ On revient TOUJOURS au meilleur 1-page connu — le shrink LLM est trop risqué
                 cv_text = best_1page_text
                 await asyncio.to_thread(write_docx_from_template, tpl, cv_text, docx_path, payload=payload, compact_mode=compact_mode)
                 await asyncio.to_thread(convert_docx_to_pdf, docx_path, pdf_path)
                 break
+            # Pas de best_1page (premier attempt déjà 2 pages) → shrink prudent
             if last_action == "shrink" and attempt >= 2:
                 compact_mode = True
             else:
-                cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text), payload=payload)
+                cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text), payload=payload, allow_drop_exp=True)
                 last_action = "shrink"
             if attempt >= 2:
                 compact_mode = True
