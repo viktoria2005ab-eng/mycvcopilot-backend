@@ -413,10 +413,15 @@ def has_all_sections(cv_text: str) -> bool:
     t = (cv_text or "")
     return all(sec in t for sec in REQUIRED_SECTIONS)
 
-def safe_apply_llm_edit(old_text: str, new_text: str, payload: dict = None) -> str:
+def safe_apply_llm_edit(old_text: str, new_text: str, payload: dict = None, allow_drop_exp: bool = False) -> str:
     new_clean = clean_cv_output(new_text)
     if not has_all_sections(new_clean):
         return old_text
+    if not allow_drop_exp:
+        old_role_count = old_text.count("\nROLE:")
+        new_role_count = new_clean.count("\nROLE:")
+        if new_role_count < old_role_count:
+            return old_text
     new_clean = apply_strip_padding_to_cv(new_clean)
     return new_clean
 
