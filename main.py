@@ -3,6 +3,7 @@ import re
 import uuid
 import asyncio
 import datetime as dt
+import unicodedata
 from typing import Optional, Dict, Any
 import glob 
 import json
@@ -809,6 +810,268 @@ def build_cv_filename(payload: Dict[str, Any]) -> str:
         return f"CV-{family_name}-{company_clean}"
     return f"CV-{family_name}"
 
+
+# ════════════════════════════════════════════════════════════════════
+# SYSTÈME D'ADAPTATION À L'OFFRE — EXTRACTION ET VÉRIFICATION
+# ════════════════════════════════════════════════════════════════════
+
+# Vocabulaire sectoriel : termes multi-mots prioritaires à extraire
+SECTOR_VOCAB = {
+    "finance": [
+        "modélisation financière", "modélisation lbo", "lbo", "dcf", "leveraged buyout",
+        "due diligence", "due-diligence", "data room", "pitch book", "pitchbook",
+        "m&a", "fusions acquisitions", "private equity", "venture capital",
+        "equity research", "analyse financière", "analyse sectorielle",
+        "valorisation", "multiple d'entrée", "taux de rendement",
+        "reporting financier", "budget prévisionnel", "prévisionnel financier",
+        "trésorerie", "cash flow", "bilan", "compte de résultat",
+        "bloomberg terminal", "bloomberg", "factset", "capital iq",
+        "excel avancé", "vba", "macros", "tableaux croisés dynamiques", "tcd",
+        "python", "sql", "power bi", "crm",
+        "anglais courant", "anglais professionnel", "anglais bilingue",
+        "suivi de portefeuille", "analyse de portefeuille",
+        "sourcing", "deal flow", "term sheet", "cap table",
+        "compliance", "kyc", "aml", "conformité",
+        "banque d'investissement", "cib", "corporate finance",
+        "contrôle de gestion", "fp&a", "consolidation", "ifrs",
+        "actifs sous gestion", "aum", "fund accounting",
+        "investissement responsable", "esg",
+    ],
+    "audit": [
+        "commissariat aux comptes", "cac", "audit légal", "audit contractuel",
+        "contrôle interne", "tests substantifs", "tests analytiques",
+        "circularisation", "feuilles de travail", "dossier permanent", "dossier annuel",
+        "ifrs", "normes ifrs", "pcg", "normes isa", "normes d'audit",
+        "clôture annuelle", "clôture mensuelle", "reforecast",
+        "liasse fiscale", "déclaration tva", "tva",
+        "auditsoft", "caseware", "drgm", "sage", "coala",
+        "big 4", "deloitte", "pwc", "kpmg", "ey", "bdo", "mazars",
+        "rigueur", "précision", "fiabilité", "esprit d'analyse",
+        "excel avancé", "vba", "tableaux de bord",
+        "risk management", "risque opérationnel",
+        "rapport d'audit", "recommandations", "points de contrôle",
+        "comptabilité générale", "comptabilité analytique",
+    ],
+    "management": [
+        "gestion de projet", "project management", "agile", "scrum",
+        "management d'équipe", "leadership", "coordination",
+        "stratégie", "analyse stratégique", "business plan", "business case",
+        "benchmark", "analyse de marché", "étude de marché",
+        "powerpoint", "présentation", "pitching",
+        "crm", "salesforce", "hubspot",
+        "marketing digital", "seo", "sem", "réseaux sociaux",
+        "kpi", "indicateurs de performance", "tableau de bord",
+        "supply chain", "logistique", "opérations",
+        "relation client", "customer success", "b2b", "b2c",
+        "change management", "conduite du changement",
+        "excel", "power bi", "notion", "trello", "jira",
+        "conseil", "consulting", "mckinsey", "bcg", "bain",
+    ],
+    "droit": [
+        "droit des sociétés", "droit des affaires", "droit social",
+        "droit des contrats", "droit fiscal", "droit commercial",
+        "rédaction d'actes", "rédaction juridique",
+        "recherche jurisprudentielle", "jurisprudence",
+        "dalloz", "lexis360", "village justice",
+        "contentieux", "arbitrage", "médiation",
+        "assemblée générale", "augmentation de capital", "cession",
+        "sas", "sarl", "sa", "statuts",
+        "due diligence juridique", "audit juridique",
+        "propriété intellectuelle", "marques", "brevets",
+        "rgpd", "protection des données",
+        "fusions acquisitions", "m&a",
+        "droit pénal des affaires", "compliance",
+        "mémoire", "master", "master 2", "m2",
+    ],
+}
+
+FRENCH_STOP_WORDS = {
+    "le", "la", "les", "un", "une", "des", "du", "de", "d", "l",
+    "et", "ou", "mais", "donc", "or", "ni", "car",
+    "que", "qui", "quoi", "dont", "où",
+    "je", "tu", "il", "elle", "nous", "vous", "ils", "elles",
+    "ce", "cet", "cette", "ces", "mon", "ton", "son", "nos", "vos", "leurs",
+    "dans", "sur", "sous", "avec", "sans", "pour", "par", "en", "à", "au", "aux",
+    "est", "sont", "sera", "seront", "être", "avoir", "faire",
+    "plus", "très", "bien", "aussi", "même", "tout", "tous",
+    "si", "se", "sa", "lui", "leur",
+    "cas", "type", "mise", "lors", "afin",
+    "notamment", "notamment", "ainsi", "donc",
+    "votre", "notre", "leurs", "vos",
+    "the", "and", "or", "of", "in", "to", "a", "an", "for", "on", "with",
+}
+
+def _normalize_for_matching(text: str) -> str:
+    """Normalise un texte pour la comparaison (lowercase, accents, ponctuations)."""
+    import unicodedata
+    text = text.lower().strip()
+    # Supprimer les accents
+    text = "".join(
+        c for c in unicodedata.normalize("NFD", text)
+        if unicodedata.category(c) != "Mn"
+    )
+    # Normaliser la ponctuation
+    text = re.sub(r"['\-–]", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _term_in_text(term: str, text_normalized: str) -> bool:
+    """Vérifie si un terme (ou une variante proche) est dans le texte normalisé."""
+    term_n = _normalize_for_matching(term)
+    if not term_n:
+        return False
+    # Match exact
+    if term_n in text_normalized:
+        return True
+    # Match avec dérivés courants (pluriel, conjugaison)
+    # Ex: "modélisation" → "modelis" (stem de 7 chars)
+    if len(term_n) >= 6:
+        stem = term_n[:max(5, len(term_n) - 3)]
+        if stem in text_normalized:
+            return True
+    return False
+
+
+def build_keyword_mapping(
+    job_posting: str,
+    raw_experiences: str,
+    raw_education: str,
+    raw_skills: str,
+    sector: str,
+) -> dict:
+    """
+    Extrait les mots-clés de l'offre et les mappe sur le profil réel de l'utilisateur.
+    
+    Retourne:
+    {
+        "applicable": [(term, reason), ...],   # termes validés dans le profil
+        "absent": [term, ...],                  # termes absents du profil (à ne pas inventer)
+        "sector_terms": [...],                  # termes sectoriels extraits de l'offre
+    }
+    """
+    if not job_posting or not job_posting.strip():
+        return {"applicable": [], "absent": [], "sector_terms": []}
+
+    # Contenu réel de l'utilisateur (tout normalisé)
+    user_raw = f"{raw_experiences} {raw_education} {raw_skills}"
+    user_norm = _normalize_for_matching(user_raw)
+
+    # Déterminer le vocabulaire sectoriel à utiliser
+    sector_low = sector.lower()
+    if any(s in sector_low for s in ["finance", "banque", "private equity", "audit"]):
+        vocab = SECTOR_VOCAB.get("finance", []) + SECTOR_VOCAB.get("audit", [])
+    elif "audit" in sector_low:
+        vocab = SECTOR_VOCAB.get("audit", [])
+    elif any(s in sector_low for s in ["management", "stratégique", "conseil", "marketing"]):
+        vocab = SECTOR_VOCAB.get("management", [])
+    elif "droit" in sector_low or "juridique" in sector_low:
+        vocab = SECTOR_VOCAB.get("droit", [])
+    else:
+        vocab = SECTOR_VOCAB.get("finance", [])
+
+    job_norm = _normalize_for_matching(job_posting)
+
+    # Étape 1 : termes du vocabulaire sectoriel présents dans l'offre
+    sector_terms_in_offer = []
+    for term in vocab:
+        if _term_in_text(term, job_norm):
+            sector_terms_in_offer.append(term)
+
+    # Étape 2 : extraction de termes libres depuis l'offre (mots significatifs)
+    # Bigrams et trigrams de l'offre
+    offer_words = [w for w in re.split(r"[\s,;.()\[\]]+", job_posting.lower()) if w]
+    offer_significant = []
+    for w in offer_words:
+        w_clean = _normalize_for_matching(w)
+        if len(w_clean) >= 5 and w_clean not in FRENCH_STOP_WORDS:
+            offer_significant.append(w_clean)
+
+    # Bigrams significatifs de l'offre
+    bigrams = []
+    for i in range(len(offer_words) - 1):
+        bg = _normalize_for_matching(f"{offer_words[i]} {offer_words[i+1]}")
+        if len(bg) >= 8 and not any(sw in bg.split() for sw in list(FRENCH_STOP_WORDS)[:20]):
+            bigrams.append(bg)
+
+    all_candidates = list(set(sector_terms_in_offer + offer_significant[:30] + bigrams[:20]))
+
+    # Étape 3 : mapper sur le profil utilisateur
+    applicable = []
+    absent = []
+
+    for term in all_candidates:
+        if len(term) < 3:
+            continue
+        in_profile = _term_in_text(term, user_norm)
+
+        # Déterminer la raison de l'applicabilité
+        if in_profile:
+            # Trouver où dans le profil
+            user_norm_snippet = ""
+            for chunk in user_norm.split("."):
+                if _term_in_text(term, chunk):
+                    user_norm_snippet = chunk.strip()[:80]
+                    break
+            applicable.append((term, user_norm_snippet))
+        else:
+            # Terme dans l'offre mais PAS dans le profil
+            # Ne marquer absent que si c'est un terme technique précis (pas un mot générique)
+            if len(term) >= 6 and term not in FRENCH_STOP_WORDS:
+                absent.append(term)
+
+    # Trier par longueur décroissante (les termes les plus spécifiques en premier)
+    applicable.sort(key=lambda x: len(x[0]), reverse=True)
+    absent = sorted(set(absent), key=len, reverse=True)
+
+    # Limiter pour ne pas surcharger le prompt
+    applicable = applicable[:20]
+    absent = absent[:15]
+
+    return {
+        "applicable": applicable,
+        "absent": absent,
+        "sector_terms": sector_terms_in_offer[:10],
+    }
+
+
+def build_keyword_injection(mapping: dict) -> str:
+    """
+    Génère le bloc d'instruction à injecter dans le prompt de génération.
+    C'est la clé de l'adaptation à l'offre sans invention.
+    """
+    if not mapping["applicable"] and not mapping["absent"]:
+        return ""
+
+    lines = []
+    lines.append("\n━━━ ADAPTATION À L'OFFRE — INSTRUCTIONS CRITIQUES ━━━")
+    lines.append("Tu dois OBLIGATOIREMENT respecter ce mapping vérificé par le système :")
+    lines.append("")
+
+    if mapping["applicable"]:
+        lines.append("✅ TERMES VALIDÉS (présents dans le profil réel → utilise-les dans les bullets) :")
+        for term, context in mapping["applicable"][:12]:
+            lines.append(f"  • \"{term}\"")
+        lines.append("")
+        lines.append("  → Pour chaque terme validé ci-dessus : s'il décrit naturellement ce que le candidat a fait,")
+        lines.append("    REFORMULE le bullet en utilisant ce terme exact ou sa variante professionnelle.")
+
+    if mapping["absent"]:
+        lines.append("")
+        lines.append("❌ TERMES ABSENTS DU PROFIL (ne figurent PAS dans les expériences → NE JAMAIS INVENTER) :")
+        for term in mapping["absent"][:10]:
+            lines.append(f"  ✗ \"{term}\"")
+        lines.append("")
+        lines.append("  → Si tu es tenté d'utiliser l'un de ces termes, ARRÊTE-TOI. C'est une invention.")
+
+    lines.append("")
+    lines.append("RÈGLE D'OR : Un terme de l'offre n'est utilisable QUE s'il correspond à ce que")
+    lines.append("le candidat a RÉELLEMENT FAIT. Pas de termes fantômes, pas d'inflation de compétences.")
+    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+    return "\n".join(lines)
+
+
 def build_prompt(payload: Dict[str, Any]) -> str:
     return f"""
 Tu es un expert en recrutement.
@@ -887,6 +1150,16 @@ IMPORTANT :
 """
     
 def build_prompt_finance(payload: Dict[str, Any]) -> str:
+    # Construire le mapping mots-clés offre ↔ profil réel
+    _kw_map = build_keyword_mapping(
+        job_posting=payload.get("job_posting", ""),
+        raw_experiences=payload.get("experiences", ""),
+        raw_education=payload.get("education", ""),
+        raw_skills=payload.get("skills", ""),
+        sector=payload.get("sector", "finance"),
+    )
+    _kw_injection = build_keyword_injection(_kw_map)
+
     return f"""
 Tu es un ancien recruteur en banque d’investissement et en Big 4.
 Tu sélectionnes uniquement les 10% meilleurs profils étudiants.
@@ -903,6 +1176,7 @@ Le CV doit être adapté :
 
 OFFRE D’EMPLOI :
 \"\"\"{payload["job_posting"]}\"\"\"
+{_kw_injection}
 
 RÈGLES :
 - 1 page maximum (ABSOLUMENT aucune 2e page).
@@ -1153,6 +1427,15 @@ Génère uniquement le CV structuré.
 """
 
 def build_prompt_audit(payload: Dict[str, Any]) -> str:
+    _kw_map = build_keyword_mapping(
+        job_posting=payload.get("job_posting", ""),
+        raw_experiences=payload.get("experiences", ""),
+        raw_education=payload.get("education", ""),
+        raw_skills=payload.get("skills", ""),
+        sector=payload.get("sector", "audit"),
+    )
+    _kw_injection = build_keyword_injection(_kw_map)
+
     return f"""
 Tu es un ancien recruteur en audit financier et en Big 4.
 Tu sélectionnes uniquement les profils étudiants crédibles, rigoureux et structurés.
@@ -1167,6 +1450,7 @@ Le CV doit être adapté :
 
 OFFRE D’EMPLOI :
 \"\"\"{payload["job_posting"]}\"\"\"
+{_kw_injection}
 
 RÈGLES :
 - 1 page maximum.
@@ -1284,6 +1568,15 @@ Génère uniquement le CV structuré.
 """
 
 def build_prompt_management(payload: Dict[str, Any]) -> str:
+    _kw_map = build_keyword_mapping(
+        job_posting=payload.get("job_posting", ""),
+        raw_experiences=payload.get("experiences", ""),
+        raw_education=payload.get("education", ""),
+        raw_skills=payload.get("skills", ""),
+        sector=payload.get("sector", "management"),
+    )
+    _kw_injection = build_keyword_injection(_kw_map)
+
     return f"""
 Tu es un recruteur en conseil, stratégie et management.
 Tu sélectionnes les profils étudiants les plus structurés, analytiques et crédibles.
@@ -1298,6 +1591,7 @@ Le CV doit être adapté :
 
 OFFRE D’EMPLOI :
 \"\"\"{payload["job_posting"]}\"\"\"
+{_kw_injection}
 
 RÈGLES :
 - 1 page maximum.
@@ -1422,6 +1716,15 @@ Génère uniquement le CV structuré.
 """
 
 def build_prompt_droit(payload: Dict[str, Any]) -> str:
+    _kw_map = build_keyword_mapping(
+        job_posting=payload.get("job_posting", ""),
+        raw_experiences=payload.get("experiences", ""),
+        raw_education=payload.get("education", ""),
+        raw_skills=payload.get("skills", ""),
+        sector=payload.get("sector", "droit"),
+    )
+    _kw_injection = build_keyword_injection(_kw_map)
+
     return f"""
 Tu es un recruteur juridique exigeant en cabinet d’avocats, direction juridique et stages juridiques.
 Tu sélectionnes des profils étudiants sobres, rigoureux, crédibles et précis.
@@ -1436,6 +1739,7 @@ Le CV doit être adapté :
 
 OFFRE D’EMPLOI :
 \"\"\"{payload["job_posting"]}\"\"\"
+{_kw_injection}
 
 RÈGLES GÉNÉRALES :
 - 1 page maximum.
