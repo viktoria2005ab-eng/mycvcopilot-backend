@@ -1606,22 +1606,320 @@ CENTRES D’INTÉRÊT :
 Génère uniquement le CV structuré.
 """
     
+
+# ════════════════════════════════════════════════════════════════════
+# ENGLISH PROMPTS — VERSION PAYANTE
+# ════════════════════════════════════════════════════════════════════
+
+def _en_profile_block(payload: Dict[str, Any]) -> str:
+    """Common candidate block for all English prompts."""
+    return f"""
+CANDIDATE PROFILE:
+Name: {payload.get("full_name", "")}
+City: {payload.get("city", "")}
+Email: {payload.get("email", "")}
+Phone: {payload.get("phone", "")}
+LinkedIn: {payload.get("linkedin", "")}
+
+EDUCATION:
+{payload.get("education", "")}
+
+EXPERIENCES:
+{payload.get("experiences", "")}
+
+SKILLS: {payload.get("skills", "")}
+CERTIFICATIONS: {payload.get("certifications", "")}
+LANGUAGES: {payload.get("languages", "")}
+ACTIVITIES: {payload.get("interests", "")}
+"""
+
+def build_prompt_finance_en(payload: Dict[str, Any]) -> str:
+    finance_type = payload.get("finance_type", "Finance")
+    return f"""
+You are a former recruiter at a top investment bank and Big 4 firm.
+You only select the top 10% of student profiles.
+You immediately reject vague, unsubstantiated CVs with no quantified results.
+
+OBJECTIVE:
+Generate a ONE-PAGE English CV for a {finance_type} position — ultra-structured, minimal, impactful.
+
+TARGET:
+- Finance type: {finance_type}
+- Role: {payload["role"]}
+- Company: {payload["company"]}
+- Job posting: \"\"\"{payload["job_posting"]}\"\"\"
+
+RULES:
+- 1 page maximum — absolutely no second page.
+- Dates: "MMM YYYY – MMM YYYY" format (e.g. "Sep 2023 – Jun 2025"). Never "09/2023".
+- Each bullet = strong action verb (past tense) + concrete action from the source experience.
+- 2-3 bullets per experience (3 by default, 2 for less relevant ones).
+- FORBIDDEN verbs: assisted, helped, worked on, participated in.
+- Professional, precise, minimal tone. No padding, no filler phrases.
+- INTERDIT ABSOLU: writing a bullet at the infinitive. Every bullet starts with a past tense verb (Modelled, Managed, Led, Developed, Analysed, Structured, Negotiated...).
+- Each bullet: 20-35 words (1.5 lines). A short bullet < 15 words is insufficient.
+- Experience ordering: most relevant to the role first. Finance/PE/M&A/Audit always at the top.
+- Student jobs (cashier, waiter, barista) always at the bottom, under "Other Experience".
+- CV entirely in ENGLISH — even if the original experience was in French.
+- Do NOT invent any figure, mission, tool or result not provided by the user.
+
+STRICT ANTI-HALLUCINATION RULES:
+- No invented metrics or results.
+- No invented tools or technologies.
+- If info is missing, stay general — no fictional details.
+- Only use information from the candidate profile below.
+
+{_en_profile_block(payload)}
+
+OUTPUT FORMAT (mandatory — respect exactly):
+EDUCATION:
+DEGREE: [degree name]
+SCHOOL: [school name]
+LOCATION: [city, country]
+DATES: [MMM YYYY – MMM YYYY]
+DETAILS:
+- [detail line if any]
+
+EXPERIENCES:
+ROLE: [job title in English]
+COMPANY: [company name]
+DATES: [MMM YYYY – MMM YYYY or MMM YYYY – Present]
+LOCATION: [city, country]
+TYPE: [Internship / Full-time / Part-time / Volunteering / Student job]
+BULLETS:
+- [bullet 1]
+- [bullet 2]
+- [bullet 3]
+
+SKILLS:
+Certifications: [if any]
+Software & Tools: [tools list]
+Professional skills: [key competencies]
+Languages: [Language (level, score if any)]
+
+ACTIVITIES:
+[Activity: short description.]
+
+Output ONLY the structured CV — no comments, no preamble.
+"""
+
+
+def build_prompt_audit_en(payload: Dict[str, Any]) -> str:
+    return f"""
+You are a former Big 4 (Deloitte, KPMG, PwC, EY) senior auditor who now recruits junior staff.
+You only select candidates who demonstrate rigour, attention to detail, and technical accounting knowledge.
+
+OBJECTIVE:
+Generate a ONE-PAGE English CV for an audit/accounting internship — precise, technical, ATS-optimised.
+
+TARGET:
+- Role: {payload["role"]}
+- Company: {payload["company"]}
+- Job posting: \"\"\"{payload["job_posting"]}\"\"\"
+
+RULES:
+- 1 page maximum.
+- Dates: "MMM YYYY – MMM YYYY" format. Never "09/2023".
+- Each bullet = strong past-tense action verb + specific audit/accounting action.
+- INTERDIT ABSOLU: infinitive bullets. All bullets start with a conjugated past tense verb (Performed, Reviewed, Prepared, Tested, Analysed, Documented, Reconciled...).
+- Each bullet: 20-35 words. No padding, no filler.
+- Prioritise: Big 4 experience, CAC missions, internal controls, IFRS, financial closing.
+- Student jobs always last, under "Other Experience".
+- CV entirely in ENGLISH.
+- Do NOT invent any figure, tool, standard or result.
+
+STRICT ANTI-HALLUCINATION RULES:
+- No invented accounting standards, audit procedures or tools.
+- No invented metrics.
+- Only use information from the candidate profile below.
+
+{_en_profile_block(payload)}
+
+OUTPUT FORMAT (mandatory):
+EDUCATION:
+DEGREE: [degree]
+SCHOOL: [school]
+LOCATION: [city, country]
+DATES: [MMM YYYY – MMM YYYY]
+DETAILS:
+- [detail]
+
+EXPERIENCES:
+ROLE: [English job title]
+COMPANY: [company name]
+DATES: [MMM YYYY – MMM YYYY]
+LOCATION: [city, country]
+TYPE: [Internship / Apprenticeship / Full-time / Volunteering / Student job]
+BULLETS:
+- [bullet 1]
+- [bullet 2]
+- [bullet 3]
+
+SKILLS:
+Certifications: [if any]
+Software & Tools: [tools]
+Professional skills: [competencies]
+Languages: [Language (level)]
+
+ACTIVITIES:
+[Activity: description.]
+
+Output ONLY the structured CV — no comments, no preamble.
+"""
+
+
+def build_prompt_management_en(payload: Dict[str, Any]) -> str:
+    return f"""
+You are a former recruiter at McKinsey, L'Oréal and a top business school career centre.
+You select candidates who demonstrate leadership, initiative and quantified impact.
+
+OBJECTIVE:
+Generate a ONE-PAGE English CV for a management/strategy/marketing position — impactful, leadership-focused.
+
+TARGET:
+- Role: {payload["role"]}
+- Company: {payload["company"]}
+- Job posting: \"\"\"{payload["job_posting"]}\"\"\"
+
+RULES:
+- 1 page maximum.
+- Dates: "MMM YYYY – MMM YYYY". Never "09/2023".
+- Each bullet = strong past-tense action verb + concrete result.
+- INTERDIT ABSOLU: infinitive bullets. All bullets start with past tense (Led, Managed, Coordinated, Launched, Developed, Grew, Negotiated...).
+- Each bullet: 20-35 words. No padding, no filler.
+- Prioritise: strategic projects, team leadership, quantified business impact.
+- Student jobs (waiter, cashier) always last under "Other Experience".
+- CV entirely in ENGLISH.
+- Do NOT invent any figure, project or result.
+
+STRICT ANTI-HALLUCINATION RULES:
+- No invented metrics, growth rates or KPIs.
+- Only use information from the candidate profile below.
+
+{_en_profile_block(payload)}
+
+OUTPUT FORMAT (mandatory):
+EDUCATION:
+DEGREE: [degree]
+SCHOOL: [school]
+LOCATION: [city, country]
+DATES: [MMM YYYY – MMM YYYY]
+DETAILS:
+- [detail]
+
+EXPERIENCES:
+ROLE: [English job title]
+COMPANY: [company name]
+DATES: [MMM YYYY – MMM YYYY]
+LOCATION: [city, country]
+TYPE: [Internship / Full-time / Association / Student job]
+BULLETS:
+- [bullet 1]
+- [bullet 2]
+- [bullet 3]
+
+SKILLS:
+Certifications: [if any]
+Software & Tools: [tools]
+Professional skills: [competencies]
+Languages: [Language (level)]
+
+ACTIVITIES:
+[Activity: description.]
+
+Output ONLY the structured CV — no comments, no preamble.
+"""
+
+
+def build_prompt_droit_en(payload: Dict[str, Any]) -> str:
+    return f"""
+You are a former partner at a Magic Circle law firm who now recruits trainees and legal interns.
+You select candidates with strong legal writing, research skills and attention to detail.
+
+OBJECTIVE:
+Generate a ONE-PAGE English CV for a legal internship/traineeship — formal, precise, profession-appropriate.
+
+TARGET:
+- Role: {payload["role"]}
+- Company: {payload["company"]}
+- Job posting: \"\"\"{payload["job_posting"]}\"\"\"
+
+RULES:
+- 1 page maximum.
+- Dates: "MMM YYYY – MMM YYYY".
+- Each bullet = strong past-tense verb + specific legal action.
+- INTERDIT ABSOLU: infinitive bullets. All bullets start with past tense (Drafted, Researched, Advised, Reviewed, Negotiated, Assisted, Coordinated...).
+- Each bullet: 20-35 words.
+- Prioritise: legal research, drafting, client work, moot court, legal clinics.
+- Student jobs always last under "Other Experience".
+- CV entirely in ENGLISH.
+- Do NOT invent any legal work, case details or results.
+
+{_en_profile_block(payload)}
+
+OUTPUT FORMAT (mandatory):
+EDUCATION:
+DEGREE: [degree]
+SCHOOL: [school]
+LOCATION: [city, country]
+DATES: [MMM YYYY – MMM YYYY]
+DETAILS:
+- [detail]
+
+EXPERIENCES:
+ROLE: [English job title]
+COMPANY: [company name]
+DATES: [MMM YYYY – MMM YYYY]
+LOCATION: [city, country]
+TYPE: [Internship / Pro bono / Volunteering / Student job]
+BULLETS:
+- [bullet 1]
+- [bullet 2]
+
+SKILLS:
+Certifications: [if any]
+Software & Tools: [tools]
+Professional skills: [competencies]
+Languages: [Language (level)]
+
+ACTIVITIES:
+[Activity: description.]
+
+Output ONLY the structured CV — no comments, no preamble.
+"""
+
+
 def generate_cv_text(payload: Dict[str, Any]) -> str:
     if not client:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY manquante sur le serveur.")
 
     sector = (payload.get("sector") or "").lower()
+    language = (payload.get("language") or "fr").lower()
 
-    if "finance" in sector:
-        prompt = build_prompt_finance(payload)
-    elif "audit" in sector:
-        prompt = build_prompt_audit(payload)
-    elif is_management_sector(sector):
-        prompt = build_prompt_management(payload)
-    elif "droit" in sector or "juridique" in sector or "juriste" in sector or "avocat" in sector:
-        prompt = build_prompt_droit(payload)
+    if language == "en":
+        # ── English prompts ──────────────────────────────────────────
+        if "finance" in sector:
+            prompt = build_prompt_finance_en(payload)
+        elif "audit" in sector:
+            prompt = build_prompt_audit_en(payload)
+        elif is_management_sector(sector):
+            prompt = build_prompt_management_en(payload)
+        elif any(w in sector for w in ["droit", "juridique", "juriste", "avocat"]):
+            prompt = build_prompt_droit_en(payload)
+        else:
+            prompt = build_prompt_finance_en(payload)
     else:
-        prompt = build_prompt(payload)
+        # ── French prompts (existing) ────────────────────────────────
+        if "finance" in sector:
+            prompt = build_prompt_finance(payload)
+        elif "audit" in sector:
+            prompt = build_prompt_audit(payload)
+        elif is_management_sector(sector):
+            prompt = build_prompt_management(payload)
+        elif "droit" in sector or "juridique" in sector or "juriste" in sector or "avocat" in sector:
+            prompt = build_prompt_droit(payload)
+        else:
+            prompt = build_prompt(payload)
 
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -4332,6 +4630,26 @@ def _strip_blank_neighbors(doc: Document, p: Paragraph, before: int = 1, after: 
             
 def write_docx_from_template(template_path: str, cv_text: str, out_path: str, payload: dict = None, compact_mode: bool = False) -> None:
     doc = Document(template_path)
+
+    # ✅ VERSION ANGLAISE : traduire les titres de section du template
+    language = (payload.get("language") or "fr").lower() if payload else "fr"
+    if language == "en":
+        EN_TITLES = {
+            "FORMATION": "EDUCATION",
+            "EXPÉRIENCES PROFESSIONNELLES": "PROFESSIONAL EXPERIENCE",
+            "EXPÉRIENCES PROFESSIONNELLES": "PROFESSIONAL EXPERIENCE",
+            "COMPÉTENCES & OUTILS": "SKILLS & TOOLS",
+            "ACTIVITÉS & CENTRES D'INTÉRÊT": "ACTIVITIES & INTERESTS",
+        }
+        for p in doc.paragraphs:
+            txt = (p.text or "").strip().upper()
+            for fr_title, en_title in EN_TITLES.items():
+                if txt == fr_title.upper():
+                    for run in p.runs:
+                        run.text = run.text.replace(fr_title, en_title).replace(fr_title.upper(), en_title)
+                    if not p.runs:
+                        p.text = en_title
+                    break
     # spacing appliqué plus bas selon le secteur
 
     # On mesure la longueur du texte pour savoir si on doit "tailler" ou pas.
@@ -5573,6 +5891,13 @@ async def start(payload: Dict[str, Any], request: Request):
     if email in DEV_WHITELIST:
         job_id = await generate_and_store(payload)
         return {"mode": "free", "downloads": make_download_urls(job_id)}
+
+    # ✅ VERSION ANGLAISE = payante (toujours)
+    if (payload.get("language") or "fr").lower() == "en":
+        raise HTTPException(
+            status_code=402,
+            detail="La version anglaise est une fonctionnalité premium. Merci de procéder au paiement."
+        )
 
     current_month = month_key()
 
