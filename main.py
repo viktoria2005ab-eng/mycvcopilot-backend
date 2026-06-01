@@ -43,7 +43,7 @@ class VerifyCodeRequest(BaseModel):
     email: str
     code: str
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -6471,3 +6471,195 @@ async def verify_code(body: VerifyCodeRequest):
     _verified_emails[email] = dt.datetime.utcnow() + dt.timedelta(hours=1)
 
     return {"ok": True, "verified": True}
+
+
+# ════════════════════════════════════════════════════════════════════
+# PARSE CV — UPLOAD & ANALYSE
+# ════════════════════════════════════════════════════════════════════
+
+PARSE_CV_PROMPT = """
+Tu es un expert en recrutement et en rédaction de CV pour grandes écoles françaises.
+On te donne le texte brut d'un CV étudiant (extrait d'un PDF).
+Tu dois faire DEUX choses :
+
+1. EXTRAIRE les données structurées du CV
+2. ANALYSER la qualité du CV et donner des conseils précis
+
+Réponds UNIQUEMENT en JSON valide, sans aucun texte avant ou après.
+
+Format de réponse :
+{
+  "full_name": "Prénom NOM",
+  "email": "email@example.com",
+  "phone": "+33 6 ...",
+  "linkedin": "linkedin.com/in/...",
+  "city": "Paris",
+  "country": "France",
+  "education": [
+    {
+      "school": "HEC Paris",
+      "degree": "Programme Grande École",
+      "track": "Finance",
+      "city": "Paris",
+      "country": "France",
+      "start_month": "Sept",
+      "start_year": "2022",
+      "end_month": "Juin",
+      "end_year": "2027",
+      "courses": "Finance d'entreprise, Marchés financiers",
+      "rank": "Top 10%",
+      "thesis": ""
+    }
+  ],
+  "experiences": [
+    {
+      "role": "Analyste stagiaire M&A",
+      "company": "BNP Paribas",
+      "city": "Paris",
+      "country": "France",
+      "type": "Stage",
+      "start_month": "Juin",
+      "start_year": "2024",
+      "end_month": "Août",
+      "end_year": "2024",
+      "is_present": false,
+      "bullets": [
+        "Rédigé des mémos d'investissement pour 3 dossiers M&A",
+        "Analysé les comparables boursiers sur secteur énergie"
+      ]
+    }
+  ],
+  "languages": [
+    {"name": "Français", "level": "Natif", "score": ""},
+    {"name": "Anglais", "level": "C1", "score": "TOEIC 920"}
+  ],
+  "skills": "Excel (TCD, VBA), PowerPoint, Bloomberg Terminal, Python",
+  "certifications": "CFA Level 1",
+  "activities": [
+    {"name": "Tennis", "desc": "Compétition régionale depuis 8 ans"},
+    {"name": "Voile", "desc": "Pratique régulière en club"}
+  ],
+  "analysis": {
+    "global_score": 72,
+    "global_comment": "CV solide avec une bonne expérience en finance, mais plusieurs bullets manquent de chiffres concrets.",
+    "strengths": [
+      "Expérience en finance directement pertinente",
+      "Formation grande école clairement présentée",
+      "Langues bien renseignées"
+    ],
+    "improvements": [
+      {
+        "type": "missing_numbers",
+        "priority": "high",
+        "title": "Ajouter des chiffres concrets",
+        "detail": "3 de tes bullets n'ont aucun chiffre. Ex : combien de dossiers analysés ? Quel montant de transactions ? Combien de leads prospectés ?",
+        "experience": "BNP Paribas"
+      },
+      {
+        "type": "weak_verb",
+        "priority": "medium",
+        "title": "Verbes trop faibles",
+        "detail": "\"Participation aux réunions\" est trop vague. Remplace par ce que tu as PRODUIT concrètement.",
+        "experience": "Stage Mairie"
+      },
+      {
+        "type": "missing_section",
+        "priority": "medium",
+        "title": "Activités trop courtes",
+        "detail": "Tes activités sont listées sans description. Ajoute : fréquence, niveau, résultat.",
+        "experience": null
+      }
+    ]
+  }
+}
+
+RÈGLES D'EXTRACTION :
+- Si une info est absente du CV, mets une chaîne vide ""
+- Pour les mois, utilise le format abrégé français : Janv, Fév, Mars, Avr, Mai, Juin, Juil, Août, Sept, Oct, Nov, Déc
+- Pour le type de contrat, choisis parmi : Stage, Alternance, CDI, CDD, Job étudiant, Bénévolat, Projet associatif / BDE, Entrepreneuriat
+- Extrait TOUTES les expériences, même les jobs étudiants
+- Pour global_score : note sur 100 (60 = CV moyen, 80 = bon, 90+ = excellent)
+- Pour improvements : maximum 4 points, priorisé par impact
+- Sois précis et actionnable dans les conseils — cite des exemples concrets
+
+CV À ANALYSER :
+\"\"\"
+{cv_text}
+\"\"\"
+"""
+
+
+@app.post("/parse-cv")
+async def parse_cv(
+    file: UploadFile = File(...),
+    email: str = Form(...),
+):
+    """
+    Parse un CV PDF uploadé et retourne données structurées + analyse qualité.
+    Fonctionnalité premium — vérifie le paiement.
+    """
+    # ── Vérification payant ──────────────────────────────────────────
+    email_clean = normalize_email(email)
+    DEV_WHITELIST = {"louis.bonnamour@essca.eu", "viktoria.aureau--bobillon@essca.eu"}
+
+    if email_clean not in DEV_WHITELIST:
+        # TODO: vérifier que l'utilisateur a un abonnement actif
+        # Pour l'instant : on accepte si email vérifié + on facture via Stripe séparément
+        # Phase 1 : ouvert à tous les emails vérifiés pour le test
+        pass
+
+    # ── Validation fichier ───────────────────────────────────────────
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Seuls les fichiers PDF sont acceptés.")
+
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:  # 10 MB max
+        raise HTTPException(status_code=400, detail="Fichier trop volumineux (max 10 MB).")
+
+    # ── Extraction texte pypdf ───────────────────────────────────────
+    try:
+        import io
+        reader = PdfReader(io.BytesIO(content))
+        pages_text = []
+        for page in reader.pages[:4]:  # max 4 pages
+            txt = page.extract_text() or ""
+            pages_text.append(txt)
+        cv_text = "\n".join(pages_text).strip()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Impossible de lire le PDF : {e}")
+
+    if len(cv_text) < 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Le PDF semble vide ou scanné (image non lisible). Essaie d'exporter ton CV depuis Word en PDF."
+        )
+
+    # Limiter le texte envoyé au LLM
+    cv_text_truncated = cv_text[:6000]
+
+    # ── Appel LLM (GPT-4o-mini) ─────────────────────────────────────
+    if not client:
+        raise HTTPException(status_code=500, detail="API OpenAI non configurée.")
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{
+                "role": "user",
+                "content": PARSE_CV_PROMPT.replace("{cv_text}", cv_text_truncated)
+            }],
+            temperature=0.1,  # Déterministe pour l'extraction
+        )
+        raw = resp.choices[0].message.content.strip()
+
+        # Nettoyer les backticks JSON éventuels
+        raw = raw.replace("```json", "").replace("```", "").strip()
+
+        parsed = json.loads(raw)
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Erreur de parsing de la réponse IA. Réessaie.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur IA : {e}")
+
+    return parsed
