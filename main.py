@@ -6663,3 +6663,149 @@ async def parse_cv(
         raise HTTPException(status_code=500, detail=f"Erreur IA : {e}")
 
     return parsed
+
+
+# ════════════════════════════════════════════════════════════════════
+# PARSE LINKEDIN PDF
+# ════════════════════════════════════════════════════════════════════
+
+PARSE_LINKEDIN_PROMPT = """
+Tu es un expert en recrutement. On te donne le texte extrait d'un export PDF LinkedIn.
+Tu dois extraire les données et analyser la qualité du profil.
+
+Réponds UNIQUEMENT en JSON valide, sans texte avant ou après.
+
+{
+  "full_name": "",
+  "headline": "",
+  "email": "",
+  "phone": "",
+  "linkedin": "",
+  "city": "",
+  "country": "",
+  "education": [
+    {
+      "school": "",
+      "degree": "",
+      "track": "",
+      "city": "",
+      "country": "France",
+      "start_month": "",
+      "start_year": "",
+      "end_month": "",
+      "end_year": "",
+      "courses": "",
+      "rank": "",
+      "thesis": ""
+    }
+  ],
+  "experiences": [
+    {
+      "role": "",
+      "company": "",
+      "city": "",
+      "country": "",
+      "type": "Stage",
+      "start_month": "",
+      "start_year": "",
+      "end_month": "",
+      "end_year": "",
+      "is_present": false,
+      "bullets": []
+    }
+  ],
+  "languages": [
+    {"name": "Français", "level": "Natif", "score": ""}
+  ],
+  "skills": "",
+  "certifications": "",
+  "activities": [],
+  "analysis": {
+    "global_score": 0,
+    "global_comment": "",
+    "strengths": [],
+    "improvements": [
+      {
+        "type": "missing_numbers",
+        "priority": "high",
+        "title": "",
+        "detail": "",
+        "experience": ""
+      }
+    ]
+  }
+}
+
+RÈGLES SPÉCIFIQUES LINKEDIN :
+- LinkedIn PDF a une structure spécifique : nom en haut, puis Summary/About, puis Experience, Education, Skills, Languages
+- Les dates LinkedIn sont souvent au format "Jan 2023 – Present" ou "2023 – 2024" → convertis en mois FR abrégés
+- Les descriptions sur LinkedIn sont souvent vagues ou absentes → note-le dans les improvements
+- Pour les bullets : si le profil LinkedIn n'a pas de descriptions détaillées pour une expérience, mets un tableau vide [] et signale-le dans improvements
+- Pour global_score : 50 = profil LinkedIn typique (peu de détails), 70 = bon, 85+ = excellent
+- Improvements prioritaires sur LinkedIn :
+  * Descriptions d'expériences absentes ou trop courtes → high priority
+  * Pas de chiffres concrets → high priority  
+  * Compétences non détaillées → medium
+  * Activités/centres d'intérêt manquants → low
+- Pour le type de contrat, déduis depuis le contexte : "Internship" → "Stage", "Full-time" → "CDI", "Part-time" → "CDD", association → "Bénévolat"
+
+TEXTE LINKEDIN À ANALYSER :
+\"\"\"
+{cv_text}
+\"\"\"
+"""
+
+
+@app.post("/parse-linkedin")
+async def parse_linkedin(
+    file: UploadFile = File(...),
+    email: str = Form(...),
+):
+    """Parse un export PDF LinkedIn et retourne données structurées + analyse."""
+    email_clean = normalize_email(email)
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Seuls les fichiers PDF sont acceptés.")
+
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Fichier trop volumineux (max 10 MB).")
+
+    try:
+        import io
+        reader = PdfReader(io.BytesIO(content))
+        pages_text = []
+        for page in reader.pages[:4]:
+            txt = page.extract_text() or ""
+            pages_text.append(txt)
+        cv_text = "\n".join(pages_text).strip()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Impossible de lire le PDF : {e}")
+
+    if len(cv_text) < 50:
+        raise HTTPException(
+            status_code=400,
+            detail="PDF illisible. Sur LinkedIn : clique sur 'More' → 'Save to PDF' sur ton profil."
+        )
+
+    if not client:
+        raise HTTPException(status_code=500, detail="API OpenAI non configurée.")
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{
+                "role": "user",
+                "content": PARSE_LINKEDIN_PROMPT.replace("{cv_text}", cv_text[:6000])
+            }],
+            temperature=0.1,
+        )
+        raw = resp.choices[0].message.content.strip()
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Erreur de parsing IA. Réessaie.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur IA : {e}")
+
+    return parsed
