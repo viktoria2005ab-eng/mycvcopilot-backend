@@ -51,6 +51,131 @@ import stripe
 import subprocess
 import shutil
 
+import unicodedata
+
+def normalize_email(email: str) -> str:
+    """Normalise email : lowercase + supprime alias +tag (user+test@gmail.com → user@gmail.com)."""
+    if not email:
+        return email
+    email = email.strip().lower()
+    if "@" in email:
+        local, domain = email.split("@", 1)
+        local = local.split("+")[0]
+        email = f"{local}@{domain}"
+    return email
+
+
+def _normalize_for_matching(text: str) -> str:
+    text = text.lower().strip()
+    text = "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
+    text = re.sub(r"['\-–]", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def parse_languages_smart(text: str) -> list:
+    """Parse langues même sans virgules. 'francais natif anglais courant IELTS 8' → liste propre."""
+    if not text:
+        return []
+    if "," in text:
+        return [x.strip() for x in text.split(",") if x.strip()]
+    lang_map = {
+        "francais": "Français", "français": "Français",
+        "anglais": "Anglais", "english": "Anglais",
+        "allemand": "Allemand", "german": "Allemand",
+        "espagnol": "Espagnol", "spanish": "Espagnol",
+        "italien": "Italien", "italian": "Italien",
+        "portugais": "Portugais", "portuguese": "Portugais",
+        "chinois": "Chinois", "chinese": "Chinois",
+        "japonais": "Japonais", "japanese": "Japonais",
+        "arabe": "Arabe", "arabic": "Arabe",
+        "neerlandais": "Néerlandais", "dutch": "Néerlandais",
+    }
+    text_low = text.lower()
+    positions = []
+    for key, canonical in lang_map.items():
+        for m in re.finditer(r"\b" + re.escape(key) + r"\b", text_low):
+            positions.append((m.start(), m.end(), canonical))
+    if not positions:
+        return [text.strip()] if text.strip() else []
+    positions.sort(key=lambda x: x[0])
+    seen = set()
+    unique = []
+    for p in positions:
+        if p[2] not in seen:
+            seen.add(p[2])
+            unique.append(p)
+    positions = unique
+    segments = []
+    for i, (start, end, canonical) in enumerate(positions):
+        next_start = positions[i+1][0] if i+1 < len(positions) else len(text)
+        suffix = text[end:next_start].strip().lstrip(":–- ,")
+        test_match = re.search(r"(TOEIC|TOEFL|IELTS|DELF|DALF|Cambridge|HSK)\s*[:\s]?\s*(\d+[\.,]?\d*)", suffix, re.IGNORECASE)
+        if test_match:
+            score = test_match.group(0).strip()
+            level = re.sub(r"(TOEIC|TOEFL|IELTS|DELF|DALF|Cambridge|HSK)\s*[:\s]?\s*(\d+[\.,]?\d*)", "", suffix, flags=re.IGNORECASE).strip().strip(",-")
+            full = f"{canonical} {level} ({score})".strip() if level else f"{canonical} ({score})"
+        else:
+            full = f"{canonical} {suffix}".strip() if suffix else canonical
+            full = re.sub(r"\s+(b1|b2|c1|c2|a1|a2)\b", lambda m: f" ({m.group(1).upper()})", full, flags=re.IGNORECASE)
+        segments.append(full)
+    return segments
+
+
+def _clean_user_annotation(text: str) -> str:
+    """Supprime annotations personnelles dans les champs skills/certifications."""
+    if not text:
+        return text
+    patterns = [
+        r"\bje (prépare|prepare|fais|me débrouille|me debrouille)[^,;.]*",
+        r"\bpas (encore|super|très|tres|trop)[^,;.]*",
+        r"\ben (cours|préparation|preparation)[^,;.]*",
+        r"\baussi\b[^,;.]*",
+        r"\bun peu\b[^,;.]*",
+        r"\\bmais (je|j)[^,;.]*",
+    ]
+    for pat in patterns:
+        text = re.sub(pat, "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*,\s*,", ",", text)
+    text = re.sub(r",\s*$", "", text.strip())
+    return text.strip()
+
+
+async def verify_turnstile(token: str, ip: str = "") -> bool:
+    """Vérifie un token Cloudflare Turnstile. Bypass si TURNSTILE_SECRET_KEY non configuré."""
+    TURNSTILE_SECRET = os.getenv("TURNSTILE_SECRET_KEY", "")
+    if not TURNSTILE_SECRET:
+        return True
+    if not token:
+        return False
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            resp = await c.post(
+                "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+                data={"secret": TURNSTILE_SECRET, "response": token, "remoteip": ip},
+            )
+            return bool(resp.json().get("success"))
+    except Exception:
+        return True
+
+
+def validate_skills_completeness(skills_line: str, payload: dict) -> str:
+    """S'assure qu'Excel/PowerPoint du payload ne disparaissent pas du CV."""
+    if not skills_line:
+        return skills_line
+    raw_skills = (payload.get("skills") or "").lower()
+    skills_lower = skills_line.lower()
+    CRITICAL = {"excel": "Excel", "powerpoint": "PowerPoint", "word": "Word"}
+    missing = [label for key, label in CRITICAL.items() if key in raw_skills and key not in skills_lower]
+    if missing and "Maîtrise des logiciels :" in skills_line:
+        skills_line = skills_line.replace(
+            "Maîtrise des logiciels :",
+            "Maîtrise des logiciels : " + ", ".join(missing) + ","
+        )
+    return skills_line
+
+
 from openai import OpenAI
 from docx import Document
 from docx.oxml import OxmlElement
