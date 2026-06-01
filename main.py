@@ -3,7 +3,6 @@ import re
 import uuid
 import asyncio
 import datetime as dt
-import unicodedata
 from typing import Optional, Dict, Any
 import glob 
 import json
@@ -39,7 +38,6 @@ from pydantic import BaseModel
 
 class EmailRequest(BaseModel):
     email: str
-    turnstile_token: str = ""  # Cloudflare Turnstile CAPTCHA token
 
 class VerifyCodeRequest(BaseModel):
     email: str
@@ -63,52 +61,10 @@ STRIPE_SECRET = os.getenv("STRIPE_SECRET") or os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 PUBLIC_BASE_DOWNLOAD = os.getenv("PUBLIC_BASE_DOWNLOAD", "")  # ex: https://mycvcopilote-api.onrender.com/download
-TURNSTILE_SECRET = os.getenv("TURNSTILE_SECRET_KEY", "")  # Cloudflare Turnstile
 
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 from pypdf import PdfReader
-
-def normalize_email(email: str) -> str:
-    """
-    Normalise un email :
-    - lowercase
-    - supprime les alias Gmail/Outlook (partie après +)
-      ex: user+alias@gmail.com → user@gmail.com
-    """
-    if not email:
-        return email
-    email = email.strip().lower()
-    if "@" in email:
-        local, domain = email.split("@", 1)
-        # Supprimer le sous-adressage (+ alias) pour Gmail, Outlook, etc.
-        local = local.split("+")[0]
-        email = f"{local}@{domain}"
-    return email
-
-
-async def verify_turnstile(token: str, ip: str = "") -> bool:
-    """
-    Vérifie un token Cloudflare Turnstile côté serveur.
-    Retourne True si valide, False sinon.
-    Si TURNSTILE_SECRET_KEY n'est pas configuré → bypass (mode dev).
-    """
-    if not TURNSTILE_SECRET:
-        return True  # Bypass si pas configuré
-    if not token:
-        return False
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=5.0) as c:
-            resp = await c.post(
-                "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-                data={"secret": TURNSTILE_SECRET, "response": token, "remoteip": ip},
-            )
-            data = resp.json()
-            return bool(data.get("success"))
-    except Exception:
-        return True  # En cas d'erreur réseau, on laisse passer
-
 
 def strip_padding(text: str, is_activity: bool = False) -> str:
     """
@@ -135,10 +91,6 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
         r";\s*\w[\w\s]*acquise?\.?$",
         r";\s*\w[\w\s]*renforcée?\.?$",
         r";\s*[^;.]{3,40}développée?\.?$",
-        r",\s+favorisant (des|le|la|les|un|une) [^.]*",
-        r",\s+permettant (des|le|la|les|un|une) [^.]*",
-        r",\s+renforçant (la|le|les) [^.]*",
-        r",\s+contrastant avec [^.]*",
     ]
 
     # Patterns supplémentaires pour les activités - SEULEMENT après virgule
@@ -146,35 +98,13 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
         r",\s+(développant|renforçant|favorisant|cultivant|enrichissant"
         r"|améliorant|acquérant|permettant de développer|favorisant le développement de"
         r"|approfondissant ainsi|démontrant une|mettant en avant|engagement continu sur"
-        r"|développement significatif de|élargissant|stimulant"
-        r"|favoriser l'esprit d'équipe|favorisant l'esprit d'équipe"
-        r"|développement de compétences en|amélioration des compétences"
-        r"|enrichissement des connaissances|développement de la confiance"
-        r"|pour le bien-être personnel|pour maintenir le bien-être"
-        r"|pour le travail d'équipe|et la stratégie"
-        r"|exploration de différents domaines|approfondissement des connaissances"
-        r"|pour acquisition de compétences|pour enrichir les compétences"
-        r"|pour enrichir ses compétences|pour acquérir des compétences"
-        r"|pour garantir le bon déroulement|pour assurer le bon déroulement"
-        r"|pour approfondir les connaissances|pour développer les compétences"
-        r"|pour renforcer les capacités|pour approfondir sa connaissance"
-        r"|participations? régulières?|participations? actives?"
-        r"|impliqué dans divers projets|impliqué dans différents projets"
-        r"|ce qui renforce|ce qui stimule|ce qui développe|ce qui favorise)[^.]*",
-        r"\s+pour (acquérir|enrichir|développer|renforcer|approfondir) [^.]*(?=\.)",
-        r",\s+développe (des compétences|le leadership|l'esprit)[^.]*",
-        r",\s+suivi (des tendances|régulier|actif)[^.]*",
+        r"|développement significatif de|élargissant|stimulant)[^.]*",
     ]
 
     patterns = BULLET_PADDING + (ACTIVITY_PADDING if is_activity else [])
 
     for pattern in patterns:
-        before_strip = text
         text = re.sub(pattern, "", text, flags=re.IGNORECASE)
-        # ✅ Si le strip laisse moins de 8 mots, restaurer le texte original
-        # (mieux vaut garder du contenu imparfait qu'une activité vide)
-        if is_activity and len(text.strip().split()) < 8 and len(before_strip.strip().split()) >= 8:
-            text = before_strip
 
     # Nettoyer la ponctuation résiduelle
     text = re.sub(r"\s*,\s*$", "", text)
@@ -377,34 +307,7 @@ def normalize_role_text(role: str) -> str:
         "stagaire": "Stagiaire",
     }
 
-    # ✅ Rôles trop abrégés que le LLM génère parfois
-    role_expansions = {
-        r"^m&a$": "Stagiaire M&A",
-        r"^finance$": "Stagiaire Finance",
-        r"^comptabilité$": "Stagiaire Comptabilité",
-        r"^marketing$": "Stagiaire Marketing",
-        r"^rh$": "Stagiaire Ressources Humaines",
-        r"^juridique$": "Stagiaire Juridique",
-        r"^audit$": "Stagiaire Auditeur",
-        r"^commercial$": "Chargé de mission commercial",
-        r"^communication$": "Chargé de communication",
-        r"^contrôle de gestion$": "Stagiaire Contrôle de Gestion",
-        r"^controle de gestion$": "Stagiaire Contrôle de Gestion",
-        r"^private equity$": "Stagiaire Private Equity",
-        r"^développement$": "Chargé de développement",
-        r"^developpement$": "Chargé de développement",
-        r"^it$": "Stagiaire IT",
-        r"^conseil$": "Consultant stagiaire",
-        r"^supply chain$": "Stagiaire Supply Chain",
-        r"^data$": "Stagiaire Data",
-        r"^achats$": "Stagiaire Achats",
-    }
-
     low = role.strip().lower()
-    for pattern, replacement in role_expansions.items():
-        if re.match(pattern, low):
-            return replacement
-
     if low in fixes:
         return fixes[low]
 
@@ -417,15 +320,10 @@ def has_all_sections(cv_text: str) -> bool:
     t = (cv_text or "")
     return all(sec in t for sec in REQUIRED_SECTIONS)
 
-def safe_apply_llm_edit(old_text: str, new_text: str, payload: dict = None, allow_drop_exp: bool = False) -> str:
+def safe_apply_llm_edit(old_text: str, new_text: str, payload: dict = None) -> str:
     new_clean = clean_cv_output(new_text)
     if not has_all_sections(new_clean):
         return old_text
-    if not allow_drop_exp:
-        old_role_count = old_text.count("\nROLE:")
-        new_role_count = new_clean.count("\nROLE:")
-        if new_role_count < old_role_count:
-            return old_text
     new_clean = apply_strip_padding_to_cv(new_clean)
     return new_clean
 
@@ -451,46 +349,41 @@ def pdf_fill_ratio_first_page(pdf_path: str) -> float:
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     n = len(lines)
 
-    # Calibrage recalibré sur 1cm marges, police 11pt, tableaux 2 colonnes
-    # 22 lignes → 0.55 (CV très vide)
-    # 45 lignes → 0.80 (CV moyen)
-    # 60 lignes → 0.92 (CV bien rempli)
-    # 68 lignes → 0.97 (CV pleine page)
+    # calibrage simple
     if n <= 22:
-        return 0.55
-    if n >= 68:
-        return 0.97
-    return 0.55 + (n - 22) * (0.42 / (68 - 22))
+        return 0.60
+    if n >= 55:
+        return 0.95
+    return 0.60 + (n - 22) * (0.35 / (55 - 22))
 
 def llm_shrink_cv(cv_text: str) -> str:
     if not client:
         return cv_text
 
-    # Count experiences to include in prompt
-    exp_count = cv_text.count("\nROLE:")
-
     prompt = f"""
-Tu dois rendre ce CV LÉGÈREMENT PLUS COURT pour tenir sur 1 page Word, SANS le casser.
-Ce CV a {exp_count} expériences. Tu dois TOUTES les conserver.
-
-Stratégie UNIQUE de réduction (dans cet ordre) :
-1) Raccourcir les bullets (1-2 lignes au lieu de 2-3), en gardant les chiffres et faits clés
-2) Limiter à 2 bullets les expériences secondaires (ancienne, courte, non liée au secteur)
-3) Réduire DETAILS dans EDUCATION à 1-2 lignes max par diplôme
-NE JAMAIS aller plus loin — ne jamais supprimer une expérience entière.
+Tu dois rendre ce CV PLUS COURT pour tenir sur 1 page Word, SANS le casser.
 
 Règles ABSOLUES :
 - Tu gardes exactement les sections : EDUCATION:, EXPERIENCES:, SKILLS:, ACTIVITIES:
-- Tu conserves EXACTEMENT le format structuré de chaque expérience : ROLE:, COMPANY:, DATES:, LOCATION:, TYPE:, BULLETS: sur des lignes séparées.
-- Tu ne supprimes JAMAIS une expérience entière — chaque ROLE: doit rester présent.
+- Tu conserves EXACTEMENT le format structuré de chaque expérience : ROLE:, COMPANY:, DATES:, LOCATION:, TYPE:, BULLETS: sur des lignes séparées. Tu ne fusionnes JAMAIS ces champs en une seule ligne.
 - Tu ne rajoutes AUCUN commentaire ni phrase méta.
-- Tu n'inventes rien.
-- INTERDIT ABSOLU : chaque bullet doit faire au minimum 8 mots et conserver tous les chiffres et faits précis.
-- INTERDIT ABSOLU : chaque activité doit faire au minimum 8 mots.
-- INTERDIT ABSOLU : ne jamais écrire un bullet à l'infinitif. Tout bullet commence par un verbe conjugué au passé composé.
-- INTERDIT ABSOLU : ne jamais fusionner deux bullets en un seul.
+- Tu ne coupes JAMAIS une phrase.
+- Tu n'utilises JAMAIS "..." ni de guillemets triples.
+- Tu n'inventes rien : pas de nouvelles missions, chiffres, outils.
+- Tu peux uniquement :
+  1) raccourcir les bullets (phrases plus directes),
+  2) réduire DETAILS dans EDUCATION (1-2 lignes max par diplôme),
+  3) ne pas toucher aux activités, les conserver telles quelles dans le CV,
+  4) limiter à 2 bullets les expériences secondaires (garder 3 bullets pour l'expérience la plus pertinente).
+- INTERDIT ABSOLU : tu ne supprimes JAMAIS une expérience entière. Toutes les expériences doivent rester présentes.
+- INTERDIT ABSOLU : chaque bullet doit faire au minimum 8 mots et conserver tous les chiffres et faits précis (600+, 9 100 euros, 12%, 20 000 euros, etc.). Tu ne rends jamais un bullet vague ou générique.
+- INTERDIT ABSOLU : dans les activités, tu conserves TOUS les faits précis : années (depuis 10 ans), nombres de pays (13 pays), noms d'événements, fréquences. Tu ne supprimes jamais ces informations.
+- INTERDIT ABSOLU : tu ne fusionnes JAMAIS deux bullets en un seul. Chaque bullet reste séparé.
+- INTERDIT ABSOLU : chaque activité doit faire au minimum 8 mots. Tu ne coupes jamais une activité à moins de 8 mots.
+- INTERDIT ABSOLU : tu ne laisses jamais un fragment de phrase sans verbe principal. Si une phrase est incomplète après raccourcissement, tu la complètes ou tu la supprimes entièrement.
+- INTERDIT ABSOLU : tu ne supprimes JAMAIS une activité si elle est déjà en 1 ligne.
+- Tu peux reformuler et enrichir une expérience existante mais tu ne dois jamais inventer une nouvelle activité, un projet, une mission ou un événement.
 
-Format ACTIVITIES : 1 activité par ligne, sans puce, forme "Activité : description courte."
 Sortie : UNIQUEMENT le CV complet.
 
 CV :
@@ -566,11 +459,6 @@ Style :
 - factuel
 - professionnel
 
-
-RÈGLE LONGUEUR BULLETS : Chaque bullet doit faire entre 20 et 40 mots (environ 1,5 à 2 lignes dans Word). Un bullet trop court (< 15 mots) est insuffisant — enrichis-le avec le contexte, le périmètre ou la méthode utilisée, sans inventer de chiffres.
-RÈGLE ACTIVITÉS : Chaque activité doit faire 10-20 mots minimum. Ne jamais laisser une activité en 1-2 mots seuls.
-
-Format ACTIVITIES : 1 activité par ligne, sans puce, forme "Activité : description courte."
 Sortie : UNIQUEMENT le CV complet.
 
 CV :
@@ -607,9 +495,7 @@ Interdictions :
 - pas de faux bénéfice,
 - pas d’optimisation inventée,
 - pas de précision artificielle.
-- INTERDIT ABSOLU : ne jamais écrire un bullet à l'infinitif (ex : "Analyser", "Rédiger", "Coordonner" seul). Tout bullet commence OBLIGATOIREMENT par un verbe conjugué au passé composé (ex : Réalisé, Coordonné, Piloté, Rédigé, Développé, Géré, Obtenu, Analysé, Structuré, Négocié).
 - INTERDIT ABSOLU : ne jamais terminer un bullet par une phrase participiale inventée ("assurant", "contribuant à", "favorisant", "permettant", "garantissant", "renforçant").
-- INTERDIT ABSOLU : ne jamais écrire un bullet à l'infinitif. Tout bullet commence par un verbe conjugué au passé composé (Réalisé, Coordonné, Piloté, Géré, Développé, Analysé, Structuré, Négocié...).
 - INTERDIT ABSOLU : ne jamais laisser un fragment de phrase sans verbe principal.
 
 Style :
@@ -619,11 +505,6 @@ Style :
 - professionnel
 - légèrement valorisant
 
-
-RÈGLE LONGUEUR BULLETS : Chaque bullet doit faire entre 20 et 40 mots (environ 1,5 à 2 lignes dans Word). Un bullet trop court (< 15 mots) est insuffisant — enrichis-le avec le contexte, le périmètre ou la méthode utilisée, sans inventer de chiffres.
-RÈGLE ACTIVITÉS : Chaque activité doit faire 10-20 mots minimum. Ne jamais laisser une activité en 1-2 mots seuls.
-
-Format ACTIVITIES : 1 activité par ligne, sans puce, forme "Activité : description courte."
 Sortie : UNIQUEMENT le CV complet.
 
 CV :
@@ -662,9 +543,7 @@ Interdictions :
 - pas de pilotage inventé,
 - pas de jargon type “impact”, “efficacité”, “maximiser”, “haute qualité”, “coordination efficace” si cela sonne artificiel,
 - pas de précision fictive.
-- INTERDIT ABSOLU : ne jamais écrire un bullet à l'infinitif (ex : "Analyser", "Rédiger", "Coordonner" seul). Tout bullet commence OBLIGATOIREMENT par un verbe conjugué au passé composé (ex : Réalisé, Coordonné, Piloté, Rédigé, Développé, Géré, Obtenu, Analysé, Structuré, Négocié).
 - INTERDIT ABSOLU : ne jamais terminer un bullet par une phrase participiale inventée ("assurant", "contribuant à", "favorisant", "permettant", "renforçant", "maximisant").
-- INTERDIT ABSOLU : ne jamais écrire un bullet à l'infinitif. Tout bullet commence par un verbe conjugué au passé composé (Réalisé, Coordonné, Piloté, Géré, Développé, Analysé, Structuré, Négocié...).
 - INTERDIT ABSOLU : ne jamais laisser un fragment de phrase sans verbe principal.
 
 Style :
@@ -675,11 +554,6 @@ Style :
 - simple
 - pas de bullshit consulting
 
-
-RÈGLE LONGUEUR BULLETS : Chaque bullet doit faire entre 20 et 40 mots (environ 1,5 à 2 lignes dans Word). Un bullet trop court (< 15 mots) est insuffisant — enrichis-le avec le contexte, le périmètre ou la méthode utilisée, sans inventer de chiffres.
-RÈGLE ACTIVITÉS : Chaque activité doit faire 10-20 mots minimum. Ne jamais laisser une activité en 1-2 mots seuls.
-
-Format ACTIVITIES : 1 activité par ligne, sans puce, forme "Activité : description courte."
 Sortie : UNIQUEMENT le CV complet.
 
 CV :
@@ -694,30 +568,6 @@ CV :
 # --- MVP "DB" en mémoire (à remplacer par Postgres plus tard)
 # quota[email] = "YYYY-MM" (mois où le gratuit a été consommé)
 quota: Dict[str, str] = {}
-
-# ── Rate limiting par IP ──────────────────────────────────────────────────────
-# Structure : { ip: [(timestamp, endpoint), ...] }
-_ip_hits: Dict[str, list] = {}
-_ip_lock = __import__("threading").Lock()
-
-def _check_ip_rate_limit(ip: str, endpoint: str, max_hits: int, window_seconds: int) -> bool:
-    """
-    Retourne True si la requête est autorisée, False si le rate limit est atteint.
-    Fenêtre glissante simple en mémoire.
-    """
-    now = __import__("time").time()
-    with _ip_lock:
-        hits = _ip_hits.get(ip, [])
-        # Nettoyer les hits hors fenêtre
-        hits = [(t, ep) for t, ep in hits if now - t < window_seconds]
-        # Compter uniquement les hits pour cet endpoint
-        count = sum(1 for t, ep in hits if ep == endpoint)
-        if count >= max_hits:
-            _ip_hits[ip] = hits
-            return False
-        hits.append((now, endpoint))
-        _ip_hits[ip] = hits
-        return True
 # jobs[job_id] = {"docx_path":..., "pdf_path":...}
 jobs: Dict[str, Dict[str, str]] = {}
 
@@ -819,282 +669,6 @@ def build_cv_filename(payload: Dict[str, Any]) -> str:
         return f"CV-{family_name}-{company_clean}"
     return f"CV-{family_name}"
 
-
-# ════════════════════════════════════════════════════════════════════
-# SYSTÈME D'ADAPTATION À L'OFFRE — EXTRACTION ET VÉRIFICATION
-# ════════════════════════════════════════════════════════════════════
-
-# Vocabulaire sectoriel : termes multi-mots prioritaires à extraire
-SECTOR_VOCAB = {
-    "finance": [
-        "modélisation financière", "modélisation lbo", "lbo", "dcf", "leveraged buyout",
-        "due diligence", "due-diligence", "data room", "pitch book", "pitchbook",
-        "m&a", "fusions acquisitions", "private equity", "venture capital",
-        "equity research", "analyse financière", "analyse sectorielle",
-        "valorisation", "multiple d'entrée", "taux de rendement",
-        "reporting financier", "budget prévisionnel", "prévisionnel financier",
-        "trésorerie", "cash flow", "bilan", "compte de résultat",
-        "bloomberg terminal", "bloomberg", "factset", "capital iq",
-        "excel avancé", "vba", "macros", "tableaux croisés dynamiques", "tcd",
-        "python", "sql", "power bi", "crm",
-        "anglais courant", "anglais professionnel", "anglais bilingue",
-        "suivi de portefeuille", "analyse de portefeuille",
-        "sourcing", "deal flow", "term sheet", "cap table",
-        "compliance", "kyc", "aml", "conformité",
-        "banque d'investissement", "cib", "corporate finance",
-        "contrôle de gestion", "fp&a", "consolidation", "ifrs",
-        "actifs sous gestion", "aum", "fund accounting",
-        "investissement responsable", "esg",
-    ],
-    "audit": [
-        "commissariat aux comptes", "cac", "audit légal", "audit contractuel",
-        "contrôle interne", "tests substantifs", "tests analytiques",
-        "circularisation", "feuilles de travail", "dossier permanent", "dossier annuel",
-        "ifrs", "normes ifrs", "pcg", "normes isa", "normes d'audit",
-        "clôture annuelle", "clôture mensuelle", "reforecast",
-        "liasse fiscale", "déclaration tva", "tva",
-        "auditsoft", "caseware", "drgm", "sage", "coala",
-        "big 4", "deloitte", "pwc", "kpmg", "ey", "bdo", "mazars",
-        "rigueur", "précision", "fiabilité", "esprit d'analyse",
-        "excel avancé", "vba", "tableaux de bord",
-        "risk management", "risque opérationnel",
-        "rapport d'audit", "recommandations", "points de contrôle",
-        "comptabilité générale", "comptabilité analytique",
-    ],
-    "management": [
-        "gestion de projet", "project management", "agile", "scrum",
-        "management d'équipe", "leadership", "coordination",
-        "stratégie", "analyse stratégique", "business plan", "business case",
-        "benchmark", "analyse de marché", "étude de marché",
-        "powerpoint", "présentation", "pitching",
-        "crm", "salesforce", "hubspot",
-        "marketing digital", "seo", "sem", "réseaux sociaux",
-        "kpi", "indicateurs de performance", "tableau de bord",
-        "supply chain", "logistique", "opérations",
-        "relation client", "customer success", "b2b", "b2c",
-        "change management", "conduite du changement",
-        "excel", "power bi", "notion", "trello", "jira",
-        "conseil", "consulting", "mckinsey", "bcg", "bain",
-    ],
-    "droit": [
-        "droit des sociétés", "droit des affaires", "droit social",
-        "droit des contrats", "droit fiscal", "droit commercial",
-        "rédaction d'actes", "rédaction juridique",
-        "recherche jurisprudentielle", "jurisprudence",
-        "dalloz", "lexis360", "village justice",
-        "contentieux", "arbitrage", "médiation",
-        "assemblée générale", "augmentation de capital", "cession",
-        "sas", "sarl", "sa", "statuts",
-        "due diligence juridique", "audit juridique",
-        "propriété intellectuelle", "marques", "brevets",
-        "rgpd", "protection des données",
-        "fusions acquisitions", "m&a",
-        "droit pénal des affaires", "compliance",
-        "mémoire", "master", "master 2", "m2",
-    ],
-}
-
-FRENCH_STOP_WORDS = {
-    "le", "la", "les", "un", "une", "des", "du", "de", "d", "l",
-    "et", "ou", "mais", "donc", "or", "ni", "car",
-    "que", "qui", "quoi", "dont", "où",
-    "je", "tu", "il", "elle", "nous", "vous", "ils", "elles",
-    "ce", "cet", "cette", "ces", "mon", "ton", "son", "nos", "vos", "leurs",
-    "dans", "sur", "sous", "avec", "sans", "pour", "par", "en", "à", "au", "aux",
-    "est", "sont", "sera", "seront", "être", "avoir", "faire",
-    "plus", "très", "bien", "aussi", "même", "tout", "tous",
-    "si", "se", "sa", "lui", "leur",
-    "cas", "type", "mise", "lors", "afin",
-    "notamment", "notamment", "ainsi", "donc",
-    "votre", "notre", "leurs", "vos",
-    "the", "and", "or", "of", "in", "to", "a", "an", "for", "on", "with",
-}
-
-def _normalize_for_matching(text: str) -> str:
-    """Normalise un texte pour la comparaison (lowercase, accents, ponctuations)."""
-    import unicodedata
-    text = text.lower().strip()
-    # Supprimer les accents
-    text = "".join(
-        c for c in unicodedata.normalize("NFD", text)
-        if unicodedata.category(c) != "Mn"
-    )
-    # Normaliser la ponctuation
-    text = re.sub(r"['\-–]", " ", text)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
-
-
-def _term_in_text(term: str, text_normalized: str) -> bool:
-    """Vérifie si un terme (ou une variante proche) est dans le texte normalisé."""
-    term_n = _normalize_for_matching(term)
-    if not term_n:
-        return False
-    # Match exact
-    if term_n in text_normalized:
-        return True
-    # Match avec dérivés courants (pluriel, conjugaison)
-    # Ex: "modélisation" → "modelis" (stem de 7 chars)
-    if len(term_n) >= 6:
-        stem = term_n[:max(5, len(term_n) - 3)]
-        if stem in text_normalized:
-            return True
-    return False
-
-
-def build_keyword_mapping(
-    job_posting: str,
-    raw_experiences: str,
-    raw_education: str,
-    raw_skills: str,
-    sector: str,
-) -> dict:
-    """
-    Extrait les mots-clés de l'offre et les mappe sur le profil réel de l'utilisateur.
-    
-    Retourne:
-    {
-        "applicable": [(term, reason), ...],   # termes validés dans le profil
-        "absent": [term, ...],                  # termes absents du profil (à ne pas inventer)
-        "sector_terms": [...],                  # termes sectoriels extraits de l'offre
-    }
-    """
-    if not job_posting or not job_posting.strip():
-        return {"applicable": [], "absent": [], "sector_terms": []}
-
-    # Contenu réel de l'utilisateur (tout normalisé)
-    user_raw = f"{raw_experiences} {raw_education} {raw_skills}"
-    user_norm = _normalize_for_matching(user_raw)
-
-    # Déterminer le vocabulaire sectoriel à utiliser
-    sector_low = sector.lower()
-    if any(s in sector_low for s in ["finance", "banque", "private equity", "audit"]):
-        vocab = SECTOR_VOCAB.get("finance", []) + SECTOR_VOCAB.get("audit", [])
-    elif "audit" in sector_low:
-        vocab = SECTOR_VOCAB.get("audit", [])
-    elif any(s in sector_low for s in ["management", "stratégique", "conseil", "marketing"]):
-        vocab = SECTOR_VOCAB.get("management", [])
-    elif "droit" in sector_low or "juridique" in sector_low:
-        vocab = SECTOR_VOCAB.get("droit", [])
-    else:
-        vocab = SECTOR_VOCAB.get("finance", [])
-
-    job_norm = _normalize_for_matching(job_posting)
-
-    # Étape 1 : termes du vocabulaire sectoriel présents dans l'offre
-    sector_terms_in_offer = []
-    for term in vocab:
-        if _term_in_text(term, job_norm):
-            sector_terms_in_offer.append(term)
-
-    # Étape 2 : extraction de termes libres depuis l'offre (mots significatifs)
-    # Bigrams et trigrams de l'offre
-    offer_words = [w for w in re.split(r"[\s,;.()\[\]]+", job_posting.lower()) if w]
-    offer_significant = []
-    for w in offer_words:
-        w_clean = _normalize_for_matching(w)
-        if len(w_clean) >= 5 and w_clean not in FRENCH_STOP_WORDS:
-            offer_significant.append(w_clean)
-
-    # Bigrams significatifs de l'offre
-    bigrams = []
-    for i in range(len(offer_words) - 1):
-        bg = _normalize_for_matching(f"{offer_words[i]} {offer_words[i+1]}")
-        if len(bg) >= 8 and not any(sw in bg.split() for sw in list(FRENCH_STOP_WORDS)[:20]):
-            bigrams.append(bg)
-
-    all_candidates = list(set(sector_terms_in_offer + offer_significant[:30] + bigrams[:20]))
-
-    # Étape 3 : mapper sur le profil utilisateur
-    applicable = []
-    absent = []
-
-    for term in all_candidates:
-        if len(term) < 3:
-            continue
-        in_profile = _term_in_text(term, user_norm)
-
-        # Déterminer la raison de l'applicabilité
-        if in_profile:
-            # Trouver où dans le profil
-            user_norm_snippet = ""
-            for chunk in user_norm.split("."):
-                if _term_in_text(term, chunk):
-                    user_norm_snippet = chunk.strip()[:80]
-                    break
-            applicable.append((term, user_norm_snippet))
-        else:
-            # Terme dans l'offre mais PAS dans le profil
-            # Ne marquer absent que si c'est un terme technique précis (pas un mot générique)
-            if len(term) >= 6 and term not in FRENCH_STOP_WORDS:
-                absent.append(term)
-
-    # Trier par longueur décroissante (les termes les plus spécifiques en premier)
-    applicable.sort(key=lambda x: len(x[0]), reverse=True)
-    absent = sorted(set(absent), key=len, reverse=True)
-
-    # Limiter pour ne pas surcharger le prompt
-    applicable = applicable[:20]
-    absent = absent[:15]
-
-    return {
-        "applicable": applicable,
-        "absent": absent,
-        "sector_terms": sector_terms_in_offer[:10],
-    }
-
-
-def build_keyword_injection(mapping: dict) -> str:
-    """
-    Génère le bloc d'instruction à injecter dans le prompt de génération.
-    Version renforcée : exemples concrets de transformation + instruction impérative.
-    """
-    if not mapping["applicable"] and not mapping["absent"]:
-        return ""
-
-    applicable = mapping["applicable"]
-    absent = mapping["absent"]
-
-    lines = []
-    lines.append("")
-    lines.append("╔══════════════════════════════════════════════════════════════╗")
-    lines.append("║         ADAPTATION OBLIGATOIRE À L'OFFRE D'EMPLOI          ║")
-    lines.append("╚══════════════════════════════════════════════════════════════╝")
-    lines.append("")
-    lines.append("Le système a vérifié les mots-clés de l'offre contre le profil réel.")
-    lines.append("Tu DOIS appliquer les règles suivantes AVANT de rédiger les bullets.")
-    lines.append("")
-
-    if applicable:
-        lines.append("✅ TERMES VÉRIFIÉS — UTILISE-LES OBLIGATOIREMENT dans les bullets :")
-        lines.append("   (Ces termes sont dans l'offre ET dans le profil réel du candidat)")
-        lines.append("")
-        for term, ctx in applicable[:12]:
-            lines.append(f"   → \"{term}\"")
-        lines.append("")
-        lines.append("   MÉTHODE : Pour chaque expérience, si un terme ci-dessus décrit")
-        lines.append("   ce que le candidat a fait → remplace le vocabulaire générique par")
-        lines.append("   ce terme exact. Exemples :")
-        lines.append("   • \"modélisation financière\" → \"modélisation LBO et DCF\"")
-        lines.append("   • \"note pour le comité\" → \"mémo d'investissement\"")
-        lines.append("   • \"tests\" → \"tests de contrôle interne et tests substantifs\"")
-        lines.append("   • \"vérification documents\" → \"circularisation créances clients\"")
-        lines.append("")
-
-    if absent:
-        lines.append("❌ TERMES INTERDITS — ABSENTS du profil, ne jamais les inventer :")
-        for term in absent[:8]:
-            lines.append(f"   ✗ \"{term}\"")
-        lines.append("")
-
-    lines.append("LONGUEUR BULLETS : Chaque bullet = 20-35 mots minimum (1,5 lignes)")
-    lines.append("VERBES : Passé composé OBLIGATOIRE (Réalisé, Développé, Coordonné...)")
-    lines.append("╚═══════════════════════════════════════════════════════════════╝")
-    lines.append("")
-
-    return "\n".join(lines)
-
-
 def build_prompt(payload: Dict[str, Any]) -> str:
     return f"""
 Tu es un expert en recrutement.
@@ -1173,20 +747,6 @@ IMPORTANT :
 """
     
 def build_prompt_finance(payload: Dict[str, Any]) -> str:
-    # Construire le mapping mots-clés offre ↔ profil réel
-    _exp_anchor = build_mandatory_experience_anchor(payload)
-    _exp_anchor = build_mandatory_experience_anchor(payload)
-    _exp_anchor = build_mandatory_experience_anchor(payload)
-    _exp_anchor = build_mandatory_experience_anchor(payload)
-    _kw_map = build_keyword_mapping(
-        job_posting=payload.get("job_posting", ""),
-        raw_experiences=payload.get("experiences", ""),
-        raw_education=payload.get("education", ""),
-        raw_skills=payload.get("skills", ""),
-        sector=payload.get("sector", "finance"),
-    )
-    _kw_injection = build_keyword_injection(_kw_map)
-
     return f"""
 Tu es un ancien recruteur en banque d’investissement et en Big 4.
 Tu sélectionnes uniquement les 10% meilleurs profils étudiants.
@@ -1203,8 +763,6 @@ Le CV doit être adapté :
 
 OFFRE D’EMPLOI :
 \"\"\"{payload["job_posting"]}\"\"\"
-{_exp_anchor}
-{_kw_injection}
 
 RÈGLES :
 - 1 page maximum (ABSOLUMENT aucune 2e page).
@@ -1222,7 +780,6 @@ RÈGLES :
 - Si le contenu commence à être trop long pour tenir sur une page, tu SUPPRIMES d’abord les expériences les moins pertinentes (jobs étudiants génériques) et tu raccourcis les bullets les moins importantes.
 - Le CV doit être rédigé intégralement en français (même si l’offre ou les intitulés sont en anglais).
 - Tous les bullet points doivent être écrits en français.
-- LONGUEUR BULLETS : chaque bullet doit faire 20 à 35 mots (environ 1,5 ligne). Un bullet court (< 15 mots) = insuffisant. Enrichis avec le contexte, le périmètre, la méthode.
 - prioriser ces verbes : analyser, évaluer, structurer, modéliser, préparer, synthétiser, présenter, suivre
 - éviter ces verbes: aider, assister, participer, contribuer
 
@@ -1456,15 +1013,6 @@ Génère uniquement le CV structuré.
 """
 
 def build_prompt_audit(payload: Dict[str, Any]) -> str:
-    _kw_map = build_keyword_mapping(
-        job_posting=payload.get("job_posting", ""),
-        raw_experiences=payload.get("experiences", ""),
-        raw_education=payload.get("education", ""),
-        raw_skills=payload.get("skills", ""),
-        sector=payload.get("sector", "audit"),
-    )
-    _kw_injection = build_keyword_injection(_kw_map)
-
     return f"""
 Tu es un ancien recruteur en audit financier et en Big 4.
 Tu sélectionnes uniquement les profils étudiants crédibles, rigoureux et structurés.
@@ -1479,8 +1027,6 @@ Le CV doit être adapté :
 
 OFFRE D’EMPLOI :
 \"\"\"{payload["job_posting"]}\"\"\"
-{_exp_anchor}
-{_kw_injection}
 
 RÈGLES :
 - 1 page maximum.
@@ -1598,15 +1144,6 @@ Génère uniquement le CV structuré.
 """
 
 def build_prompt_management(payload: Dict[str, Any]) -> str:
-    _kw_map = build_keyword_mapping(
-        job_posting=payload.get("job_posting", ""),
-        raw_experiences=payload.get("experiences", ""),
-        raw_education=payload.get("education", ""),
-        raw_skills=payload.get("skills", ""),
-        sector=payload.get("sector", "management"),
-    )
-    _kw_injection = build_keyword_injection(_kw_map)
-
     return f"""
 Tu es un recruteur en conseil, stratégie et management.
 Tu sélectionnes les profils étudiants les plus structurés, analytiques et crédibles.
@@ -1621,8 +1158,6 @@ Le CV doit être adapté :
 
 OFFRE D’EMPLOI :
 \"\"\"{payload["job_posting"]}\"\"\"
-{_exp_anchor}
-{_kw_injection}
 
 RÈGLES :
 - 1 page maximum.
@@ -1747,15 +1282,6 @@ Génère uniquement le CV structuré.
 """
 
 def build_prompt_droit(payload: Dict[str, Any]) -> str:
-    _kw_map = build_keyword_mapping(
-        job_posting=payload.get("job_posting", ""),
-        raw_experiences=payload.get("experiences", ""),
-        raw_education=payload.get("education", ""),
-        raw_skills=payload.get("skills", ""),
-        sector=payload.get("sector", "droit"),
-    )
-    _kw_injection = build_keyword_injection(_kw_map)
-
     return f"""
 Tu es un recruteur juridique exigeant en cabinet d’avocats, direction juridique et stages juridiques.
 Tu sélectionnes des profils étudiants sobres, rigoureux, crédibles et précis.
@@ -1770,8 +1296,6 @@ Le CV doit être adapté :
 
 OFFRE D’EMPLOI :
 \"\"\"{payload["job_posting"]}\"\"\"
-{_exp_anchor}
-{_kw_injection}
 
 RÈGLES GÉNÉRALES :
 - 1 page maximum.
@@ -1801,8 +1325,7 @@ SECTION EDUCATION :
   - inventer un classement, un prix, une distinction
   - inventer des matières non fournies
   - ajouter "avec la rédaction d'un mémoire", "centré sur un sujet juridique", "encadré par un professeur"
-- Si le bloc de formation ne contient QUE diplôme + université (sans matières ni mention) : DETAILS: avec "- " (vide). NE PAS inventer de contenu, NE PAS écrire "Formation juridique." ni aucune phrase.
-- INTERDIT ABSOLU dans DETAILS : "avec un mémoire", "centré sur", "portant sur des thèmes", "axée sur", "orientée vers" ou toute phrase inventée.
+- Si le bloc de formation ne contient que diplôme + université : DETAILS: avec une seule ligne "- Formation juridique." UNIQUEMENT.
 - Chaque bloc EDUCATION doit contenir DETAILS:.
 
 SECTION EXPERIENCES :
@@ -1958,32 +1481,6 @@ CENTRES D’INTÉRÊT :
 Génère uniquement le CV structuré.
 """
     
-
-def build_mandatory_experience_anchor(payload: dict) -> str:
-    """
-    Construit la liste FIGÉE des expériences que le LLM DOIT inclure.
-    Le LLM peut reformuler les bullets mais ne peut JAMAIS supprimer une expérience.
-    """
-    raw_exps = parse_raw_experiences_input(payload.get("experiences", ""))
-    if not raw_exps:
-        return ""
-    
-    lines = []
-    lines.append("")
-    lines.append("⚠️ LISTE OBLIGATOIRE DES EXPÉRIENCES — NE PAS SUPPRIMER :")
-    lines.append("Tu DOIS inclure toutes les expériences suivantes dans le CV généré.")
-    lines.append("Tu peux reformuler les bullets mais tu ne peux JAMAIS omettre une expérience.")
-    lines.append("")
-    for i, exp in enumerate(raw_exps, 1):
-        role = (exp.get("role") or "").strip()
-        company = (exp.get("company") or "").strip()
-        dates = (exp.get("dates") or "").strip()
-        lines.append(f"  {i}. {role} — {company} ({dates})")
-    lines.append("")
-    lines.append(f"TOTAL : {len(raw_exps)} expériences à inclure TOUTES.")
-    lines.append("")
-    return "\n".join(lines)
-
 def generate_cv_text(payload: Dict[str, Any]) -> str:
     if not client:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY manquante sur le serveur.")
@@ -2031,7 +1528,7 @@ from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 ITEM_SPACING = Pt(0.2)   # espace entre 2 formations / 2 expériences
-SECTION_SPACING = Pt(0)  # le titre de section a déjà space_before via normalize
+SECTION_SPACING = Pt(1) # espace entre sections (Formation -> Exp, Exp -> Skills)
 
 from docx.oxml.ns import qn
 
@@ -2067,304 +1564,6 @@ def count_experience_blocks(raw_experiences: str) -> int:
     return len(blocks)
 
 def rebuild_education_from_input(raw_education: str) -> list[str]:
-    """
-    Reconvertit l'input brut formation en pseudo-format structuré minimal.
-    Gère 3 formats :
-    A) Multi-lignes : chaque champ sur sa propre ligne (format front natif)
-       "Master in Management\nESSCA\nSept 2022 – Mai 2027\nLyon, France\nSpécialisation Finance"
-    B) Tout sur une ligne : "ESSCA grande ecole sept 2022 juin 2027 lyon france specialisation finance"
-    C) Mix : infos partiellement sur plusieurs lignes
-    """
-    DATE_PAT = re.compile(
-        r"(?:jan|fév|fev|mar|avr|apr|mai|may|juin|jun|juil|jul|août|aout|aug|sept|sep|oct|nov|déc|dec)"
-        r"\.?\s+\d{4}\s*[–\-]\s*"
-        r"(?:(?:jan|fév|fev|mar|avr|apr|mai|may|juin|jun|juil|jul|août|aout|aug|sept|sep|oct|nov|déc|dec)"
-        r"\.?\s+\d{4}|aujourd'hui|present|en cours|\d{4})",
-        re.IGNORECASE,
-    )
-    YEAR_RANGE_PAT = re.compile(r"\b(\d{4})\s*[–\-]\s*(\d{4}|\bau(jourd'hui|jourdhui)?\b|present|today)", re.IGNORECASE)
-    DEGREE_KEYWORDS = re.compile(
-        r"^(master|bachelor|licence|bba|mba|ms\b|msc\b|llm\b|m1\b|m2\b|m1/m2|"
-        r"programme grande[- ]é?cole|grande[- ]é?cole|programme grande ecole|grande ecole|"
-        r"baccalauréat|baccalaureat|bac\b|cpge|prépa|prepa|"
-        r"exchange program|exchange semester|échange académique|semester abroad|study abroad|"
-        r"visiting student|diplôme|diplome|certificate|dut\b|but\b|bts\b|deug\b|dea\b|des\b)",
-        re.IGNORECASE,
-    )
-    SCHOOL_KEYWORDS = re.compile(
-        r"(university|université|universite|school|école|ecole|institute|institut|"
-        r"college|collège|iep\b|sciences[- ]?po|hec\b|edhec|essec|escp|emlyon|em[- ]|"
-        r"ieseg|ieseg|inseec|audencia|kedge|skema|neoma|rennes\s*sb|grenoble\s*em|"
-        r"esg\b|iseg\b|iseg|sup[- ]?de[- ]?co|ict|ict\b|ict\s|"
-        r"ensae|ensai|polytechnique|normale[- ]?sup|"
-        r"panthéon|pantheon|sorbonne|paris[- ]?\d|dauphine|assas|nanterre|"
-        r"lyon\s*\d|bordeaux|strasbourg|montpellier|toulouse|aix-marseille|"
-        r"lycée|lycee)",
-        re.IGNORECASE,
-    )
-
-    # ── Étape 1 : splitter par blocs (lignes vides ou nouveaux diplômes) ──────
-    raw_blocks: list[list[str]] = []
-    current: list[str] = []
-    for raw_line in (raw_education or "").splitlines():
-        line = raw_line.strip()
-        if not line:
-            if current:
-                raw_blocks.append(current)
-                current = []
-        else:
-            current.append(line)
-    if current:
-        raw_blocks.append(current)
-
-    # ── Étape 2 : si 1 seul gros bloc, tenter de sub-splitter ───────────────
-    if len(raw_blocks) == 1 and len(raw_blocks[0]) > 2:
-        split_blocks: list[list[str]] = []
-        cur_block: list[str] = []
-        cur_has_anchor = False
-        for line in raw_blocks[0]:
-            is_new_degree = cur_block and DEGREE_KEYWORDS.match(line.strip())
-            is_new_school = cur_block and cur_has_anchor and SCHOOL_KEYWORDS.search(line.strip()) and not DATE_PAT.search(line)
-            if is_new_degree or is_new_school:
-                split_blocks.append(cur_block)
-                cur_block = [line]
-                cur_has_anchor = bool(DEGREE_KEYWORDS.match(line.strip()) or SCHOOL_KEYWORDS.search(line.strip()))
-            else:
-                cur_block.append(line)
-                if not cur_has_anchor and (DEGREE_KEYWORDS.match(line.strip()) or SCHOOL_KEYWORDS.search(line.strip())):
-                    cur_has_anchor = True
-        if cur_block:
-            split_blocks.append(cur_block)
-        if len(split_blocks) > 1:
-            raw_blocks = split_blocks
-
-    def _extract_dates_and_strip(text: str) -> tuple[str, str]:
-        """Extrait dates du texte et renvoie (dates_str, text_sans_dates)."""
-        m = DATE_PAT.search(text)
-        if m:
-            return m.group(0).strip(), (text[:m.start()].rstrip(" ,–-") + text[m.end():]).strip()
-        # Fallback: année – année
-        m2 = YEAR_RANGE_PAT.search(text)
-        if m2:
-            return m2.group(0).strip(), (text[:m2.start()].rstrip(" ,–-") + text[m2.end():]).strip()
-        return "", text
-
-    COUNTRY_WORDS = {"france", "allemagne", "espagne", "italie", "portugal", "belgique",
-                     "suisse", "royaume-uni", "états-unis", "etats-unis", "canada", "pays-bas",
-                     "luxembourg", "autriche", "finlande", "suède", "danemark", "irlande",
-                     "uk", "usa", "gb", "netherlands", "germany", "spain", "italy"}
-    LOCATION_WORDS = COUNTRY_WORDS | {"paris", "lyon", "bordeaux", "marseille", "lille", "nantes",
-                                       "toulouse", "strasbourg", "nice", "rennes", "montpellier",
-                                       "london", "new york", "amsterdam", "berlin", "madrid",
-                                       "milan", "rome", "lisbon", "lisbonne", "milan", "munich",
-                                       "hong kong", "singapour", "singapore", "dubai", "dubai",
-                                       "boston", "chicago", "toronto", "montreal", "cergy", "gex",
-                                       "chavannes", "bruxelles", "brussels", "zurich", "genève",
-                                       "warwick", "coventry", "edinburgh", "Glasgow", "oxford",
-                                       "cambridge", "rotterdam", "stockholm", "oslo", "copenhague"}
-
-    def _looks_like_location(text: str) -> bool:
-        words = {w.lower().strip(".,;") for w in text.split()}
-        return bool(words & LOCATION_WORDS)
-
-    def _parse_block(block: list[str]) -> tuple[str, str, str, str, list[str]]:
-        """
-        Renvoie (degree, school, dates, location, details).
-        Gère aussi bien le format multi-lignes que tout-sur-une-ligne.
-        """
-        degree = school = dates = location = ""
-        details: list[str] = []
-
-        # Mode A : plusieurs lignes bien séparées
-        if len(block) >= 2:
-            first = block[0].strip()
-            second = block[1].strip() if len(block) > 1 else ""
-            dates, first_stripped = _extract_dates_and_strip(first)
-
-            # ✅ Détecter si la 1ère ligne est l'ÉCOLE et la 2ème le DIPLÔME
-            # (format front natif : "EDHEC Business School\nBachelor in Business Administration...")
-            first_is_school = bool(SCHOOL_KEYWORDS.search(first_stripped)) and not bool(DEGREE_KEYWORDS.match(first_stripped))
-            second_is_degree = bool(DEGREE_KEYWORDS.match(second)) if second else False
-
-            if first_is_school and second_is_degree:
-                # Cas "École\nDiplôme\nDates\nLieu\nDétails"
-                school = first_stripped
-                degree = second
-                # Traiter les lignes à partir de la 3ème
-                for line in block[2:]:
-                    line_stripped = line.strip()
-                    if not line_stripped:
-                        continue
-                    d, stripped = _extract_dates_and_strip(line_stripped)
-                    if d and not dates:
-                        dates = d
-                        if stripped and _looks_like_location(stripped) and not location:
-                            location = stripped
-                        continue
-                    if not location and _looks_like_location(line_stripped) and len(line_stripped.split()) <= 5:
-                        location = line_stripped
-                        continue
-                    detail_clean = line_stripped.lstrip("-•").strip()
-                    if detail_clean:
-                        details.append(detail_clean)
-            else:
-                # Cas standard "Diplôme – École\nDates\nLieu\nDétails" ou "Diplôme\nÉcole\nDates..."
-                # Chercher "Degree – School" sur la 1ère ligne
-                for sep in [" – ", " - "]:
-                    if sep in first_stripped:
-                        parts = first_stripped.split(sep, 1)
-                        if SCHOOL_KEYWORDS.search(parts[1]) or not SCHOOL_KEYWORDS.search(second):
-                            degree = parts[0].strip()
-                            school = parts[1].strip()
-                        else:
-                            degree = first_stripped
-                        break
-                else:
-                    degree = first_stripped
-
-                # Lignes suivantes : détecter school, dates, location, details
-                for line in block[1:]:
-                    line_stripped = line.strip()
-                    if not line_stripped:
-                        continue
-
-                    d, stripped = _extract_dates_and_strip(line_stripped)
-                    if d and not dates:
-                        dates = d
-                        if stripped and not school and SCHOOL_KEYWORDS.search(stripped):
-                            school = stripped
-                        elif stripped and _looks_like_location(stripped) and not location:
-                            location = stripped
-                        continue
-
-                    if not school and SCHOOL_KEYWORDS.search(line_stripped) and not DATE_PAT.search(line_stripped):
-                        school = line_stripped
-                        continue
-
-                    if not location and _looks_like_location(line_stripped) and len(line_stripped.split()) <= 5:
-                        location = line_stripped
-                        continue
-
-                    detail_clean = line_stripped.lstrip("-•").strip()
-                    if detail_clean:
-                        details.append(detail_clean)
-
-        else:
-            # Mode B : tout sur 1 ligne — parser token par token
-            line = block[0] if block else ""
-            dates, line = _extract_dates_and_strip(line)
-
-            # Extraire location (mots LOCATION_WORDS à la fin ou après virgule)
-            # Simple heuristique : derniers tokens après la date
-            tokens = line.split(",")
-            loc_candidates = []
-            remaining_tokens = []
-            for tok in reversed(tokens):
-                if _looks_like_location(tok) and len(tok.strip().split()) <= 4:
-                    loc_candidates.insert(0, tok.strip())
-                else:
-                    remaining_tokens.insert(0, tok.strip())
-                    break
-            # Si loc trouvée
-            if loc_candidates:
-                location = ", ".join(loc_candidates)
-                line = ", ".join(remaining_tokens) if remaining_tokens else line
-
-            # Chercher school vs degree dans ce qui reste
-            # Si le SCHOOL_KEYWORD est dans les premiers mots → school en premier
-            words = line.strip().split()
-            if words and SCHOOL_KEYWORDS.search(" ".join(words[:4])):
-                # Format "ESSCA grande ecole spécialisation finance"
-                school_words = []
-                degree_words = []
-                found_degree = False
-                for w in words:
-                    if not found_degree and (DEGREE_KEYWORDS.match(w) or w.lower() in {"grande", "ecole", "école", "d'"}):
-                        degree_words.append(w)
-                        if DEGREE_KEYWORDS.match(w):
-                            found_degree = True
-                    elif not found_degree:
-                        school_words.append(w)
-                    else:
-                        degree_words.append(w)
-
-                school = " ".join(school_words).strip()
-                degree_raw = " ".join(degree_words).strip()
-                # Le reste après les mots-clés de diplôme = détails
-                degree_match = DEGREE_KEYWORDS.search(degree_raw)
-                if degree_match:
-                    degree = degree_raw[:degree_match.end()].strip()
-                    rest = degree_raw[degree_match.end():].strip().lstrip("–-,").strip()
-                    if rest:
-                        details.append(rest)
-                else:
-                    degree = degree_raw
-            else:
-                # Chercher séparateur "–" ou "-"
-                for sep in [" – ", " - "]:
-                    if sep in line:
-                        idx = line.index(sep)
-                        degree = line[:idx].strip()
-                        rest = line[idx + len(sep):].strip()
-                        if SCHOOL_KEYWORDS.search(rest):
-                            school = rest
-                        else:
-                            details.append(rest)
-                        break
-                else:
-                    degree = line.strip()
-
-        return degree, school, dates, location, details
-
-    out: list[str] = []
-    for block in raw_blocks:
-        degree, school, dates, location, details = _parse_block(block)
-
-        # Normaliser les dates
-        dates = translate_months_fr(dates) if dates else ""
-
-        # ✅ Si le "degree" contient en fait des matières/sujets (bac), le déplacer en détail
-        BAC_SUBJECT_WORDS = {
-            "physique", "chimie", "mathématiques", "mathematiques", "maths",
-            "svt", "histoire", "géographie", "philosophie", "philo",
-            "économie", "economie", "ses", "informatique", "arts", "français",
-            "moyenne", "mention",
-        }
-        degree_words_low = {w.lower().strip(".,;") for w in degree.split()}
-        if len(degree_words_low & BAC_SUBJECT_WORDS) >= 2:
-            # Le "degree" est en fait des matières/spécialités → déplacer en details
-            details = [degree] + details
-            # Déduire le vrai degré depuis l'école si possible
-            if "baccalauréat" in school.lower() or "baccalaureat" in school.lower() or "bac" in school.lower():
-                degree = "Baccalauréat général"
-            else:
-                degree = "Baccalauréat"
-
-        # ✅ Nettoyer le nom d'école des mots de diplôme redondants
-        for bac_word in ["baccalauréat général", "baccalaureat general", "bac général", "bac general",
-                          "baccalauréat", "baccalaureat"]:
-            school = re.sub(rf"(?i)\s*{re.escape(bac_word)}\s*", " ", school).strip()
-        # Capitaliser
-        if school:
-            school = school[0].upper() + school[1:]
-
-        out.append(f"DEGREE: {degree}")
-        out.append(f"SCHOOL: {school}")
-        out.append(f"LOCATION: {location}")
-        out.append(f"DATES: {dates}")
-        out.append("DETAILS:")
-        if details:
-            # Joindre les lignes de détails : si plusieurs courtes → une seule séparée par virgules
-            if len(details) == 1 or all(len(d) < 50 for d in details):
-                out.append("- " + ", ".join(d.rstrip(".,") for d in details))
-            else:
-                for d in details:
-                    out.append(f"- {d}")
-        else:
-            out.append("- ")
-        out.append("")
-
-    return out
     """
     Reconvertit l'input brut formation en pseudo-format structuré minimal.
     Supporte le format : "Degree – School, Dates, Location" sur une ligne, puis détails.
@@ -2649,20 +1848,6 @@ def translate_months_fr(text: str) -> str:
     - Français complet -> abréviation FR
     On évite l'effet 'Septt' en ne remplaçant que des mots entiers.
     """
-    # ✅ Normaliser "Present", "Today", "Actuellement" → "Aujourd'hui"
-    text = re.sub(r"(?i)\b(present|today|actuellement|en cours)\b", "Aujourd'hui", text)
-    text = re.sub(r"(?i)\bSemester\b", "Semestre", text)  # EN → FR
-
-    # ✅ Normaliser toutes les dates tout-en-majuscules (ex: "AVR 2024", "AOUT 2024", "ETE 2023")
-    text = re.sub(r"\b([A-ZÉÀÂÄÈÊËÎÏÔÙÛÜ]{3,})\b",
-                  lambda m: m.group(1).capitalize(),
-                  text)
-
-    # ✅ "Été 2022" / "Eté 2023" / "ETE 2022" → convertir en mois réels
-    text = re.sub(r"(?i)\b[EÉ]t[EÉ]\s+(\d{4})\s*[–\-]\s*[EÉ]t[EÉ]\s+(\d{4})", r"Juin \1 – Août \2", text)
-    text = re.sub(r"(?i)\b[EÉ]t[EÉ]\s+(\d{4})", r"Juin \1", text)
-    text = re.sub(r"(?i)\bsummer\s+(\d{4})", r"Juin \1", text)
-
     # Normaliser la casse (Sept au lieu de SEPT)
     text = re.sub(r"\b(SEPT|OCT|NOV|DÉC|DEC|JANV|FÉV|FEV|AVR|JUIN|JUIL|AOÛT|AOUT)\b",
                   lambda m: m.group(0).capitalize(),
@@ -4374,42 +3559,6 @@ def dedupe_language_items(items: list[str]) -> list[str]:
 
     return normalized
 
-def validate_skills_completeness(skills_line: str, payload: dict) -> str:
-    """
-    Vérifie que les skills critiques du payload ne sont pas absents du CV généré.
-    Si Excel/PowerPoint/outils clés sont dans le payload mais absents du CV → les réinjecter.
-    """
-    if not skills_line:
-        return skills_line
-
-    raw_skills = (payload.get("skills") or "").lower()
-    skills_lower = skills_line.lower()
-
-    # Outils critiques qu'on ne peut jamais perdre
-    CRITICAL_TOOLS = {
-        "excel": "Excel",
-        "powerpoint": "PowerPoint",
-        "word": "Word",
-    }
-
-    missing = []
-    for key, label in CRITICAL_TOOLS.items():
-        if key in raw_skills and key not in skills_lower:
-            missing.append(label)
-
-    if missing:
-        # Insérer les outils manquants après "Maîtrise des logiciels :"
-        if "Maîtrise des logiciels :" in skills_line:
-            skills_line = skills_line.replace(
-                "Maîtrise des logiciels :",
-                "Maîtrise des logiciels : " + ", ".join(missing) + ","
-            )
-        else:
-            skills_line = "Maîtrise des logiciels : " + ", ".join(missing) + ", " + skills_line
-
-    return skills_line
-
-
 def build_software_line_from_payload(payload: dict) -> str:
     raw_skills = payload.get("skills") or ""
     items = [clean_punctuation_text(x.strip()) for x in re.split(r",|;", raw_skills) if x.strip()]
@@ -4420,35 +3569,7 @@ def build_software_line_from_payload(payload: dict) -> str:
 
     return "Maîtrise des logiciels : " + ", ".join(items)
 
-def _clean_user_annotation(text: str) -> str:
-    """
-    Supprime les annotations personnelles que les utilisateurs ajoutent dans les champs
-    (ex: "je prépare aussi", "pas encore obtenu", "je me débrouille", "pas super fort", etc.)
-    """
-    if not text:
-        return text
-    # Patterns courants d'annotations personnelles
-    patterns = [
-        r"\bje (prépare|prepare|fais|suis|connais|parle|maîtrise|maitrise|me débrouille|me debrouille)[^,;.]*",
-        r"\bpas (encore|super|très|tres|trop|forcément|forcement)[^,;.]*",
-        r"\ben (cours|préparation|preparation)[^,;.]*",
-        r"\baussi\b[^,;.]*",
-        r"\bunpeu\b[^,;.]*",
-        r"\bun peu\b[^,;.]*",
-        r"\bnotions?\b(?!\s+de\s+\w)",  # "notions" seul = gardé, "notions de X" = gardé
-        r"\bà améliorer\b[^,;.]*",
-        r"\bà perfectionner\b[^,;.]*",
-        r"\bmais (je|j')[^,;.]*",
-    ]
-    for pat in patterns:
-        text = re.sub(pat, "", text, flags=re.IGNORECASE)
-    # Nettoyer ponctuation résiduelle
-    text = re.sub(r"\s*,\s*,", ",", text)
-    text = re.sub(r",\s*$", "", text.strip())
-    return text.strip()
-
-
-def normalize_skills_block(lines: list, payload: dict) -> list:
+def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
     raw = " ".join((x or "").strip() for x in (lines or []) if (x or "").strip())
     raw = re.sub(r"\s+", " ", raw).strip()
 
@@ -4507,9 +3628,9 @@ def normalize_skills_block(lines: list, payload: dict) -> list:
         if chunk:
             chunks.append(chunk)
 
-    payload_certifications = [_clean_user_annotation(x.strip()) for x in re.split(r",|;", payload.get("certifications", "") or "") if x.strip() and len(_clean_user_annotation(x.strip())) > 2]
-    payload_languages = clean_punctuation_text(_clean_user_annotation((payload.get("languages") or "").strip()))
-    payload_skills = clean_punctuation_text(_clean_user_annotation((payload.get("skills") or "").strip()))
+    payload_certifications = [x.strip() for x in re.split(r",|;", payload.get("certifications", "") or "") if x.strip()]
+    payload_languages = clean_punctuation_text((payload.get("languages") or "").strip())
+    payload_skills = clean_punctuation_text((payload.get("skills") or "").strip())
 
     cleaned = []
     seen = set()
@@ -4537,26 +3658,7 @@ def normalize_skills_block(lines: list, payload: dict) -> list:
         if low.startswith("langues :"):
             content = chunk.split(":", 1)[1].strip() if ":" in chunk else ""
             if content:
-                # ✅ Splitter par virgule HORS des parenthèses pour gérer "Anglais (courant, TOEIC 910)"
-                parts = []
-                depth = 0
-                current_part = ""
-                for ch in content:
-                    if ch == "(":
-                        depth += 1
-                        current_part += ch
-                    elif ch == ")":
-                        depth -= 1
-                        current_part += ch
-                    elif ch == "," and depth == 0:
-                        if current_part.strip():
-                            parts.append(current_part.strip())
-                        current_part = ""
-                    else:
-                        current_part += ch
-                if current_part.strip():
-                    parts.append(current_part.strip())
-
+                parts = [x.strip() for x in content.split(",") if x.strip()]
                 for p in parts:
                     if p not in language_tests:
                         language_tests.append(p)
@@ -4594,21 +3696,11 @@ def normalize_skills_block(lines: list, payload: dict) -> list:
         item = re.sub(r",?\s+et\s+(une\s+)?compréhension.*$", "", item, flags=re.IGNORECASE)
         return item.strip()
 
-    # ✅ Re-parser toutes les langues via parse_languages_smart pour gérer le texte brut du LLM
-    # Ex: "francais natif anglais courant TOEFL 105 italien B2" → liste propre
-    reparsed = []
-    for item in language_tests:
-        if "," in item or len(item.split()) <= 4:
-            reparsed.append(item)
-        else:
-            # Texte brut long → re-parser
-            parsed = parse_languages_smart(item)
-            reparsed.extend(parsed if parsed else [item])
-    language_tests = reparsed
-
-    # ✅ Payload languages uniquement en fallback — si le LLM n'a fourni aucune langue
+    # ✅ Payload languages uniquement en fallback — si le LLM a déjà fourni les langues, ne pas doubler
     if payload_languages and not language_tests:
-        language_tests = parse_languages_smart(payload_languages)
+        base_langs = [_clean_lang_item(x.strip()) for x in payload_languages.split(",") if x.strip()]
+        for lang in base_langs:
+            language_tests.append(lang)
 
     language_tests = dedupe_language_items(language_tests)
 
@@ -4866,79 +3958,6 @@ def _keep_bac_block(block: list[str]) -> bool:
 
     return False
 
-def parse_languages_smart(text: str) -> list:
-    """
-    Parse une chaîne de langues même sans virgules.
-    "francais natif anglais courant IELTS 8 allemand intermediaire B1"
-    → ["Français natif", "Anglais courant (IELTS 8)", "Allemand intermédiaire (B1)"]
-    """
-    if not text:
-        return []
-    if "," in text:
-        return [x.strip() for x in text.split(",") if x.strip()]
-
-    lang_map = {
-        "francais": "Français", "français": "Français",
-        "anglais": "Anglais", "english": "Anglais",
-        "allemand": "Allemand", "german": "Allemand",
-        "espagnol": "Espagnol", "spanish": "Espagnol",
-        "italien": "Italien", "italian": "Italien",
-        "portugais": "Portugais", "portuguese": "Portugais",
-        "chinois": "Chinois", "chinese": "Chinois",
-        "japonais": "Japonais", "japanese": "Japonais",
-        "arabe": "Arabe", "arabic": "Arabe",
-        "russe": "Russe", "russian": "Russe",
-        "neerlandais": "Néerlandais", "néerlandais": "Néerlandais", "dutch": "Néerlandais",
-        "coreen": "Coréen", "coréen": "Coréen", "korean": "Coréen",
-        "turc": "Turc", "turkish": "Turc",
-    }
-
-    text_low = text.lower()
-    positions = []
-    for key, canonical in lang_map.items():
-        for m in re.finditer(r"\b" + re.escape(key) + r"\b", text_low):
-            positions.append((m.start(), m.end(), canonical, key))
-
-    if not positions:
-        return [text.strip()] if text.strip() else []
-
-    positions.sort(key=lambda x: x[0])
-    seen_canonical = set()
-    unique_positions = []
-    for pos in positions:
-        if pos[2] not in seen_canonical:
-            seen_canonical.add(pos[2])
-            unique_positions.append(pos)
-    positions = unique_positions
-
-    segments = []
-    for i, (start, end, canonical, key) in enumerate(positions):
-        next_start = positions[i + 1][0] if i + 1 < len(positions) else len(text)
-        suffix = text[end:next_start].strip()
-        suffix = re.sub(r"^[:\-–,\s]+", "", suffix)
-
-        test_match = re.search(
-            r"(TOEIC|TOEFL|IELTS|DELF|DALF|Cambridge|HSK)\s*[\:\s]?\s*(\d+[\.,]?\d*)",
-            suffix, re.IGNORECASE
-        )
-        if test_match:
-            score_text = test_match.group(0).strip()
-            level_text = re.sub(
-                r"(TOEIC|TOEFL|IELTS|DELF|DALF|Cambridge|HSK)\s*[\:\s]?\s*(\d+[\.,]?\d*)",
-                "", suffix, flags=re.IGNORECASE
-            ).strip().strip(" ,;-–")
-            full = f"{canonical} {level_text} ({score_text})".strip() if level_text else f"{canonical} ({score_text})"
-        else:
-            full = f"{canonical} {suffix}".strip() if suffix else canonical
-            # Normaliser niveaux CEFR isolés
-            full = re.sub(r"\s+(b1|b2|c1|c2|a1|a2)\b",
-                          lambda m: f" ({m.group(1).upper()})", full, flags=re.IGNORECASE)
-
-        segments.append(full)
-
-    return segments
-
-
 def normalize_contract_type(t: str) -> str:
     if not t:
         return ""
@@ -5031,14 +4050,6 @@ def is_student_job_exp(exp: dict) -> bool:
     all_text = f"{type_} {role} {company}"
 
     # Types de contrat explicitement étudiants
-    # ✅ Jamais classer BDE / Junior Entreprise / associatif comme job étudiant
-    ASSOCIATIF_KEYWORDS = [
-        "bde", "bda", "bds", "junior entreprise", "junior-entreprise",
-        "association", "asso", "club", "comité", "bureau", "cde", "vie étudiante",
-    ]
-    if any(kw in role or kw in company or kw in type_ for kw in ASSOCIATIF_KEYWORDS):
-        return False
-
     student_types = [
         "job étudiant", "job etudiant", "job d'été", "job d'ete",
         "temps partiel", "part-time", "part time", "summer job",
@@ -5257,7 +4268,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
         x.strip()
         for x in [
             payload.get("phone", ""),
-            normalize_email(payload.get("email", "") or ""),
+            payload.get("email", ""),
             payload.get("linkedin", ""),
         ]
         if x and x.strip()
@@ -5296,11 +4307,6 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
             llm_skills.append(f"Langues : {lang_text}")
 
     sections["SKILLS"] = normalize_skills_block(llm_skills, payload)
-    # ✅ Vérifier qu'Excel/PowerPoint ne manquent pas malgré la normalisation
-    sections["SKILLS"] = [
-        validate_skills_completeness(line, payload) if "logiciels" in (line or "").lower() else line
-        for line in sections["SKILLS"]
-    ]
     sections["LANGUAGES"] = []
 
     if not sections.get("SKILLS"):
@@ -5577,21 +4583,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     degree_clean = degree.strip()
                     school_clean = school.strip()
 
-                    # ✅ Pour les échanges : l'école est le titre, "Semestre d'échange" en détail
-                    EXCHANGE_LABELS = [
-                        "exchange semester", "exchange program", "échange académique",
-                        "semester abroad", "study abroad", "semestre d'échange",
-                        "visiting student", "programme d'échange", "program d'échange",
-                    ]
-                    is_exchange = any(kw in degree_clean.lower() for kw in EXCHANGE_LABELS)
-
-                    if is_exchange and school_clean:
-                        title_line = school_clean
-                        school_line = ""
-                        # Injecter "Semestre d'échange" comme 1er détail si absent
-                        if not any("échange" in d.lower() or "exchange" in d.lower() for d in details):
-                            details = ["Semestre d'échange"] + [d for d in details if d.strip()]
-                    elif degree_clean and school_clean and school_clean.lower() in degree_clean.lower():
+                    if degree_clean and school_clean and school_clean.lower() in degree_clean.lower():
                         title_line = degree_clean
                         school_line = ""
                     else:
@@ -5736,13 +4728,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         spacer.paragraph_format.space_after = ITEM_SPACING
                         anchor = spacer
                     else:
-                        # ✅ spacer léger entre dernière formation et titre EXPÉRIENCES
+                        # ✅ espace après la DERNIÈRE formation avant le titre EXPÉRIENCES
                         spacer_elt = OxmlElement("w:p")
                         table._tbl.addnext(spacer_elt)
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
-                        spacer.paragraph_format.space_after = Pt(0)
-                        spacer.paragraph_format.line_spacing = 1.0
+                        spacer.paragraph_format.space_after = Pt(4)
                         anchor = spacer
                 
                 _remove_paragraph(p)
@@ -6019,28 +5010,15 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     anchor.paragraph_format.space_after = ITEM_SPACING
                     anchor.paragraph_format.space_before = Pt(0)
                 else:
-                    # ✅ spacer léger entre dernière formation et titre EXPÉRIENCES
+                    # ✅ espace après la dernière formation avant le titre EXPÉRIENCES
                     new_p_elt = OxmlElement("w:p")
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
-                    anchor.paragraph_format.space_after = Pt(0)
+                    anchor.paragraph_format.space_after = Pt(4)
                     anchor.paragraph_format.space_before = Pt(0)
-                    anchor.paragraph_format.line_spacing = 1.0
 
             # ⚠️ NE PAS supprimer anchor
             _remove_paragraph(p)
-
-            # ✅ Forcer space_before=0 sur le titre EXPÉRIENCES PROFESSIONNELLES
-            # (même s'il a été traité par normalize avant l'insertion des tables,
-            #  certains styles héritent un space_before résiduel)
-            for dp in doc.paragraphs:
-                if (dp.text or "").strip().upper() in {
-                    "EXPÉRIENCES PROFESSIONNELLES", "EXPERIENCES PROFESSIONNELLES"
-                }:
-                    dp.paragraph_format.space_before = Pt(2)
-                    dp.paragraph_format.space_after = Pt(1)
-                    break
-
             continue
 
         # ------- EXPÉRIENCES PROFESSIONNELLES -------
@@ -6405,16 +5383,14 @@ def convert_docx_to_pdf(docx_path: str, pdf_path: str) -> None:
         os.rename(generated_pdf, pdf_path)
 
 def make_download_urls(job_id: str) -> Dict[str, str]:
-    token = (jobs.get(job_id) or {}).get("download_token", "")
-    token_param = f"?token={token}" if token else ""
     return {
-        "pdf":  f"{PUBLIC_BASE_DOWNLOAD}/download/{job_id}/cv.pdf{token_param}",
-        "docx": f"{PUBLIC_BASE_DOWNLOAD}/download/{job_id}/cv.docx{token_param}",
+        "pdf": f"{PUBLIC_BASE_DOWNLOAD}/download/{job_id}/cv.pdf",
+        "docx": f"{PUBLIC_BASE_DOWNLOAD}/download/{job_id}/cv.docx",
     }
 
 @app.get("/quota")
 def quota_check(email: str):
-    email = normalize_email(email)
+    email = email.strip().lower()
     if not email:
         raise HTTPException(status_code=400, detail="Email manquant.")
     current_month = month_key()
@@ -6431,10 +5407,9 @@ def quota_check(email: str):
 
 @app.post("/start")
 async def start(payload: Dict[str, Any], request: Request):
-    # ✅ Rate limiting par IP : max 10 générations par heure
-    client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown").split(",")[0].strip()
-    if not _check_ip_rate_limit(client_ip, "start", max_hits=10, window_seconds=3600):
-        raise HTTPException(status_code=429, detail="Trop de générations depuis cette adresse IP. Réessaie dans une heure.")
+    # Rate limiting par IP
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host).split(",")[0].strip()
+    _check_ip_rate_limit(client_ip)
 
     # Emails de test — bypass vérification email ET quota
     DEV_WHITELIST = {
@@ -6443,7 +5418,7 @@ async def start(payload: Dict[str, Any], request: Request):
     }
 
     # Vérification que l'email a bien été vérifié côté backend
-    email_check = normalize_email(payload.get("email") or "")
+    email_check = (payload.get("email") or "").strip().lower()
     if email_check not in DEV_WHITELIST:
         if email_check not in _verified_emails or dt.datetime.utcnow() > _verified_emails[email_check]:
             raise HTTPException(status_code=403, detail="Email non vérifié. Veuillez vérifier votre email avant de générer un CV.")
@@ -6463,7 +5438,7 @@ async def start(payload: Dict[str, Any], request: Request):
     if len(payload.get("education", "")) > 3000:
         raise HTTPException(status_code=400, detail="Formation trop longue.")
 
-    email = normalize_email(payload["email"])
+    email = payload["email"].strip().lower()
 
     # Validation email basique anti-bot
     if len(email) > 200 or "@" not in email or "." not in email.split("@")[-1]:
@@ -6521,7 +5496,7 @@ async def create_checkout(payload: Dict[str, Any], request: Request):
         if not payload.get(k):
             raise HTTPException(status_code=400, detail=f"Champ manquant: {k}")
 
-    email = normalize_email(payload["email"])
+    email = payload["email"].strip().lower()
     app_url = os.getenv("APP_URL", "https://mycvcopilote.com")
 
     try:
@@ -6611,16 +5586,11 @@ async def payment_status(session_id: str):
     }
 
 @app.get("/download/{job_id}/{filename}")
-def download(job_id: str, filename: str, token: str = ""):
+def download(job_id: str, filename: str):
     from fastapi.responses import FileResponse
 
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Inconnu.")
-
-    # ✅ Vérification du token de téléchargement
-    stored_token = jobs[job_id].get("download_token", "")
-    if stored_token and token != stored_token:
-        raise HTTPException(status_code=403, detail="Accès non autorisé.")
 
     payload = jobs[job_id].get("payload") or {}
     download_base = build_cv_filename(payload)
@@ -6682,36 +5652,31 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
             best_1page_fill = fill
             best_1page_text = cv_text
         
-        # 1) Trop long => revenir au meilleur résultat 1 page si dispo, sinon shrink léger
+        # 1) Trop long => revenir au meilleur résultat 1 page si dispo, sinon shrink
         if pages > 1:
-            if best_1page_text:
-                # ✅ On revient TOUJOURS au meilleur 1-page connu — le shrink LLM est trop risqué
+            if best_1page_text and best_1page_fill >= 0.75:
                 cv_text = best_1page_text
                 await asyncio.to_thread(write_docx_from_template, tpl, cv_text, docx_path, payload=payload, compact_mode=compact_mode)
                 await asyncio.to_thread(convert_docx_to_pdf, docx_path, pdf_path)
                 break
-            # Pas de best_1page (premier attempt déjà 2 pages) → shrink prudent
             if last_action == "shrink" and attempt >= 2:
                 compact_mode = True
             else:
-                cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text), payload=payload, allow_drop_exp=True)
+                cv_text = safe_apply_llm_edit(cv_text, llm_shrink_cv(cv_text), payload=payload)
                 last_action = "shrink"
             if attempt >= 2:
                 compact_mode = True
             continue
     
         # 2) 1 page mais trop vide => expand
-        # _is_short calculé sur le PAYLOAD (stable) pas sur cv_text qui peut être court si edu manquante
-        raw_exp_payload = payload.get("experiences", "") or ""
-        raw_edu_payload = payload.get("education", "") or ""
-        payload_content = raw_exp_payload + raw_edu_payload
-        payload_chars = len(re.sub(r"\s+", "", payload_content))
-        payload_lines = payload_content.count("\n") + 1
-        _is_short = (payload_chars < 900) or (payload_lines < 20)
-        fill_threshold = 0.75 if _is_short else 0.93
+        # pour les profils très légers, on accepte un remplissage plus faible plutôt que d'inventer
+        chars_no_space_check = len(re.sub(r"\s+", "", cv_text))
+        nb_lines_check = cv_text.count("\n") + 1
+        _is_short = (chars_no_space_check < 1150) or (nb_lines_check < 42)
+        fill_threshold = 0.70 if _is_short else 0.90
         if pages == 1 and fill < fill_threshold:
             sector = payload.get("sector", "")
-            max_expand = 6 if _is_short else 10
+            max_expand = 3 if _is_short else 7
         
             if expand_count >= max_expand:
                 break
@@ -6753,6 +5718,26 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
 
     download_token = str(uuid.uuid4())
     jobs[job_id] = {"docx_path": docx_path, "pdf_path": pdf_path, "payload": payload, "download_token": download_token}
+
+    # ✅ Email automatique de suivi 1h après la génération (async, non bloquant)
+    asyncio.create_task(_schedule_followup_email(
+        to_email=normalize_email(payload.get("email", "")),
+        full_name=payload.get("full_name", ""),
+        company=payload.get("company", ""),
+        role=payload.get("role", ""),
+        delay_seconds=3600,  # 1 heure
+    ))
+
+    # ✅ Persistance CV en base (email + job_id + filename pour re-téléchargement)
+    try:
+        _save_cv_to_db(
+            email=normalize_email(payload.get("email", "")),
+            job_id=job_id,
+            filename=base_filename,
+            sector=payload.get("sector", ""),
+        )
+    except Exception as e:
+        print(f"[DB SAVE ERROR] {e}")
     # Sécurité finale : si encore 2 pages, on force un shrink compact
     try:
         if pdf_page_count(pdf_path) > 1:
@@ -6796,6 +5781,16 @@ def _get_pool():
         _db_pool = _pg_pool.SimpleConnectionPool(1, 10, dsn=DATABASE_URL)
     return _db_pool
 
+def _get_db_connection():
+    """Retourne une connexion simple depuis le pool. À fermer manuellement après usage."""
+    if not DATABASE_URL:
+        return None
+    try:
+        return _get_pool().getconn()
+    except Exception as e:
+        print(f"[DB CONN ERROR] {e}")
+        return None
+
 from contextlib import contextmanager
 
 @contextmanager
@@ -6833,6 +5828,91 @@ def _check_send_rate_limit(email: str):
         )
     history.append(now)
     _send_attempts[email] = history
+
+
+async def _schedule_followup_email(to_email: str, full_name: str, company: str, role: str, delay_seconds: int = 3600):
+    """Envoie un email de suivi N secondes après la génération du CV."""
+    if not to_email or not BREVO_LOGIN:
+        return
+    # Bypass whitelist (testeurs internes) — pas de spam pour les tests
+    DEV_EMAILS = {"viktoria.aureau--bobillon@essca.eu", "louis.bonnamour@essca.eu"}
+    if to_email in DEV_EMAILS:
+        return
+    try:
+        await asyncio.sleep(delay_seconds)
+        prenom = (full_name or "").split()[0] if full_name else "toi"
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"Ton CV pour {company} — comment ça s'est passé ? 🎯"
+        msg["From"] = SENDER_EMAIL
+        msg["To"] = to_email
+
+        html = f"""
+        <html><body style="font-family:Arial,sans-serif;max-width:520px;margin:auto;color:#1e293b;">
+          <h2 style="color:#0d2eb5;">Hey {prenom} 👋</h2>
+          <p>Tu viens de générer ton CV pour le poste de <strong>{role}</strong> chez <strong>{company}</strong>.</p>
+          <p>On espère que le résultat te convient ! Est-ce que tu as pu postuler ?</p>
+          <p style="margin:24px 0;">
+            <strong>⭐ Tu as 2 minutes ?</strong><br>
+            Ton retour nous aide énormément à améliorer MyCVCopilote pour tous les étudiants.
+            <br><br>
+            <a href="mailto:contact@mycvcopilote.com?subject=Retour%20CV%20{company}&body=Bonjour,%20voici%20mon%20retour%20sur%20mon%20CV%20:" 
+               style="display:inline-block;background:#0d2eb5;color:white;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:bold;">
+              ✉️ Donner mon avis
+            </a>
+          </p>
+          <p style="color:#64748b;font-size:13px;">
+            Si tu as rencontré un problème ou si quelque chose n'était pas parfait dans ton CV,<br>
+            réponds directement à cet email — on te répond sous 24h.
+          </p>
+          <p style="color:#64748b;font-size:12px;margin-top:32px;border-top:1px solid #e2e8f0;padding-top:16px;">
+            MyCVCopilote · <a href="https://mycvcopilote.com" style="color:#0d2eb5;">mycvcopilote.com</a><br>
+            <a href="mailto:contact@mycvcopilote.com?subject=Désabonnement" style="color:#94a3b8;font-size:11px;">Se désabonner</a>
+          </p>
+        </body></html>
+        """
+        msg.attach(MIMEText(html, "html"))
+
+        with smtplib.SMTP("smtp-relay.brevo.com", 587, timeout=10) as server:
+            server.starttls()
+            server.login(BREVO_LOGIN, BREVO_PASSWORD)
+            server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
+        print(f"[FOLLOWUP EMAIL] Sent to {to_email} for {company}")
+    except Exception as e:
+        print(f"[FOLLOWUP EMAIL ERROR] {e}")
+
+
+def _save_cv_to_db(email: str, job_id: str, filename: str, sector: str):
+    """Sauvegarde les métadonnées du CV en base PostgreSQL."""
+    try:
+        conn = _get_db_connection()
+        if not conn:
+            return
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS cv_history (
+                    id SERIAL PRIMARY KEY,
+                    email TEXT NOT NULL,
+                    job_id TEXT NOT NULL,
+                    filename TEXT,
+                    sector TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                INSERT INTO cv_history (email, job_id, filename, sector)
+                VALUES (%s, %s, %s, %s)
+            """, (email, job_id, filename, sector))
+            conn.commit()
+        print(f"[DB] CV saved: {email} / {job_id}")
+    except Exception as e:
+        print(f"[DB SAVE ERROR] {e}")
+    finally:
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
 
 
 def send_verification_email(to_email: str, code: str):
@@ -6873,24 +5953,14 @@ def send_verification_email(to_email: str, code: str):
 
 
 @app.post("/send-verification-code")
-async def send_verification_code(body: EmailRequest, request: Request):
-    email = normalize_email(body.email or "")
+async def send_verification_code(body: EmailRequest):
+    email = (body.email or "").strip().lower()
 
     # Validation basique
     if not email or "@" not in email or "." not in email.split("@")[-1]:
         raise HTTPException(status_code=400, detail="Email invalide.")
     if len(email) > 200:
         raise HTTPException(status_code=400, detail="Email invalide.")
-
-    # ✅ Rate limiting par IP : max 5 codes par IP par 10 minutes
-    client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown").split(",")[0].strip()
-    if not _check_ip_rate_limit(client_ip, "send-code", max_hits=5, window_seconds=600):
-        raise HTTPException(status_code=429, detail="Trop de tentatives. Réessaie dans 10 minutes.")
-
-    # ✅ Vérification Cloudflare Turnstile
-    turnstile_token = body.turnstile_token if hasattr(body, "turnstile_token") else (request.headers.get("X-Turnstile-Token", ""))
-    if not await verify_turnstile(turnstile_token, client_ip):
-        raise HTTPException(status_code=403, detail="Vérification anti-bot échouée. Recharge la page et réessaie.")
 
     # Anti-abus
     _check_send_rate_limit(email)
@@ -6915,7 +5985,7 @@ async def send_verification_code(body: EmailRequest, request: Request):
 
 @app.post("/verify-code")
 async def verify_code(body: VerifyCodeRequest):
-    email = normalize_email(body.email or "")
+    email = (body.email or "").strip().lower()
     code = (body.code or "").strip()
 
     if not email or not code:
