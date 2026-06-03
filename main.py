@@ -5847,10 +5847,11 @@ def convert_docx_to_pdf(docx_path: str, pdf_path: str) -> None:
             os.remove(pdf_path)
         os.rename(generated_pdf, pdf_path)
 
-def make_download_urls(job_id: str) -> Dict[str, str]:
+def make_download_urls(job_id: str, base_filename: str = "") -> Dict[str, str]:
     return {
         "pdf": f"{PUBLIC_BASE_DOWNLOAD}/download/{job_id}/cv.pdf",
         "docx": f"{PUBLIC_BASE_DOWNLOAD}/download/{job_id}/cv.docx",
+        "filename": base_filename or "CV",
     }
 
 @app.get("/quota")
@@ -5912,7 +5913,7 @@ async def start(payload: Dict[str, Any], request: Request):
     # Emails exemptés du quota (testeurs internes)
     if email in DEV_WHITELIST:
         job_id = await generate_and_store(payload)
-        return {"mode": "free", "downloads": make_download_urls(job_id)}
+        return {"mode": "free", "downloads": make_download_urls(job_id, build_cv_filename(payload))}
 
     # ✅ VERSION ANGLAISE = payante (toujours)
     if (payload.get("language") or "fr").lower() == "en":
@@ -5944,7 +5945,7 @@ async def start(payload: Dict[str, Any], request: Request):
         )
 
     job_id = await generate_and_store(payload)
-    return {"mode": "free", "downloads": make_download_urls(job_id)}
+    return {"mode": "free", "downloads": make_download_urls(job_id, build_cv_filename(payload))}
 
 @app.post("/create-checkout")
 async def create_checkout(payload: Dict[str, Any], request: Request):
