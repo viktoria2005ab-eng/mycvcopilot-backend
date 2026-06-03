@@ -6592,21 +6592,19 @@ CV À ANALYSER :
 @app.post("/parse-cv")
 async def parse_cv(
     file: UploadFile = File(...),
-    email: str = Form(...),
+    request: Request = None,
 ):
     """
     Parse un CV PDF uploadé et retourne données structurées + analyse qualité.
-    Fonctionnalité premium — vérifie le paiement.
+    L'auth se fait au moment de la génération (pas de l'import).
     """
-    # ── Vérification payant ──────────────────────────────────────────
-    email_clean = normalize_email(email)
-    DEV_WHITELIST = {"louis.bonnamour@essca.eu", "viktoria.aureau--bobillon@essca.eu"}
-
-    if email_clean not in DEV_WHITELIST:
-        # TODO: vérifier que l'utilisateur a un abonnement actif
-        # Pour l'instant : on accepte si email vérifié + on facture via Stripe séparément
-        # Phase 1 : ouvert à tous les emails vérifiés pour le test
-        pass
+    # Rate limiting par IP pour éviter l'abus
+    if request:
+        client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown").split(",")[0].strip()
+        try:
+            _check_ip_rate_limit(client_ip)
+        except HTTPException:
+            raise HTTPException(status_code=429, detail="Trop de requêtes. Réessaie dans une heure.")
 
     # ── Validation fichier ───────────────────────────────────────────
     if not file.filename or not file.filename.lower().endswith(".pdf"):
@@ -6657,10 +6655,19 @@ async def parse_cv(
 
         parsed = json.loads(raw)
 
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Erreur de parsing de la réponse IA. Réessaie.")
+    except json.JSONDecodeError as e:
+        # Try to extract partial JSON
+        try:
+            import re as _re
+            raise HTTPException(status_code=500, detail="Erreur IA: réponse invalide.")
+            if match:
+                parsed = json.loads(match.group())
+            else:
+                raise HTTPException(status_code=500, detail="Erreur de parsing IA. Réessaie.")
+        except Exception:
+            raise HTTPException(status_code=500, detail=f"Erreur de parsing IA: {str(e)[:100]}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur IA : {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur IA : {str(e)[:200]}")
 
     return parsed
 
@@ -6759,10 +6766,15 @@ TEXTE LINKEDIN À ANALYSER :
 @app.post("/parse-linkedin")
 async def parse_linkedin(
     file: UploadFile = File(...),
-    email: str = Form(...),
+    request: Request = None,
 ):
     """Parse un export PDF LinkedIn et retourne données structurées + analyse."""
-    email_clean = normalize_email(email)
+    if request:
+        client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown").split(",")[0].strip()
+        try:
+            _check_ip_rate_limit(client_ip)
+        except HTTPException:
+            raise HTTPException(status_code=429, detail="Trop de requêtes. Réessaie dans une heure.")
 
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Seuls les fichiers PDF sont acceptés.")
@@ -6803,9 +6815,17 @@ async def parse_linkedin(
         raw = resp.choices[0].message.content.strip()
         raw = raw.replace("```json", "").replace("```", "").strip()
         parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Erreur de parsing IA. Réessaie.")
+    except json.JSONDecodeError as e:
+        try:
+            import re as _re
+            raise HTTPException(status_code=500, detail="Erreur IA: réponse invalide.")
+            if match:
+                parsed = json.loads(match.group())
+            else:
+                raise HTTPException(status_code=500, detail="Erreur de parsing IA. Réessaie.")
+        except Exception:
+            raise HTTPException(status_code=500, detail=f"Erreur de parsing IA: {str(e)[:100]}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur IA : {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur IA : {str(e)[:200]}")
 
     return parsed
