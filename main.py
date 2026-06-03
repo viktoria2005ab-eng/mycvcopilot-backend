@@ -1712,9 +1712,18 @@ STRICT ANTI-HALLUCINATION RULES:
 {_en_profile_block(payload)}
 
 OUTPUT FORMAT (mandatory — respect exactly):
+CRITICAL: if the candidate has multiple education entries (e.g. main school + exchange), you MUST generate a separate DEGREE/SCHOOL/LOCATION/DATES/DETAILS block for EACH ONE. Never merge two educations into one block.
+
 EDUCATION:
 DEGREE: [degree name]
 SCHOOL: [school name]
+LOCATION: [city, country]
+DATES: [MMM YYYY – MMM YYYY]
+DETAILS:
+- [detail line if any]
+
+DEGREE: [second degree if any]
+SCHOOL: [second school if any]
 LOCATION: [city, country]
 DATES: [MMM YYYY – MMM YYYY]
 DETAILS:
@@ -1777,6 +1786,8 @@ STRICT ANTI-HALLUCINATION RULES:
 {_en_profile_block(payload)}
 
 OUTPUT FORMAT (mandatory):
+CRITICAL: if the candidate has multiple education entries, generate a separate DEGREE/SCHOOL/LOCATION/DATES/DETAILS block for EACH ONE.
+
 EDUCATION:
 DEGREE: [degree]
 SCHOOL: [school]
@@ -1841,6 +1852,8 @@ STRICT ANTI-HALLUCINATION RULES:
 {_en_profile_block(payload)}
 
 OUTPUT FORMAT (mandatory):
+CRITICAL: if the candidate has multiple education entries, generate a separate DEGREE/SCHOOL/LOCATION/DATES/DETAILS block for EACH ONE.
+
 EDUCATION:
 DEGREE: [degree]
 SCHOOL: [school]
@@ -1850,11 +1863,6 @@ DETAILS:
 - [detail]
 
 EXPERIENCES:
-ROLE: [English job title]
-COMPANY: [company name]
-DATES: [MMM YYYY – MMM YYYY]
-LOCATION: [city, country]
-TYPE: [Internship / Full-time / Association / Student job]
 BULLETS:
 - [bullet 1]
 - [bullet 2]
@@ -1901,6 +1909,8 @@ RULES:
 {_en_profile_block(payload)}
 
 OUTPUT FORMAT (mandatory):
+CRITICAL: if the candidate has multiple education entries, generate a separate DEGREE/SCHOOL/LOCATION/DATES/DETAILS block for EACH ONE.
+
 EDUCATION:
 DEGREE: [degree]
 SCHOOL: [school]
@@ -1910,11 +1920,6 @@ DETAILS:
 - [detail]
 
 EXPERIENCES:
-ROLE: [English job title]
-COMPANY: [company name]
-DATES: [MMM YYYY – MMM YYYY]
-LOCATION: [city, country]
-TYPE: [Internship / Pro bono / Volunteering / Student job]
 BULLETS:
 - [bullet 1]
 - [bullet 2]
@@ -2020,12 +2025,19 @@ def count_education_blocks(raw_education: str) -> int:
             r"|the hong kong|polytechnic university|university of|université de|école de)",
             re.IGNORECASE
         )
+        exchange_kw = re.compile(
+            r"^[^\n]*\s*(academic exchange|exchange program|semester abroad|bba\s|bba$|bba\s*[–-])",
+            re.IGNORECASE
+        )
         split_blocks = []
         cur = []
         has_degree = False
         for line in blocks[0]:
             is_new = cur and new_block_kw.match(line.strip())
-            if is_new:
+            is_exchange = (cur and has_degree
+                           and exchange_kw.match(line.strip())
+                           and not re.match(r"^\d", line.strip()))
+            if is_new or is_exchange:
                 split_blocks.append(cur)
                 cur = [line]
                 has_degree = True
@@ -2091,14 +2103,23 @@ def rebuild_education_from_input(raw_education: str) -> list[str]:
             r"|the hong kong|polytechnic university|university of|université de|école de)",
             re.IGNORECASE
         )
+        # Also detect lines where "exchange / BBA" appear as a formation title (not a date line)
+        exchange_title = re.compile(
+            r"^[^\n]*\s*(academic exchange|exchange program|semester abroad|bba\s|bba$|bba\s*[–-])",
+            re.IGNORECASE
+        )
         split_blocks = []
         current_block = []
         current_has_degree = False  # pour savoir si le bloc courant a déjà un diplôme
         for line in raw_blocks[0]:
             is_keyword_new = current_block and new_block_keywords.match(line.strip())
+            # Split on exchange/BBA title lines only (not date lines starting with digits)
+            is_exchange_new = (current_block and current_has_degree
+                               and exchange_title.match(line.strip())
+                               and not re.match(r"^\d", line.strip()))
             # On split sur dates SEULEMENT si le bloc courant a déjà un diplôme
             is_date_new = current_block and current_has_degree and date_pat.search(line)
-            if is_keyword_new or is_date_new:
+            if is_keyword_new or is_date_new or is_exchange_new:
                 split_blocks.append(current_block)
                 current_block = [line]
                 current_has_degree = bool(new_block_keywords.match(line.strip()))
@@ -2113,6 +2134,23 @@ def rebuild_education_from_input(raw_education: str) -> list[str]:
             split_blocks.append(current_block)
         if len(split_blocks) > 1:
             raw_blocks = split_blocks
+
+        # Post-split merge: if a bloc is only 1 line (just the title "Academic Exchange – BBA")
+        # and the next bloc starts with the school name, merge them
+        if len(raw_blocks) > 1:
+            merged_blocks = []
+            i = 0
+            while i < len(raw_blocks):
+                b = raw_blocks[i]
+                if (i + 1 < len(raw_blocks) and len(b) == 1 and
+                    re.match(r"^(the hong kong|polytechnic|university of|université de|école de)",
+                             raw_blocks[i + 1][0], re.IGNORECASE)):
+                    merged_blocks.append(b + raw_blocks[i + 1])
+                    i += 2
+                else:
+                    merged_blocks.append(b)
+                    i += 1
+            raw_blocks = merged_blocks
 
     def parse_edu_first_line(line: str):
         """Parse 'Degree – School, Dates, Location' depuis une ligne."""
@@ -4095,6 +4133,16 @@ def normalize_skills_block(lines: list[str], payload: dict) -> list[str]:
     raw = re.sub(r"(?i)\bcapacités professionnelles\s*:", "Capacités professionnelles :", raw)
     raw = re.sub(r"(?i)\bcapacites professionnelles\s*:", "Capacités professionnelles :", raw)
     raw = re.sub(r"(?i)\blangues\s*:", "Langues :", raw)
+    # EN labels → FR normalization
+    raw = re.sub(r"(?i)\blanguages\s*:", "Langues :", raw)
+    raw = re.sub(r"(?i)\bsoftware\s*[&and]*\s*tools\s*:", "Maîtrise des logiciels :", raw)
+    raw = re.sub(r"(?i)\bprofessional\s+skills\s*:", "Capacités professionnelles :", raw)
+    # Fix IELTS/TOEIC scores: "IELTS 7/9" → "IELTS 7.0/9", ensure no broken parenthesis
+    raw = re.sub(
+        r"(TOEIC|TOEFL|IELTS|DELF|DALF|Cambridge|HSK)\s+(\d+)/(\d+)",
+        lambda m: f"{m.group(1)} {m.group(2)}.0/{m.group(3)}",
+        raw, flags=re.IGNORECASE
+    )
 
     labels = [
         "Certifications :",
@@ -6218,7 +6266,9 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         chars_no_space_check = len(re.sub(r"\s+", "", cv_text))
         nb_lines_check = cv_text.count("\n") + 1
         _is_short = (chars_no_space_check < 1150) or (nb_lines_check < 42)
-        fill_threshold = 0.70 if _is_short else 0.88
+        # EN CVs are denser — lower threshold to avoid expand→overflow loop
+        _is_en = (payload.get("language") or "fr").lower() == "en"
+        fill_threshold = 0.70 if _is_short else (0.84 if _is_en else 0.88)
         if pages == 1 and fill < fill_threshold:
             sector = payload.get("sector", "")
             max_expand = 3 if _is_short else 7
