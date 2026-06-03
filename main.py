@@ -2608,7 +2608,29 @@ def _add_table_after(paragraph: Paragraph, rows: int, cols: int):
             _row_cant_split(row)
     except Exception:
         pass
-    
+
+    # ✅ Supprime les marges de cellule par défaut (cause d'espacement géant)
+    try:
+        from docx.oxml.ns import qn as _qn
+        tbl_pr = table._tbl.find(_qn("w:tblPr"))
+        if tbl_pr is None:
+            tbl_pr = OxmlElement("w:tblPr")
+            table._tbl.insert(0, tbl_pr)
+        # Marge cellule = 0 partout
+        tbl_cell_mar = OxmlElement("w:tblCellMar")
+        for side in ["w:top", "w:bottom", "w:left", "w:right"]:
+            el = OxmlElement(side)
+            el.set(qn("w:w"), "0")
+            el.set(qn("w:type"), "dxa")
+            tbl_cell_mar.append(el)
+        # Remove existing tblCellMar if any
+        existing = tbl_pr.find(_qn("w:tblCellMar"))
+        if existing is not None:
+            tbl_pr.remove(existing)
+        tbl_pr.append(tbl_cell_mar)
+    except Exception:
+        pass
+
     return table
 
 def _insert_spacer_after_table(table, parent, space_after):
@@ -5082,7 +5104,7 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         para.paragraph_format.space_before = Pt(0)
                         # Sur le dernier détail du dernier bloc éducation, ajouter espace avant EXPÉRIENCES
                         is_last_detail = (d_idx == len(detail_list) - 1)
-                        para.paragraph_format.space_after = Pt(4) if (is_last_program and is_last_detail) else Pt(0)
+                        para.paragraph_format.space_after = Pt(0)
                         try:
                             para.style = doc.styles["Normal"]
                         except Exception:
@@ -5171,12 +5193,12 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                         spacer.paragraph_format.space_after = ITEM_SPACING
                         anchor = spacer
                     else:
-                        # ✅ espace après la DERNIÈRE formation avant le titre EXPÉRIENCES
+                        # ✅ espace minimal après la DERNIÈRE formation
                         spacer_elt = OxmlElement("w:p")
                         table._tbl.addnext(spacer_elt)
                         spacer = Paragraph(spacer_elt, p._parent)
                         spacer.paragraph_format.space_before = Pt(0)
-                        spacer.paragraph_format.space_after = Pt(4)
+                        spacer.paragraph_format.space_after = Pt(0)
                         anchor = spacer
                 
                 _remove_paragraph(p)
@@ -5453,11 +5475,11 @@ def write_docx_from_template(template_path: str, cv_text: str, out_path: str, pa
                     anchor.paragraph_format.space_after = ITEM_SPACING
                     anchor.paragraph_format.space_before = Pt(0)
                 else:
-                    # ✅ espace après la dernière formation avant le titre EXPÉRIENCES
+                    # ✅ espace minimal après la dernière formation
                     new_p_elt = OxmlElement("w:p")
                     table._tbl.addnext(new_p_elt)
                     anchor = Paragraph(new_p_elt, p._parent)
-                    anchor.paragraph_format.space_after = Pt(4)
+                    anchor.paragraph_format.space_after = Pt(0)
                     anchor.paragraph_format.space_before = Pt(0)
 
             # ⚠️ NE PAS supprimer anchor
