@@ -110,11 +110,13 @@ def parse_languages_smart(text: str) -> list:
     for i, (start, end, canonical) in enumerate(positions):
         next_start = positions[i+1][0] if i+1 < len(positions) else len(text)
         suffix = text[end:next_start].strip().lstrip(":–- ,")
-        test_match = re.search(r"(TOEIC|TOEFL|IELTS|DELF|DALF|Cambridge|HSK)\s*[:\s]?\s*(\d+[\.,]?\d*)", suffix, re.IGNORECASE)
+        test_match = re.search(r"(TOEIC|TOEFL|IELTS|DELF|DALF|Cambridge|HSK)\s*[:\s]?\s*(\d+[\.,/]?\d*)", suffix, re.IGNORECASE)
         if test_match:
-            score = test_match.group(0).strip()
-            level = re.sub(r"(TOEIC|TOEFL|IELTS|DELF|DALF|Cambridge|HSK)\s*[:\s]?\s*(\d+[\.,]?\d*)", "", suffix, flags=re.IGNORECASE).strip().strip(",-")
-            full = f"{canonical} {level} ({score})".strip() if level else f"{canonical} ({score})"
+            score_raw = test_match.group(0).strip()
+            # Normalise "IELTS 7/9" → "IELTS 7.0/9"
+            score = re.sub(r"(\d+)/(\d+)", lambda m: f"{m.group(1)}.0/{m.group(2)}" if "." not in m.group(1) else f"{m.group(1)}/{m.group(2)}", score_raw)
+            level = re.sub(r"(TOEIC|TOEFL|IELTS|DELF|DALF|Cambridge|HSK)\s*[:\s]?\s*(\d+[\.,/]?\d*)", "", suffix, flags=re.IGNORECASE).strip().strip(",-")
+            full = f"{canonical} ({level}, {score})".strip() if level else f"{canonical} ({score})"
         else:
             full = f"{canonical} {suffix}".strip() if suffix else canonical
             full = re.sub(r"\s+(b1|b2|c1|c2|a1|a2)\b", lambda m: f" ({m.group(1).upper()})", full, flags=re.IGNORECASE)
@@ -241,13 +243,47 @@ def strip_padding(text: str, is_activity: bool = False) -> str:
     return text
 
 
+def strip_padding_en(text: str) -> str:
+    """
+    Supprime les subordonnées participiales anglaises en fin de bullet.
+    Appliqué uniquement sur les CVs EN.
+    """
+    if not text:
+        return text
+
+    EN_BULLET_PADDING = [
+        r",\s*(enhancing|increasing|boosting|improving|optimizing|optimising|streamlining"
+        r"|ensuring|maximizing|maximising|enabling|facilitating|driving|supporting"
+        r"|strengthening|contributing to|allowing|helping|demonstrating|leveraging"
+        r"|delivering|providing|generating|creating value|adding value)[^.]*",
+        r",?\s+in order to (improve|enhance|boost|increase|optimize|support|ensure)[^.]*",
+        r"\s+while (ensuring|maintaining|supporting|demonstrating|improving)[^.]*",
+        r",\s+thus\s+[^.]*",
+        r",\s+thereby\s+[^.]*",
+    ]
+
+    for pattern in EN_BULLET_PADDING:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+
+    text = re.sub(r"\s*,\s*$", "", text)
+    text = re.sub(r"\s*;\s*$", "", text)
+    text = text.strip()
+    if text and text[-1] not in ".!?":
+        text = text + "."
+
+    return text
+
+
 def apply_strip_padding_to_cv(cv_text: str, payload: dict = None) -> str:
     """
     Applique strip_padding sur chaque bullet et chaque activité du texte CV structuré.
     Pour le droit : efface les DETAILS inventés quand l'input éducation ne contient rien.
+    Pour EN : applique strip_padding_en sur les bullets.
     """
     if not cv_text:
         return cv_text
+
+    is_en = (payload or {}).get("language", "fr").lower() == "en"
 
     # Pour le droit : construire la liste des blocs éducation ayant des détails réels
     edu_details_allowed = set()
@@ -320,7 +356,10 @@ def apply_strip_padding_to_cv(cv_text: str, payload: dict = None) -> str:
         # Bullets d'expériences — strip_padding seulement
         if stripped.startswith("- ") and in_experiences:
             content = stripped[2:]
-            cleaned = strip_padding(content, is_activity=False)
+            if is_en:
+                cleaned = strip_padding_en(content)
+            else:
+                cleaned = strip_padding(content, is_activity=False)
             result.append("- " + cleaned)
             continue
 
@@ -1657,6 +1696,7 @@ RULES:
 - FORBIDDEN verbs: assisted, helped, worked on, participated in.
 - Professional, precise, minimal tone. No padding, no filler phrases.
 - INTERDIT ABSOLU: writing a bullet at the infinitive. Every bullet starts with a past tense verb (Modelled, Managed, Led, Developed, Analysed, Structured, Negotiated...).
+- INTERDIT ABSOLU: ending a bullet with a participial clause. NEVER end a bullet with: enhancing, increasing, boosting, improving, optimizing, ensuring, enabling, driving, supporting, strengthening, contributing to, helping, demonstrating, generating, creating value, delivering. Cut before the comma if needed.
 - Each bullet: 20-35 words (1.5 lines). A short bullet < 15 words is insufficient.
 - Experience ordering: most relevant to the role first. Finance/PE/M&A/Audit always at the top.
 - Student jobs (cashier, waiter, barista) always at the bottom, under "Other Experience".
@@ -1722,6 +1762,7 @@ RULES:
 - Dates: "MMM YYYY – MMM YYYY" format. Never "09/2023".
 - Each bullet = strong past-tense action verb + specific audit/accounting action.
 - INTERDIT ABSOLU: infinitive bullets. All bullets start with a conjugated past tense verb (Performed, Reviewed, Prepared, Tested, Analysed, Documented, Reconciled...).
+- INTERDIT ABSOLU: ending a bullet with a participial clause. NEVER end a bullet with: enhancing, increasing, improving, ensuring, streamlining, supporting, contributing to, boosting, strengthening, optimizing. Cut before the comma if needed.
 - Each bullet: 20-35 words. No padding, no filler.
 - Prioritise: Big 4 experience, CAC missions, internal controls, IFRS, financial closing.
 - Student jobs always last, under "Other Experience".
@@ -1786,6 +1827,7 @@ RULES:
 - Dates: "MMM YYYY – MMM YYYY". Never "09/2023".
 - Each bullet = strong past-tense action verb + concrete result.
 - INTERDIT ABSOLU: infinitive bullets. All bullets start with past tense (Led, Managed, Coordinated, Launched, Developed, Grew, Negotiated...).
+- INTERDIT ABSOLU: ending a bullet with a participial clause. NEVER end a bullet with: enhancing, increasing, improving, boosting, driving, supporting, delivering, enabling, generating. Cut before the comma if needed.
 - Each bullet: 20-35 words. No padding, no filler.
 - Prioritise: strategic projects, team leadership, quantified business impact.
 - Student jobs (waiter, cashier) always last under "Other Experience".
@@ -1849,6 +1891,7 @@ RULES:
 - Dates: "MMM YYYY – MMM YYYY".
 - Each bullet = strong past-tense verb + specific legal action.
 - INTERDIT ABSOLU: infinitive bullets. All bullets start with past tense (Drafted, Researched, Advised, Reviewed, Negotiated, Assisted, Coordinated...).
+- INTERDIT ABSOLU: ending a bullet with a participial clause. NEVER end with: enhancing, ensuring, supporting, contributing to, enabling, strengthening, improving. Cut before the comma if needed.
 - Each bullet: 20-35 words.
 - Prioritise: legal research, drafting, client work, moot court, legal clinics.
 - Student jobs always last under "Other Experience".
@@ -1956,6 +1999,7 @@ SECTION_SPACING = Pt(1) # espace entre sections (Formation -> Exp, Exp -> Skills
 from docx.oxml.ns import qn
 
 def count_education_blocks(raw_education: str) -> int:
+    """Count education blocks — same splitting logic as rebuild_education_from_input."""
     blocks = []
     current = []
     for line in (raw_education or "").splitlines():
@@ -1967,6 +2011,33 @@ def count_education_blocks(raw_education: str) -> int:
                 current = []
     if current:
         blocks.append(current)
+
+    # If a single merged block, apply same keyword-split as rebuild
+    if len(blocks) == 1 and len(blocks[0]) > 2:
+        new_block_kw = re.compile(
+            r"^(exchange program|exchange semester|academic exchange|échange académique|semester abroad|study abroad"
+            r"|master\s|master\d|bachelor\s|licence\s|bba\s|mba\s|programme grande école|cpge|prépa|baccalauréat"
+            r"|the hong kong|polytechnic university|university of|université de|école de)",
+            re.IGNORECASE
+        )
+        split_blocks = []
+        cur = []
+        has_degree = False
+        for line in blocks[0]:
+            is_new = cur and new_block_kw.match(line.strip())
+            if is_new:
+                split_blocks.append(cur)
+                cur = [line]
+                has_degree = True
+            else:
+                cur.append(line)
+                if not has_degree and re.search(r"(master|bachelor|programme|licence|bba|mba|exchange)", line, re.IGNORECASE):
+                    has_degree = True
+        if cur:
+            split_blocks.append(cur)
+        if len(split_blocks) > 1:
+            blocks = split_blocks
+
     return len(blocks)
 
 def count_experience_blocks(raw_experiences: str) -> int:
@@ -2015,8 +2086,9 @@ def rebuild_education_from_input(raw_education: str) -> list[str]:
         )
         # Mots clés qui indiquent TOUJOURS un nouveau bloc de formation
         new_block_keywords = re.compile(
-            r"^(exchange program|exchange semester|échange académique|semester abroad|study abroad"
-            r"|master\s|master\d|bachelor\s|licence\s|bba\s|mba\s|programme grande école|cpge|prépa|baccalauréat)",
+            r"^(exchange program|exchange semester|academic exchange|échange académique|semester abroad|study abroad"
+            r"|master\s|master\d|bachelor\s|licence\s|bba\s|mba\s|programme grande école|cpge|prépa|baccalauréat"
+            r"|the hong kong|polytechnic university|university of|université de|école de)",
             re.IGNORECASE
         )
         split_blocks = []
@@ -6146,7 +6218,7 @@ async def _generate_and_store_inner(payload: Dict[str, Any], job_id: Optional[st
         chars_no_space_check = len(re.sub(r"\s+", "", cv_text))
         nb_lines_check = cv_text.count("\n") + 1
         _is_short = (chars_no_space_check < 1150) or (nb_lines_check < 42)
-        fill_threshold = 0.70 if _is_short else 0.90
+        fill_threshold = 0.70 if _is_short else 0.88
         if pages == 1 and fill < fill_threshold:
             sector = payload.get("sector", "")
             max_expand = 3 if _is_short else 7
